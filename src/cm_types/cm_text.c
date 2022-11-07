@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -53,18 +53,18 @@ void cm_concat_fmt(text_t *text, uint32 fmt_size, const char *fmt, ...)
     text->len += (uint32)len;
 }
 
-bool32 cm_buf_append_fmt(text_buf_t *tbuf, const char *fmt, ...)
+bool32 cm_buf_append_fmt(text_buf_t *dst, const char *fmt, ...)
 {
     va_list var_list;
     size_t sz;
     int32 len;
-    if (tbuf->max_size < tbuf->len) {
+    if (dst->max_size < dst->len) {
         return CM_FALSE;
     }
 
-    sz = tbuf->max_size - tbuf->len;
+    sz = dst->max_size - dst->len;
     va_start(var_list, fmt);
-    len = vsnprintf_s(CM_GET_TAIL(tbuf), sz, sz - 1, fmt, var_list);
+    len = vsnprintf_s(CM_GET_TAIL(dst), sz, sz - 1, fmt, var_list);
     if (SECUREC_UNLIKELY(len == -1)) {
         CM_THROW_ERROR(ERR_SYSTEM_CALL, len);
         return CM_FALSE;
@@ -75,7 +75,7 @@ bool32 cm_buf_append_fmt(text_buf_t *tbuf, const char *fmt, ...)
         return CM_FALSE;
     }
 
-    tbuf->len += (uint32)len;
+    dst->len += (uint32)len;
     return CM_TRUE;
 }
 

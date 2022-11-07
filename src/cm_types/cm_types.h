@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_types.h
- *    the header of types
+ *
  *
  * IDENTIFICATION
  *    src/cm_types/cm_types.h
@@ -50,11 +50,11 @@ typedef unsigned short uint16;
 #ifdef WIN32
 typedef __int64 int64;
 typedef unsigned __int64 uint64;
+typedef int pid_t;
 #ifdef _WIN64
 typedef unsigned __int64 socket_t;
 #else
 typedef unsigned int socket_t;
-typedef int pid_t;
 #endif
 
 #else
@@ -127,11 +127,11 @@ typedef enum en_cm_type {
     CM_TYPE_RECORD = CM_TYPE_BASE + 41,
     CM_TYPE_COLLECTION = CM_TYPE_BASE + 42,
 
-    /* The datatype below the CM_TYPE__DO_NOT_USE can be used as database DATATYPE.
-     * In some extend, CM_TYPE__DO_NOT_USE represents the maximal number
+    /* The datatype below the CM_TYPE_DO_NOT_USE can be used as database DATATYPE.
+     * In some extend, CM_TYPE_DO_NOT_USE represents the maximal number
      * of DATATYPE that Zenith are supported. The newly adding datatype
-     * must before CM_TYPE__DO_NOT_USE, and the type_id must be consecutive */
-    CM_TYPE__DO_NOT_USE = CM_TYPE_BASE + 44,
+     * must before CM_TYPE_DO_NOT_USE, and the type_id must be consecutive */
+    CM_TYPE_DO_NOT_USE = CM_TYPE_BASE + 44,
 
     /* The following datatypes are functional datatypes, which can help
      * to implement some features when needed. Note that they can not be

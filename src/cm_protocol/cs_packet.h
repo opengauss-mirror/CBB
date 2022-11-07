@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -29,7 +29,7 @@
 #include <string.h>
 #endif
 
-#include "cm_defs.h"
+#include "cm_num.h"
 #include "cm_debug.h"
 #include "cm_text.h"
 
@@ -219,13 +219,13 @@ static inline void cs_try_free_packet_buffer(cs_packet_t *pack)
 static inline void cs_init_get(cs_packet_t *pack)
 {
     CM_ASSERT(pack != NULL);
-    pack->offset = sizeof(cs_packet_head_t);
+    pack->offset = (uint32)sizeof(cs_packet_head_t);
 }
 
 static inline void cs_init_set(cs_packet_t *pack, uint32 call_version)
 {
     CM_ASSERT(pack != NULL);
-    pack->head->size = sizeof(cs_packet_head_t);
+    pack->head->size = (uint32)sizeof(cs_packet_head_t);
     pack->head->result = 0;
     pack->head->flags = 0;
     pack->head->version = call_version;
@@ -308,7 +308,7 @@ static inline status_t cs_put_int64(cs_packet_t *pack, uint64 value)
     CM_RETURN_IFERR(cs_try_realloc_send_pack(pack, sizeof(uint64)));
 
     *(uint64 *)cs_write_addr(pack) = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int64(value) : value;
-    pack->head->size += sizeof(uint64);
+    pack->head->size += (uint32)sizeof(uint64);
     return CM_SUCCESS;
 }
 
@@ -318,7 +318,7 @@ static inline status_t cs_put_int32(cs_packet_t *pack, uint32 value)
     CM_RETURN_IFERR(cs_try_realloc_send_pack(pack, sizeof(uint32)));
 
     *(uint32 *)cs_write_addr(pack) = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int32(value) : value;
-    pack->head->size += sizeof(uint32);
+    pack->head->size += (uint32)sizeof(uint32);
     return CM_SUCCESS;
 }
 
@@ -338,7 +338,7 @@ static inline status_t cs_put_real(cs_packet_t *pack, double value)
     CM_RETURN_IFERR(cs_try_realloc_send_pack(pack, sizeof(double)));
 
     *(double *)cs_write_addr(pack) = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_real(value) : value;
-    pack->head->size += sizeof(double);
+    pack->head->size += (uint32)sizeof(double);
     return CM_SUCCESS;
 }
 
@@ -363,7 +363,7 @@ static inline status_t cs_get_data(cs_packet_t *pack, uint32 size, void **buf)
     int64 len;
     char *temp_buf = NULL;
     CM_ASSERT(pack != NULL);
-    len = CM_ALIGN4((int64)size);
+    len = (int64)CM_ALIGN4(size);
     TO_UINT32_OVERFLOW_CHECK(len, int64);
     if (!cs_has_recv_remain(pack, (uint32)len)) {
         CM_THROW_ERROR(ERR_PACKET_READ, pack->head->size, pack->offset, (uint32)len);
@@ -386,8 +386,9 @@ static inline status_t cs_get_int64(cs_packet_t *pack, int64 *value)
         return CM_ERROR;
     }
     temp_value = *(int64 *)cs_read_addr(pack);
-    temp_value = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int64(temp_value) : temp_value;
-    pack->offset += sizeof(int64);
+    temp_value = (int64)(CS_DIFFERENT_ENDIAN(pack->options) ?
+        cs_reverse_int64((uint64)temp_value) : temp_value);
+    pack->offset += (uint32)sizeof(int64);
     if (value != NULL) {
         *value = temp_value;
     }
@@ -403,8 +404,9 @@ static inline status_t cs_get_int32(cs_packet_t *pack, int32 *value)
         return CM_ERROR;
     }
     temp_value = *(int32 *)cs_read_addr(pack);
-    pack->offset += sizeof(int32);
-    temp_value = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int32(temp_value) : temp_value;
+    pack->offset += (uint32)sizeof(int32);
+    temp_value = CS_DIFFERENT_ENDIAN(pack->options) ?
+        (int32)(cs_reverse_int32((uint32)temp_value)) : temp_value;
     if (value != NULL) {
         *value = temp_value;
     }
@@ -423,7 +425,7 @@ static inline status_t cs_get_int16(cs_packet_t *pack, int16 *value)
 
     temp_value = *(int16 *)cs_read_addr(pack);
     pack->offset += CS_ALIGN_SIZE;
-    temp_value = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int16(temp_value) : temp_value;
+    temp_value = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_int16((uint16)temp_value) : temp_value;
     if (value != NULL) {
         *value = temp_value;
     }
@@ -439,7 +441,7 @@ static inline status_t cs_get_real(cs_packet_t *pack, double *value)
         return CM_ERROR;
     }
     temp_value = *(double *)cs_read_addr(pack);
-    pack->offset += sizeof(double);
+    pack->offset += (uint32)sizeof(double);
     temp_value = CS_DIFFERENT_ENDIAN(pack->options) ? cs_reverse_real(temp_value) : temp_value;
     if (value != NULL) {
         *value = temp_value;

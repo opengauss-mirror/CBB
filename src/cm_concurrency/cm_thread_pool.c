@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_thread_pool.c
- *    Implement of parallel thread pool
+ *
  *
  * IDENTIFICATION
  *    src/cm_concurrency/cm_thread_pool.c
@@ -88,7 +88,7 @@ status_t cm_create_thread_pool(cm_thread_pool_t *pool, uint32 thread_stack_size,
         }
 
         /* create parallel threads */
-        size = count * sizeof(pooling_thread_t);
+        size = (uint32)(count * sizeof(pooling_thread_t));
         threads = (pooling_thread_t *)malloc(size);
         if (threads == NULL) {
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)size, "threads pool");
@@ -151,19 +151,19 @@ void cm_destroy_thread_pool(cm_thread_pool_t *pool)
     return;
 }
 
-status_t cm_get_idle_pooling_thread(cm_thread_pool_t *pool, pooling_thread_t **obj)
+status_t cm_get_idle_pooling_thread(cm_thread_pool_t *pool, pooling_thread_t **thread)
 {
     uint32 i = 0;
     pooling_thread_t *thrd = NULL;
 
-    *obj = NULL;
+    *thread = NULL;
 
     if (pool->starts > 0) {
         cm_thread_lock(&pool->lock);
         for (i = 0; i < pool->starts; i++) {
             thrd = &pool->threads[i];
             if (thrd->status == THREAD_STATUS_IDLE) {
-                *obj = thrd;
+                *thread = thrd;
                 thrd->status = THREAD_STATUS_PROCESSSING;
                 break;
             }
@@ -171,7 +171,7 @@ status_t cm_get_idle_pooling_thread(cm_thread_pool_t *pool, pooling_thread_t **o
         cm_thread_unlock(&pool->lock);
     }
 
-    return (*obj == NULL) ? CM_ERROR : CM_SUCCESS;
+    return (*thread == NULL) ? CM_ERROR : CM_SUCCESS;
 }
 
 void cm_dispatch_pooling_thread(pooling_thread_t *thread, void *task)

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_num.c
- *    Implement of num
+ *
  *
  * IDENTIFICATION
  *    src/cm_types/cm_num.c
@@ -29,19 +29,19 @@
 extern "C" {
 #endif
 
-static digitext_t g_int16_ceil = { "65535", 5 };
+static const digitext_t g_int16_ceil = { "65535", 5 };
 
 /* The numeric text of the max and the min integer */
-static digitext_t g_pos_int32_ceil = { "2147483647", 10 };
-static digitext_t g_neg_int32_ceil = { "2147483648", 10 };
-static digitext_t g_uint32_ceil = { "4294967295", 10 };
+static const digitext_t g_pos_int32_ceil = { "2147483647", 10 };
+static const digitext_t g_neg_int32_ceil = { "2147483648", 10 };
+static const digitext_t g_uint32_ceil = { "4294967295", 10 };
 /* The numeric text of the max and the min bigint */
-static digitext_t g_pos_bigint_ceil = { "9223372036854775807", 19 };
-static digitext_t g_neg_bigint_ceil = { "9223372036854775808", 19 };
-static digitext_t g_uint64_ceil = { "18446744073709551615", 20 };
+static const digitext_t g_pos_bigint_ceil = { "9223372036854775807", 19 };
+static const digitext_t g_neg_bigint_ceil = { "9223372036854775808", 19 };
+static const digitext_t g_uint64_ceil = { "18446744073709551615", 20 };
 
 /** The text value of the maximal double 1.7976931348623158e+308, see DBL_MAX */
-static digitext_t g_double_ceil = { "179769313486231", 15 };
+static const digitext_t g_double_ceil = { "179769313486231", 15 };
 
 const char *g_num_errinfos[NERR__NOT_USED__] = {
     [NERR_SUCCESS] = "",
@@ -61,6 +61,22 @@ const char *g_num_errinfos[NERR__NOT_USED__] = {
     [NERR_EXPECTED_INTEGER] = "-- integer is expected",
     [NERR_EXPECTED_POS_INT] = "-- non-negative integer is expected",
 };
+
+static bool32 cm_is_err(const char *err)
+{
+    if (err == NULL) {
+        return CM_FALSE;
+    }
+
+    while (*err != '\0') {
+        if (*err != ' ') {
+            return CM_TRUE;
+        }
+        err++;
+    }
+
+    return CM_FALSE;
+}
 
 static bool32 cm_diag_int(const text_t *text, const digitext_t *dtext, num_part_t *np)
 {
@@ -203,7 +219,18 @@ num_errno_t cm_numpart2int(num_part_t *np, int32 *value)
     }
 
     CM_NULL_TERM(&np->digit_text);
-    *value = atoi(np->digit_text.str);
+    char *err = NULL;
+    int64 val_int64 = strtoll(np->digit_text.str, &err, CM_DEFAULT_DIGIT_RADIX);
+    if (cm_is_err(err)) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert value failed, text = %s", np->digit_text.str);
+        return NERR_ERROR;
+    }
+    if (val_int64 > INT_MAX || val_int64 < INT_MIN) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR,
+            "Convert int32 failed, the number text is not in the range of int32, text = %s", np->digit_text.str);
+        return NERR_ERROR;
+    }
+    *value = (int32)val_int64;
 
     if (*value < 0) {
         CM_THROW_ERROR_EX(ERR_ASSERT_ERROR, "*value(%d) >= 0", *value);
@@ -270,7 +297,7 @@ num_errno_t cm_numpart2uint64(const num_part_t *np, uint64 *value)
 
 num_errno_t cm_numpart2size(const num_part_t *np, int64 *value)
 {
-    int64 unit;
+    uint64 unit;
     num_errno_t err_no = cm_numpart2bigint(np, value);
     CM_CHECK_NUM_ERRNO(err_no);
 
@@ -321,7 +348,7 @@ num_errno_t cm_numpart2size(const num_part_t *np, int64 *value)
         return NERR_OVERFLOW;
     }
 
-    *value = *value << unit;
+    *value = (int64)((uint64)(*value) << unit);
     return NERR_SUCCESS;
 }
 
@@ -546,25 +573,15 @@ num_errno_t cm_split_num_text(const text_t *num_text, num_part_t *np)
     return cm_num_cal_expn(num_text, np, dot_offset, prec_offset, precision);
 }
 
-static bool32 cm_is_err(const char *err)
-{
-    if (err == NULL) {
-        return CM_FALSE;
-    }
-
-    while (*err != '\0') {
-        if (*err != ' ') {
-            return CM_TRUE;
-        }
-        err++;
-    }
-
-    return CM_FALSE;
-}
-
 status_t cm_str2uint16(const char *str, uint16 *value)
 {
     char *err = NULL;
+    int ret = cm_check_is_number(str);
+    if (ret != CM_SUCCESS) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint16 failed, the text is not number, text = %s", str);
+        return CM_ERROR;
+    }
+
     int64 val_int64 = strtol(str, &err, CM_DEFAULT_DIGIT_RADIX);
     if (cm_is_err(err)) {
         CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint16 failed, text = %s", str);
@@ -586,6 +603,7 @@ status_t cm_str2uint32(const char *str, uint32 *value)
     char *err = NULL;
     int ret = cm_check_is_number(str);
     if (ret != CM_SUCCESS) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint32 failed, the text is not number, text = %s", str);
         return CM_ERROR;
     }
 
@@ -610,6 +628,7 @@ status_t cm_str2uint64(const char *str, uint64 *value)
     char *err = NULL;
     int ret = cm_check_is_number(str);
     if (ret != CM_SUCCESS) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint64 failed, the text is not number, text = %s", str);
         return CM_ERROR;
     }
 

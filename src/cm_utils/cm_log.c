@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -108,7 +108,7 @@ log_file_handle_t *cm_log_logger_file(uint32 log_count)
 {
     return &g_logger[log_count];
 }
-static log_param_t g_log_param = { 0 };
+static log_param_t g_log_param;
 inline log_param_t *cm_log_param_instance(void)
 {
     return &g_log_param;
@@ -275,7 +275,7 @@ static void cm_log_build_normal_head(char *buf, uint32 buf_size, log_level_t log
 static void cm_log_close_file(log_file_handle_t *log_file_handle)
 {
     if (log_file_handle->file_handle != CM_INVALID_FD) {
-        close(log_file_handle->file_handle);
+        (void)close(log_file_handle->file_handle);
         log_file_handle->file_handle = CM_INVALID_FD;
         log_file_handle->file_inode = 0;
     }
@@ -877,7 +877,7 @@ static uint32 get_log_index(log_type_t log_type, const char *code_file_name, uin
             return MAX_LOG_SUPPRESS_COUNT;
         }
     }
-    uint32 name_len = strlen(buf);
+    uint32 name_len = (uint32)strlen(buf);
     uint32 name_hash_val = cm_hash_bytes((uint8 *)buf, name_len, name_len);
     uint32 index = name_hash_val % MAX_LOG_SUPPRESS_COUNT;
     for (uint32 i = index; i < MAX_LOG_SUPPRESS_COUNT + index; i++) {
@@ -982,20 +982,11 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
     char new_format[CM_MAX_LOG_CONTENT_LENGTH] = {0};
     log_file_handle_t *log_file_handle = &g_logger[log_type];
     text_t buf_text;
-    char *last_file = NULL;
     log_param_t *log_param = cm_log_param_instance();
     errno_t errcode;
 
-#ifdef WIN32
-    last_file = strrchr(code_file_name, '\\');
-#else
-    last_file = strrchr(code_file_name, '/');
-#endif
-    if (last_file == NULL) {
-        last_file = "unknow";
-    }
     errcode = snprintf_s(new_format, CM_MAX_LOG_CONTENT_LENGTH, CM_MAX_LOG_CONTENT_LENGTH - 1, "%s [%s:%u]",
-                         format, last_file + 1, code_line_num);
+                         format, code_file_name, code_line_num);
     if (log_param->log_suppress_enable && (log_type == LOG_RUN || log_type == LOG_DEBUG)) {
         log_suppress_status suppress_status = check_log_suppress(log_type, code_file_name, code_line_num);
         if (suppress_status == LOG_SUPPRESS) {
@@ -1040,10 +1031,12 @@ void cm_write_audit_log(const char *format, ...)
 
 uint32 g_warn_id[] = {
     WARN_FILEDESC_ID,
+    WARN_SSL_DIASBLED_ID,
 };
 
 char *g_warning_desc[] = {
     "InsufficientDataInstFileDesc",
+    "SSLDisabled",
 };
 
 void cm_write_alarm_log(uint32 warn_id, const char *format, ...)
@@ -1057,7 +1050,7 @@ void cm_write_alarm_log(uint32 warn_id, const char *format, ...)
     (void)cm_date2str(g_timer()->now, "yyyy-mm-dd hh24:mi:ss", date, CM_MAX_TIME_STRLEN);
     // Format: Date | Warn_Id | Warn_Desc | Components | Instance_name | parameters
     errcode = snprintf_s(buf, sizeof(buf), CM_MAX_LOG_CONTENT_LENGTH + 1,
-                         "%s|%u|%s|%s|%s|{'component-name':'%s','datanode-name':'%s',", date,
+                         "%s|%u|%s|%s|%s|{'component-name':'%s','instance-name':'%s',", date,
                          g_warn_id[warn_id], g_warning_desc[warn_id], LOG_MODULE_NAME,
                          g_log_param.instance_name, LOG_MODULE_NAME, g_log_param.instance_name);
     if (errcode < 0) {
@@ -1101,7 +1094,7 @@ status_t cm_log_init(log_type_t log_type, const char *file_name)
     /* log_file->file_name including the length of 'PATH + FILENAME' */
     errcode = strncpy_s(log_file->file_name, CM_FULL_PATH_BUFFER_SIZE, file_name, (size_t)file_name_len);
     if (errcode != EOK) {
-        LOG_DEBUG_ERR("[LOG]log init fail, log_type:%d file_name:%s", log_type, file_name);
+        LOG_DEBUG_ERR("[LOG]log init fail, log_type:%d file_name:%s", (int32)log_type, file_name);
         return CM_ERROR;
     }
 

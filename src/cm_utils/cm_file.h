@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -151,7 +151,8 @@ status_t cm_remove_file(const char *file_name);
 status_t cm_unlink_file(const char *file_name);
 bool32 cm_file_exist(const char *file_path);
 bool32 cm_dir_exist(const char *dir_path);
-
+bool32 cm_check_exist_special_char(const char *dir_path, uint32 size);
+bool32 cm_check_uds_path_special_char(const char *dir_path, uint32 size);
 void cm_trim_filename(const char *file_name, uint32 size, char *buf);
 void cm_trim_dir(const char *file_name, uint32 size, char *buf);
 bool32 cm_filename_equal(const text_t *text, const char *str);

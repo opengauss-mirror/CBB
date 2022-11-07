@@ -17,17 +17,16 @@ else ()
     message(FATAL_ERROR "unknown CMAKE_BUILD_TYPE = " ${CMAKE_BUILD_TYPE})
 endif ()
 
-set(CMAKE_C_FLAGS "-std=c99 ${CMAKE_C_FLAGS}")
+set(CMAKE_C_FLAGS "-std=c99 ${CMAKE_C_FLAGS} -D__FILE_NAME__='\"$(notdir $(subst .o,,$(abspath $@)))\"'")
 
 add_compile_options(-fPIC -Wall -MMD -fno-strict-aliasing -fsigned-char -fms-extensions -lpthread)
 add_compile_definitions(_GNU_SOURCE _LARGEFILE64_SOURCE KNL_PREFIX _REENTRANT __PERF_STAT__)
-add_link_options(-pie)
-add_link_options(-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now)
+SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now")
 add_compile_options(-fvisibility=default -fstack-protector-strong --param ssp-buffer-size=4)
 
 # Secure Compilation Options
 set(CMAKE_SKIP_RPATH TRUE)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -ldl -pthread -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -ggdb -O0 -ldl -pthread -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now")
 add_compile_options(-fno-common)
 add_compile_options(-Wtrampolines)
 add_compile_options(-freg-struct-return)
@@ -73,6 +72,13 @@ else ()
 endif ()
 Add_Definitions(-DWSEC_COMPILE_CAC_OPENSSL -DWSEC_AES_GCM_SUPPORT -DWSEC_USE_OPENSSL_110 -DWSEC_COMPILE_SDP)
 
+option(USE_ASAN OFF)
+if (USE_ASAN)
+    add_compile_options(-fsanitize=address -fsanitize-recover=address -fsanitize=undefined -fsanitize-recover=undefined  -ggdb -fno-omit-frame-pointer -fno-optimize-sibling-calls)
+    add_link_options(-fsanitize=address -fsanitize-recover=address -fsanitize=undefined -fsanitize-recover=undefined  -ggdb -fno-omit-frame-pointer -fno-optimize-sibling-calls)
+    message(STATUS "Toolchain: Build with ASAN TEST Configure")
+endif (USE_ASAN)
+
 ## CBB include
 set(CBB_CONCURRENCY_PATH        ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_concurrency)
 set(CBB_DEFINE_PATH             ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_defines)
@@ -84,6 +90,11 @@ set(CBB_TYPE_PATH               ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_types)
 set(CBB_UTIL_PATH               ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_utils)
 set(CBB_MES_PATH                ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_mes)
 set(CBB_PROTOCOL_PATH           ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_protocol)
+set(CBB_RES_PATH				${CMAKE_CURRENT_SOURCE_DIR}/src/cm_res)
+set(CBB_JSON_PATH				${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_json)
+set(CBB_LEXER_PATH				${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_lexer)
+set(CBB_INTERFACE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/interface)
+set(CBB_SERVICE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/service)
 
 ## other dependency include
 set(CBB_SECUREC_INC_PATH        "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/include/")
@@ -97,7 +108,7 @@ set(OPENSSL_LIB_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/openssl/lib
 set (LIBRARY_OUTPUT_PATH        ${CMAKE_CURRENT_SOURCE_DIR}/output/lib)
 set (EXECUTABLE_OUTPUT_PATH     ${CMAKE_CURRENT_SOURCE_DIR}/output/bin)
 
-link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH})
+link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH} ${CJSON_LIB_PATH})
 
 set(vpp_libsecurec "securec")
 set(3rd_libssl "ssl")

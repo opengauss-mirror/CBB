@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_profile_stat.h
- *    cm profile statistics
+ *
  *
  * IDENTIFICATION
  *    src/cm_utils/cm_profile_stat.h
@@ -100,6 +100,7 @@ void cm_profile_stat_uninit(void);
 status_t cm_register_stat_item(uint32 stat_item_id, const char *name, stat_unit_t unit, uint32 indicator,
     cb_get_value_func_t value_func);
 void cm_stat_record(uint32 stat_item_id, uint64 value);
+void cm_set_stat_item_null(void);
 
 
 #endif

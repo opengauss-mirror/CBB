@@ -58,7 +58,7 @@ ifeq ($(BUILD_TUPLE), aarch64)
 endif
 
 
-SECURE_OPTIONS = -g -ldl -pthread -fno-common -Wtrampolines -freg-struct-return -pipe -Wl,-Bsymbolic -rdynamic
+SECURE_OPTIONS = -g -ldl -pthread -fno-common -Wtrampolines -freg-struct-return -pipe -Wl,-Bsymbolic -rdynamic -D__FILE_NAME__='"$(notdir $(subst .o,,$(abspath $@)))"'
 SECURE_LINK_OPTS = -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now
 PROTECT_OPTIONS = -fwrapv $(OPTIMIZE_LEVEL) -fPIC -Wall -MMD -fno-strict-aliasing -fsigned-char -fms-extensions -lpthread
 WARNING_OPTIONS = -Wall -Wendif-labels -Werror -Wformat-security
@@ -86,7 +86,11 @@ COMM_INC = $(SECURE_INC) \
            $(PROJECT_SOURCE_DIR)/src/cm_struct \
            $(PROJECT_SOURCE_DIR)/src/cm_time \
            $(PROJECT_SOURCE_DIR)/src/cm_types \
-           $(PROJECT_SOURCE_DIR)/src/cm_utils
+           $(PROJECT_SOURCE_DIR)/src/cm_utils \
+           $(PROJECT_SOURCE_DIR)/src/cm_res \
+           $(PROJECT_SOURCE_DIR)/src/ddes_json \
+           $(PROJECT_SOURCE_DIR)/src/ddes_lexer \
+           $(PROJECT_SOURCE_DIR)/src/ddes_perctrl/interface
 
 # third part
 ifeq (x$(GCC_VERSION), x)

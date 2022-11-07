@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -26,6 +26,10 @@
 
 #include "cm_error.h"
 #include "cm_scsi.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define DISK_LOCK_HEADER_MAGIC 0x9527EEFFFFEE9527
 #define DISK_DEFAULT_LOCK_INTERVAL 100
@@ -107,13 +111,18 @@ int32 cm_preempt_dlock_s(dlock_t *lock, const char *scsi_dev);
 status_t cm_erase_dlock_s(dlock_t *lock, const char *scsi_dev);
 status_t cm_get_dlock_info_s(dlock_t *lock, const char *scsi_dev);
 
-int32 cm_disk_lock(dlock_t *lock, int32 fd);
-status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lock_interval, uint32 dlock_retry_count);
-int32 cm_disk_lockf(dlock_t *lock, int32 fd);
-status_t cm_disk_unlock(dlock_t *lock, int32 fd);    // clean lock header and body
+int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev);
+status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lock_interval, uint32 dlock_retry_count,
+    const char *scsi_dev);
+int32 cm_disk_lockf(dlock_t *lock, int32 fd, const char *scsi_dev);
+status_t cm_disk_unlock(dlock_t *lock, int32 fd, const char *scsi_dev);    // clean lock header and body
 status_t cm_disk_unlock_ex(dlock_t *lock, int32 fd); // keep lock body
 status_t cm_disk_unlockf(dlock_t *lock, int32 fd, int64 old_inst_id);
-int32 cm_preempt_dlock(dlock_t *lock, int32 fd);
+int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev);
 status_t cm_erase_dlock(dlock_t *lock, int32 fd);
 status_t cm_get_dlock_info(dlock_t *lock, int32 fd);
+
+#ifdef __cplusplus
+}
+#endif
 #endif

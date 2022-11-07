@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_utils.c
- *    Implement of utils
+ *
  *
  * IDENTIFICATION
  *    src/cm_utils/cm_utils.c
@@ -31,13 +31,97 @@
 #include <sys/inotify.h>
 #endif
 
-
 #define IS_SPECIAL_CHAR(c) ((' ' <= (c) && (c) <= '/') || (':' <= (c) && (c) <= '@') ||  \
         ('[' <= (c) && (c) <= '`') || ('{' <= (c) && (c) <= '~'))
 #define IS_NUM_CHAR(c)     ((c) >= '0' && (c) <= '9')
 #define IS_UPPER_LETTER(c) ((c) >= 'A' && (c) <= 'Z')
 #define IS_LOWER_LETTER(c) ((c) >= 'a' && (c) <= 'z')
 #define IS_LETTER(c)       (IS_UPPER_LETTER(c) || IS_LOWER_LETTER(c))
+#define CM_PASSWD_MIN_TYPE 3
+#define CM_PASSWD_MAX_TYPE 4
+#define CM_NUMBER_TYPE 0
+#define CM_UPPER_LETTER_TYPE 1
+#define CM_LOWER_LETTER_TYPE 2
+#define CM_SPECIAL_CHAR_TYPE 3
+ 
+static status_t cm_get_character_type_count(const char *pText, uint32 i, uint32 *types)
+{
+    // pwd can not include ';'
+    if (pText[i] == ';') {
+        CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "Password contains unexpected character.\n");
+        return CM_ERROR;
+    }
+    if (IS_NUM_CHAR(pText[i])) {
+        types[CM_NUMBER_TYPE]++;
+    } else if (IS_UPPER_LETTER(pText[i])) {
+        types[CM_UPPER_LETTER_TYPE]++;
+    } else if (IS_LOWER_LETTER(pText[i])) {
+        types[CM_LOWER_LETTER_TYPE]++;
+    } else if (IS_SPECIAL_CHAR(pText[i])) {
+        types[CM_SPECIAL_CHAR_TYPE]++;
+    } else {
+        CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "Password contains unexpected character.\n");
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+ 
+/* The pwd should contain at least three type the following characters:
+    A. lowercase letter
+    B. uppercase letter
+    C. one digit
+    D. one special character: `~!@#$%^&*()-_=+\|[{}];:'",<.>/? and space
+    If pwd contains the other character ,will return error.
+*/
+status_t cm_verify_password_str(const char *name, const char *passwd, uint32 pwd_min_len)
+{
+    const char *pText = passwd;
+    size_t len = strlen(pText);
+    uint32 types[CM_PASSWD_MAX_TYPE] = {0};
+    uint32 type_count = 0;
+    char name_reverse[CM_NAME_BUFFER_SIZE] = {0};
+ 
+    /* enforce minimum length */
+    if ((uint32)len < pwd_min_len) {
+        CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "password can't be less than min length characters");
+        return CM_ERROR;
+    }
+ 
+    /* check maximum length */
+    if (len > CM_PASSWD_MAX_LEN) {
+        CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "password can't be greater than max length characters");
+        return CM_ERROR;
+    }
+ 
+    if (name != NULL) {
+        /* check if the pwd is the username or the reverse of the username */
+        if (strlen(pText) == strlen(name) && cm_strcmpni(pText, name, strlen(name)) == 0) {
+            CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "password can not been same with user name");
+            return CM_ERROR;
+        }
+        cm_str_reverse(name_reverse, name, CM_NAME_BUFFER_SIZE);
+        if (strlen(pText) == strlen(name_reverse) && cm_strcmpni(pText, name_reverse, strlen(name_reverse)) == 0) {
+            CM_THROW_ERROR(ERR_PASSWORD_FORMAT_ERROR, "password cannot be the same as the reverse of the name");
+            return CM_ERROR;
+        }
+    }
+ 
+    for (uint32 i = 0; i < len; i++) {
+        if (cm_get_character_type_count(pText, i, types) != CM_SUCCESS) {
+            return CM_ERROR;
+        }
+    }
+    for (uint32 j = 0; j < CM_PASSWD_MAX_TYPE; j++) {
+        if (types[j] > 0) {
+            type_count++;
+        }
+    }
+    if (type_count < CM_PASSWD_MIN_TYPE) {
+        CM_THROW_ERROR(ERR_PASSWORD_IS_TOO_SIMPLE, "");
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
 
 
 const static uint64 RAND_P1 = 0x5DEECE66DL;
@@ -60,7 +144,6 @@ uint32 cm_random(uint32 range)
 {
     int64 seed = 0;
     uint32 r_next, r_mask, value;
-
 
     r_next = cm_rand_next(&seed, 31);
     r_mask = range - 1;
@@ -116,38 +199,38 @@ void cm_close_dl(void *lib_handle)
 #endif
 }
 
-status_t cm_watch_file_init(int32 *watch_fd, int32 *epoll_fd)
+status_t cm_watch_file_init(int32 *i_fd, int32 *e_fd)
 {
 #ifndef WIN32
     struct epoll_event ev;
 
-    *epoll_fd = epoll_create1(0);
-    if (*epoll_fd < 0) {
+    *e_fd = epoll_create1(0);
+    if (*e_fd < 0) {
         return CM_ERROR;
     }
 
-    *watch_fd = inotify_init();
-    if (*watch_fd < 0) {
+    *i_fd = inotify_init();
+    if (*i_fd < 0) {
         return CM_ERROR;
     }
 
     ev.events = EPOLLIN;
-    ev.data.fd = *watch_fd;
+    ev.data.fd = *i_fd;
 
-    if (epoll_ctl(*epoll_fd, EPOLL_CTL_ADD, *watch_fd, &ev) != 0) {
+    if (epoll_ctl(*e_fd, EPOLL_CTL_ADD, *i_fd, &ev) != 0) {
         return CM_ERROR;
     }
 #else
-    *watch_fd = CM_INVALID_ID32;
-    *epoll_fd = CM_INVALID_ID32;
+    *i_fd = CM_INVALID_ID32;
+    *e_fd = CM_INVALID_ID32;
 #endif
     return CM_SUCCESS;
 }
 
-status_t cm_add_file_watch(int32 fd, const char *file_name, int32 *wd)
+status_t cm_add_file_watch(int32 i_fd, const char *dirname, int32 *wd)
 {
 #ifndef WIN32
-    *wd = inotify_add_watch(fd, file_name, IN_DELETE_SELF | IN_ATTRIB | IN_MOVE_SELF);
+    *wd = inotify_add_watch(i_fd, dirname, IN_DELETE_SELF | IN_ATTRIB | IN_MOVE_SELF);
     if (*wd < 0) {
         return CM_ERROR;
     }
@@ -155,10 +238,10 @@ status_t cm_add_file_watch(int32 fd, const char *file_name, int32 *wd)
     return CM_SUCCESS;
 }
 
-status_t cm_rm_file_watch(int32 fd, int32 *wd)
+status_t cm_rm_file_watch(int32 i_fd, int32 *wd)
 {
 #ifndef WIN32
-    if (inotify_rm_watch(fd, *wd) < 0) {
+    if (inotify_rm_watch(i_fd, *wd) < 0) {
         return CM_ERROR;
     }
     *wd = -1;
@@ -166,7 +249,7 @@ status_t cm_rm_file_watch(int32 fd, int32 *wd)
     return CM_SUCCESS;
 }
 
-status_t cm_watch_file_event(int32 watch_fd, int32 epoll_fd, int32 *wd)
+status_t cm_watch_file_event(int32 i_fd, int32 e_fd, int32 *wd)
 {
 #ifndef WIN32
     int32 event_num, read_size;
@@ -175,14 +258,14 @@ status_t cm_watch_file_event(int32 watch_fd, int32 epoll_fd, int32 *wd)
     struct inotify_event *i_event = NULL;
     char *tmp = NULL;
 
-    event_num = epoll_wait(epoll_fd, &e_event, 1, 200);
+    event_num = epoll_wait(e_fd, &e_event, 1, 200);
     if (event_num <= 0) {
         return CM_ERROR;
     }
 
     /* handle inotify event */
-    if (e_event.data.fd == watch_fd) {
-        read_size = read(watch_fd, buf, sizeof(buf));
+    if (e_event.data.fd == i_fd) {
+        read_size = (int32)read(i_fd, buf, sizeof(buf));
         if (read_size <= 0) {
             return CM_ERROR;
         }
@@ -240,7 +323,7 @@ void cm_dump_mem(void *dump_addr, uint32 dump_len)
     }
 
     build_mec_head(buf, CM_MAX_LOG_HEAD_LENGTH, "DCF");
-    LOG_MEC("\r\n%s [DUMP] dump_addr %p, dump_len %u", buf, dump_addr, dump_len);
+    LOG_MEC("\r\n%s [DUMP] dump_len %u", buf, dump_len);
     if ((dump_addr == NULL) || (dump_len == 0)) {
         LOG_MEC("[DUMP] dump memory Fail, dump_addr or dump_len equal zero\r\n");
         return;
@@ -254,7 +337,6 @@ void cm_dump_mem(void *dump_addr, uint32 dump_len)
             }
 
             row_index = 0;
-            LOG_MEC("\r\n %p: ", dump_loc);
         } else if ((index % 4) == 0) {
             LOG_MEC(" ");
         }
