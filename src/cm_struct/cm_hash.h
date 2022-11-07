@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -102,23 +102,28 @@ static inline void cm_backward_transform(hash_helper_t *hs)
 
 static inline uint32 cm_hash_uint32(uint32 i32, uint32 range)
 {
-    i32 *= HASH_SEED;
-
+    uint32 hval = i32 * HASH_SEED;
     if (range != INFINITE_HASH_RANGE) {
-        return i32 % range;
+        return hval % range;
     }
-
-    return i32;
+    return hval;
 }
 
 uint32 cm_hash_bytes(const uint8 *bytes, uint32 size, uint32 range);
-
+uint32 cm_hash_uint32_shard(uint32 val);
 
 typedef struct st_hash_node {
     struct st_hash_node *next;
 } hash_node_t;
 
-typedef status_t (*malloc_t)(void *ctx, uint32 size, void **buf);
+typedef status_t (*f_malloc_t)(void *ctx, uint32 size, void **buf);
+typedef void (*f_free_t)(void *ctx, void *buf);
+typedef struct st_cm_allocator_t {
+    f_malloc_t f_alloc;
+    f_free_t f_free;
+    void *mem_ctx;
+}cm_allocator_t;
+
 typedef bool32 (*hash_equal_t)(void *lkey, void *rkey);
 typedef uint32 (*hash_func_t)(void *key);
 typedef void *(*hash_key_t)(hash_node_t *node);
@@ -130,26 +135,24 @@ typedef struct st_hash_funcs {
 } hash_funcs_t;
 
 typedef struct st_hash_map {
-    hash_funcs_t hash_funcs;
     hash_node_t **buckets;
     uint32 bucket_num;
 } hash_map_t;
 
-static inline status_t cm_hmap_init(hash_map_t *hmap, malloc_t f_alloc, void *mem_ctx, const hash_funcs_t *funcs,
-    uint32 buckets)
+static inline status_t cm_hmap_init(hash_map_t *hmap, cm_allocator_t *alloc, uint32 buckets)
 {
     uint32 size = (uint32)sizeof(hash_node_t *) * buckets;
-    CM_RETURN_IFERR(f_alloc(mem_ctx, size, (void **)&hmap->buckets));
-    hmap->hash_funcs = *funcs;
+    CM_RETURN_IFERR(alloc->f_alloc(alloc->mem_ctx, size, (void **)&hmap->buckets));
+    MEMS_RETURN_IFERR(memset_s(hmap->buckets, size, 0, size));
     hmap->bucket_num = buckets;
     return CM_SUCCESS;
 }
 
-bool32 cm_hmap_insert(hash_map_t *hmap, hash_node_t *node);
-hash_node_t *cm_hmap_find(hash_map_t *hmap, void *key);
-hash_node_t *cm_hmap_delete(hash_map_t *hmap, void *key);
-status_t cm_hmap_fetch(hash_map_t *hmap, hash_node_t **cur_node, hash_node_t **iter_node, bool32 *is_first_fetch);
-uint32 cm_hash_uint32_shard(uint32 val);
+bool32 cm_hmap_insert(hash_map_t *hmap, hash_funcs_t *hfuncs, hash_node_t *node);
+hash_node_t *cm_hmap_find(hash_map_t *hmap, hash_funcs_t *hfuncs, void *key);
+hash_node_t *cm_hmap_delete(hash_map_t *hmap, hash_funcs_t *hfuncs, void *key);
+void cm_hmap_begin(hash_map_t *hmap, hash_node_t **beg);
+void cm_hmap_next(hash_map_t *hmap, hash_funcs_t *hfuncs, hash_node_t **curr);
 
 #ifdef __cplusplus
 }

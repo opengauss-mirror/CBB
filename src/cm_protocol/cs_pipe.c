@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -144,7 +144,7 @@ static status_t cs_open_tcp_link(const char *host, uint16 port, cs_pipe_t *pipe,
     } while (0);
 
     /* close socket */
-    cs_close_socket(link->sock);
+    (void)cs_close_socket(link->sock);
     link->sock = CS_INVALID_SOCKET;
     link->closed = CM_TRUE;
     return CM_ERROR;
@@ -219,25 +219,30 @@ static status_t cs_open_uds_link(const char *server_path, const char *client_pat
     }
 
     if (cs_uds_connect(server_path, client_path, link) != CM_SUCCESS) {
-        goto error;
+        cs_uds_socket_close(&link->sock);
+        return CM_ERROR;
     }
 
     if (cs_uds_send_timed(link, (char *)&proto_code, sizeof(proto_code), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
-        goto error;
+        cs_uds_socket_close(&link->sock);
+        return CM_ERROR;
     }
 
     if (cs_uds_wait(link, CS_WAIT_FOR_READ, pipe->connect_timeout, &ready) != CM_SUCCESS) {
-        goto error;
+        cs_uds_socket_close(&link->sock);
+        return CM_ERROR;
     }
 
     if (!ready) {
         CM_THROW_ERROR(ERR_TCP_TIMEOUT, "connect wait for server response");
-        goto error;
+        cs_uds_socket_close(&link->sock);
+        return CM_ERROR;
     }
 
     // read link_ready_ack
     if (cs_uds_recv_timed(link, (char *)ack, sizeof(link_ready_ack_t), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
-        goto error;
+        cs_uds_socket_close(&link->sock);
+        return CM_ERROR;
     }
 
     // reverse if endian is different
@@ -247,9 +252,6 @@ static status_t cs_open_uds_link(const char *server_path, const char *client_pat
         ack->version = cs_reverse_int32(ack->version);
     }
     return CM_SUCCESS;
-error:
-    cs_uds_socket_close(&link->sock);
-    return CM_ERROR;
 }
 
 status_t cs_connect_ex(const char *url, cs_pipe_t *pipe, const char *bind_host,
@@ -359,12 +361,12 @@ status_t cs_read_bytes(cs_pipe_t *pipe, char *buf, uint32 max_size, int32 *size)
     return VIO_RECV(pipe, buf, max_size, size, &wait_event);
 }
 
-status_t cs_read_fixed_size(cs_pipe_t *pipe, char *buf, int32 size)
+status_t cs_read_fixed_size(cs_pipe_t *pipe, char *buf, uint32 size)
 {
     bool32 ready;
     int32 read_size;
     uint32 wait_event;
-    int32 remain_size = size;
+    int32 remain_size = (int32)size;
     char *read_buf = buf;
     int32 wait_interval = 0;
     if (size == 0) {
@@ -490,7 +492,7 @@ static status_t cs_try_realloc_packet_buffer(cs_packet_t *pack, uint32 offset)
 static status_t cs_read_packet(cs_pipe_t *pipe, cs_packet_t *pack, bool32 cs_client)
 {
     int32 remain_size;
-    int32 head_size = sizeof(cs_packet_head_t);
+    int32 head_size = (int32)sizeof(cs_packet_head_t);
     int32 err_code = 0;
 
     if (VIO_RECV_TIMED(pipe, pack->buf, head_size, CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
@@ -509,7 +511,7 @@ static status_t cs_read_packet(cs_pipe_t *pipe, cs_packet_t *pack, bool32 cs_cli
         pack->head->serial_number = cs_reverse_int32(pack->head->serial_number);
     }
 
-    CM_RETURN_IFERR(cs_try_realloc_packet_buffer(pack, head_size));
+    CM_RETURN_IFERR(cs_try_realloc_packet_buffer(pack, (uint32)head_size));
 
     remain_size = (int32)pack->head->size - head_size;
     if (remain_size <= 0) {

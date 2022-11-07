@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -27,6 +27,7 @@
 #else
 #include <ws2tcpip.h>
 #endif
+#include "cm_num.h"
 #include "cm_ip.h"
 
 static inline int32 cm_get_ip_version(const char *ip_str)
@@ -89,13 +90,13 @@ static inline status_t cm_ipport_to_sockaddr_ipv4(const char *host, int port, so
 {
     struct sockaddr_in *in4 = NULL;
 
-    sock_addr->salen = sizeof(struct sockaddr_in);
+    sock_addr->salen = (socklen_t)sizeof(struct sockaddr_in);
     in4 = SOCKADDR_IN4(sock_addr);
 
     MEMS_RETURN_IFERR(memset_sp(in4, sizeof(struct sockaddr_in), 0, sizeof(struct sockaddr_in)));
 
     in4->sin_family = AF_INET;
-    in4->sin_port = htons(port);
+    in4->sin_port = htons((uint16)port);
 #ifndef WIN32
     in4->sin_addr.s_addr = inet_addr(host);
     // Upon successful completion, inet_addr() shall return the Internet address.
@@ -119,13 +120,13 @@ static inline status_t cm_ipport_to_sockaddr_ipv6(const char *host, int port, so
     char *scope = NULL;
 #endif
 
-    sock_addr->salen = sizeof(struct sockaddr_in6);
+    sock_addr->salen = (socklen_t)sizeof(struct sockaddr_in6);
     in6 = SOCKADDR_IN6(sock_addr);
 
     MEMS_RETURN_IFERR(memset_sp(in6, sizeof(struct sockaddr_in6), 0, sizeof(struct sockaddr_in6)));
 
     in6->sin6_family = AF_INET6;
-    in6->sin6_port = htons(port);
+    in6->sin6_port = htons((uint16)port);
 
 #ifndef WIN32
     scope = ipv6_local_link(host, ip, CM_MAX_IP_LEN);
@@ -182,4 +183,104 @@ bool32 cm_check_ip_valid(const char *ip)
     }
 
     return CM_TRUE;
+}
+
+static status_t cm_split_mes_single_url(char nodes[][CM_MAX_IP_LEN], uint16 ports[], char *single_url)
+{
+    char *urlstr = single_url;
+    uint32 status = 0; // 0 is nodeid, 1 is ip
+    uint32 url_len = 0;
+    uint32 node_id = 0;
+    text_t text;
+    uint32 len = (uint32)strlen(urlstr);
+    if (len == 0) {
+        return CM_ERROR;
+    }
+
+    char *pos = urlstr;
+    for (; len > 0; len--) {
+        if (*pos != ':') {
+            url_len++;
+            pos++;
+            continue;
+        }
+        *pos = '\0';
+        if (status == 0) {
+            CM_RETURN_IFERR(cm_str2uint32(urlstr, &node_id));
+            if (node_id >= CM_MAX_INSTANCES) {
+                return CM_ERROR;
+            }
+            status++;
+        } else if (status == 1) {
+            cm_str2text(urlstr, &text);
+            cm_trim_text(&text);
+            MEMS_RETURN_IFERR(strncpy_s(nodes[node_id], CM_MAX_IP_LEN, text.str, text.len));
+            status++;
+        } else {
+            return CM_ERROR;
+        }
+
+        *pos = ':';
+        urlstr += (url_len + 1);
+        url_len = 0;
+        pos = urlstr;
+    }
+
+    if (url_len > 0) {
+        CM_RETURN_IFERR(cm_str2uint16(urlstr, &ports[node_id]));
+        if (ports[node_id] < CM_MIN_PORT) {
+            return CM_ERROR;
+        }
+    } else {
+        // need port
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+
+status_t cm_split_mes_urls(char nodes[][CM_MAX_IP_LEN], uint16 ports[], char *urls)
+{
+    char *pos = NULL;
+    uint32 url_len = 0;
+    uint32 len = (uint32)strlen(urls);
+    char str_tmp[CM_MES_MAX_URLS_LEN] = { 0 };
+    errno_t errcode = strncpy_s(str_tmp, CM_MES_MAX_URLS_LEN, urls, len);
+    if (errcode != EOK) {
+        return CM_ERROR;
+    }
+
+    uint32 url_num = 0;
+    char *urlstr = str_tmp;
+    pos = urlstr;
+    for (; len > 0 && url_num < CM_MAX_INSTANCES; len--) {
+        if (*pos != ',') {
+            url_len++;
+            pos++;
+            continue;
+        }
+
+        *pos = '\0';
+        if (len == 1 || cm_split_mes_single_url(nodes, ports, urlstr) != CM_SUCCESS) {
+            return CM_ERROR;
+        }
+
+        *pos = ',';
+        urlstr += (url_len + 1);
+        url_len = 0;
+        pos = urlstr;
+        url_num++;
+    }
+
+    if (url_num >= CM_MAX_INSTANCES) {
+        return CM_ERROR;
+    }
+
+    if (url_len > 0) {
+        if (cm_split_mes_single_url(nodes, ports, urlstr) != CM_SUCCESS) {
+            return CM_ERROR;
+        }
+    }
+
+    return CM_SUCCESS;
 }

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -35,7 +35,7 @@
 #define CM_CHECK_PTR(expr)                                                        \
     {                                                                             \
         if ((expr)) {                                                             \
-            printf("warning: null pointer found, %s, %d.\n", __FILE__, __LINE__); \
+            printf("warning: null pointer found, %s, %d.\n", __FILE_NAME__, __LINE__); \
         }                                                                         \
     }
 #define CM_POINTER(p1)                  CM_CHECK_PTR(p1 == NULL)

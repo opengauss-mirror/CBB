@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -831,7 +831,12 @@ static status_t cs_load_crl_file(SSL_CTX *ctx, const char *file)
     X509_STORE *st = NULL;
 
     in = BIO_new(BIO_s_file());
-    if (in == NULL || BIO_read_filename(in, file) <= 0) {
+    if (in == NULL) {
+        return CM_ERROR;
+    }
+
+    if (BIO_read_filename(in, file) <= 0) {
+        (void)BIO_free(in);
         return CM_ERROR;
     }
 
@@ -906,7 +911,7 @@ void cs_ssl_throw_error(int32 ssl_err)
     while ((ret_code = ERR_get_error_line_data(&file, &line, &data, &flags))) {
         ret = snprintf_s(err_buf1 + err_len, CM_MESSAGE_BUFFER_SIZE - err_len, CM_MESSAGE_BUFFER_SIZE - 1 - err_len,
             "OpenSSL:%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2), file, line,
-            (flags & ERR_TXT_STRING) ? data : "");
+            ((uint32)flags & ERR_TXT_STRING) ? data : "");
         if (ret == -1) {
             continue;
         }
@@ -1000,12 +1005,13 @@ static status_t cs_ssl_wait_on_error(ssl_link_t *link, int32 ret, int32 timeout)
             v_result = SSL_get_verify_result(ssl);
             if (v_result != X509_V_OK) {
                 err_msg = X509_verify_cert_error_string(v_result);
-                LOG_RUN_ERR("[MEC]SSL verify certificate failed: result code is %ld, %s", v_result, err_msg);
-                CM_THROW_ERROR(ERR_SSL_VERIFY_CERT, err_msg);
+                CM_THROW_ERROR_INHIBIT(LOG_INHIBIT_LEVEL4, ERR_SSL_VERIFY_CERT, err_msg);
+                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[MEC]SSL verify certificate failed: result code is %ld, %s",
+                    v_result, err_msg);
             } else {
                 err_msg = cs_ssl_last_err_string(err_buf, sizeof(err_buf));
-                CM_THROW_ERROR(ERR_SSL_CONNECT_FAILED, err_msg);
-                LOG_RUN_ERR("[MEC]SSL connect failed: SSL error %d, %s", ssl_err, err_msg);
+                CM_THROW_ERROR_INHIBIT(LOG_INHIBIT_LEVEL4, ERR_SSL_CONNECT_FAILED, err_msg);
+                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[MEC]SSL connect failed: SSL error %d, %s", ssl_err, err_msg);
             }
             ERR_clear_error();
             cs_ssl_set_sys_error(ssl_err);
@@ -1270,7 +1276,7 @@ void ssl_ca_cert_expire(const ssl_ctx_t *ssl_context, int32 alert_day)
 ssl_ctx_t *cs_ssl_create_acceptor_fd(ssl_config_t *config)
 {
     SSL_CTX *ssl_fd = NULL;
-    int32 verify = SSL_VERIFY_PEER;
+    uint32 verify = SSL_VERIFY_PEER;
 
     /* Cannot verify peer if the server don't have the CA */
     if (CM_IS_EMPTY_STR(config->ca_file)) {
@@ -1289,7 +1295,7 @@ ssl_ctx_t *cs_ssl_create_acceptor_fd(ssl_config_t *config)
     (void)SSL_CTX_sess_set_cache_size(ssl_fd, CM_BUFLEN_128);
 
     /* Set maximum verify depth */
-    SSL_CTX_set_verify(ssl_fd, verify, cs_ssl_verify_cb);
+    SSL_CTX_set_verify(ssl_fd, (int32)verify, cs_ssl_verify_cb);
     SSL_CTX_set_verify_depth(ssl_fd, SSL_VERIFY_DEPTH);
 
     /*
@@ -1469,7 +1475,7 @@ status_t cs_ssl_accept_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     }
 
     if (status == CM_TIMEDOUT) {
-        LOG_RUN_ERR("[MEC]ssl accept timeout(%d ms)", CM_SSL_IO_TIMEOUT);
+        LOG_RUN_ERR("[MEC]ssl accept timeout(%u ms)", CM_SSL_IO_TIMEOUT);
     }
 
     SSL_free(ssl);
@@ -1698,10 +1704,9 @@ status_t cs_ssl_recv_timed(ssl_link_t *link, char *buf, uint32 size, uint32 time
     uint32 wait_event = 0;
 
     remain_size = size;
-    offset = 0;
-    CM_RETURN_IFERR(cs_ssl_recv(link, buf + offset, remain_size, &recv_size, &wait_event) != CM_SUCCESS);
+    CM_RETURN_IFERR(cs_ssl_recv(link, buf, remain_size, &recv_size, &wait_event) != CM_SUCCESS);
     remain_size -= recv_size;
-    offset += recv_size;
+    offset = (uint32)recv_size;
     wait_event = (wait_event == 0) ? CS_WAIT_FOR_READ : wait_event;
 
     return cs_ssl_recv_remain(link, buf, offset, remain_size, wait_event, timeout);

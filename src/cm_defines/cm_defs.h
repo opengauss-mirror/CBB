@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -25,16 +25,15 @@
 #define __CM_DEFS__
 #include "cm_base.h"
 #include "cm_types.h"
-#include "cm_defs.h"
 
 #include <limits.h>
 #include <float.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <stdint.h>
 #ifdef WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <string.h>
 #else
 #include <unistd.h>
 #include <time.h>
@@ -73,7 +72,7 @@ extern "C" {
 #define CM_INVALID_ID64     (uint64)0xFFFFFFFFFFFFFFFF
 #define CM_INFINITE32       (uint32)0xFFFFFFFF
 #define CM_NULL_VALUE_LEN   (uint16)0xFFFF
-#define CM_INVALID_INT32    (uint32)0x7FFFFFFF
+#define CM_INVALID_INT32    (int32)0x7FFFFFFF
 #define CM_INVALID_INT64    (int64)0x7FFFFFFFFFFFFFFF
 #define CM_INVALID_HANDLE   (int32)(-1)
 #define CM_INVALID_FILEID   CM_INVALID_ID16
@@ -104,6 +103,7 @@ extern "C" {
 #define CM_MAX_SESSIONS               (uint32)16320
 #define CM_MAX_DBWR_PROCESS             (uint32)36
 #define CM_MAX_INSTANCES            (uint32)64
+#define CM_MIN_PORT                (uint32)1024
 
 /* mes */
 #define CM_MAX_MES_ROOMS_BASE           (uint32)(CM_MAX_SESSIONS)
@@ -117,6 +117,8 @@ extern "C" {
 #define CM_MES_MAX_TASK_NUM      (128)
 #define CM_MES_MIN_POOL_SIZE  (uint32)(256)
 #define CM_MES_MAX_POOL_SIZE  (uint32)(65536)
+#define GS_SS_URL_NODE_PORT_LEN    (uint32)(10)
+#define CM_MES_MAX_URLS_LEN    (uint32)((CM_MAX_IP_LEN + GS_SS_URL_NODE_PORT_LEN) * CM_MAX_INSTANCES)
 
 // XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:xxx.xxx.xxx.xxx%local-link: 5*6+4*4+16+1=63
 // 64 bytes is enough expect local-link > 16 bytes,
@@ -125,23 +127,23 @@ extern "C" {
 #define CM_ALIGN4_SIZE 4
 
 /* size alignment */
-#define CM_ALIGN4(size)  ((((size)&0x03) == 0) ? (size) : ((size) + 0x04 - ((size)&0x03)))
-#define CM_ALIGN8(size)  ((((size)&0x07) == 0) ? (size) : ((size) + 0x08 - ((size)&0x07)))
-#define CM_ALIGN16(size) ((((size)&0x0F) == 0) ? (size) : ((size) + 0x10 - ((size)&0x0F)))
+#define CM_ALIGN4(size)  ((((size) & 0x03) == 0) ? (size) : ((size) + 0x04 - ((size) & 0x03)))
+#define CM_ALIGN8(size)  ((((size) & 0x07) == 0) ? (size) : ((size) + 0x08 - ((size) & 0x07)))
+#define CM_ALIGN16(size) ((((size) & 0x0F) == 0) ? (size) : ((size) + 0x10 - ((size) & 0x0F)))
 // align to power of 2
-#define CM_CALC_ALIGN(size, align) (((size) + (align)-1) & (~((align)-1)))
-#define CM_CALC_ALIGN_FLOOR(size, align) (((size) -1) & (~((align)-1)))
+#define CM_CALC_ALIGN(size, align) (((size) + (align) - 1) & (~((align) - 1)))
+#define CM_CALC_ALIGN_FLOOR(size, align) (((size) - 1) & (~((align)-1)))
 /* align to any positive integer */
-#define CM_ALIGN_ANY(size, align) (((size) + (align)-1) / (align) * (align))
+#define CM_ALIGN_ANY(size, align) (((size) + (align) - 1) / (align) * (align))
 
-#define CM_ALIGN_CEIL(size, align) (((size) + (align)-1) / (align))
+#define CM_ALIGN_CEIL(size, align) (((size) + (align) - 1) / (align))
 
-#define CM_IS_ALIGN2(size) (((size)&0x01) == 0)
-#define CM_IS_ALIGN4(size) (((size)&0x03) == 0)
-#define CM_IS_ALIGN8(size) (((size)&0x07) == 0)
+#define CM_IS_ALIGN2(size) (((size) & 0x01) == 0)
+#define CM_IS_ALIGN4(size) (((size) & 0x03) == 0)
+#define CM_IS_ALIGN8(size) (((size) & 0x07) == 0)
 
-#define CM_ALIGN16_CEIL(size) ((((size)&0x0F) == 0) ? ((size) + 0x10) : ((size) + 0x10 - ((size)&0x0F)))
-#define CM_ALIGN4_FLOOR(size) ((((size)&0x03) == 0) ? (size) : ((size) - ((size)&0x03)))
+#define CM_ALIGN16_CEIL(size) ((((size) & 0x0F) == 0) ? ((size) + 0x10) : ((size) + 0x10 - ((size) & 0x0F)))
+#define CM_ALIGN4_FLOOR(size) ((((size) & 0x03) == 0) ? (size) : ((size) - ((size) & 0x03)))
 #define CM_ALIGN_8K(size)     (((size) + 0x00001FFF) & 0xFFFFE000)
 
 #define IS_BIG_ENDIAN (*(uint32 *)"\x01\x02\x03\x04" == (uint32)0x01020304)
@@ -168,6 +170,9 @@ extern "C" {
 #define PRINT_MAX_REAL_PREC   15  // # of decimal digits of precision
 /* The format effector for GS_TYPE_REAL, %g can removing tailing zeros */
 #define PRINT_FMT_REAL "%." #PRINT_MAX_REAL_PREC "g"  // * == GS_MAX_REAL_PREC
+#ifdef WIN32
+#define __FILE_NAME__ (strrchr(__FILE__, '\\') ? (strrchr(__FILE__, '\\') + 1) : __FILE__)
+#endif
 
 /* if the condition is true, throw return the value.
 * Note: this Macro used to reduce Circle Complexity */
@@ -281,25 +286,10 @@ extern "C" {
 /* is letter */
 #define CM_IS_LETER(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
 
-
-/* The limitation for native data type */
-#define CM_MAX_UINT32 (uint32) UINT_MAX
-#define CM_MIN_UINT32 (uint32)0
-
 #define CM_MAX_NUMBER_LEN       (uint32)128
 #define CM_DEFAULT_DIGIT_RADIX  10
 #define CM_DEFAULT_NULL_VALUE         (uint32)0xFFFFFFFF
-
-// check if overflow for converting int32/int64/uint64/double to uint32
-// note: when convert int32 to uint32, type should be set to int64
-#define TO_UINT32_OVERFLOW_CHECK(u32, type)                                               \
-    do {                                                                                  \
-        if (SECUREC_UNLIKELY((type)(u32) < (type)CM_MIN_UINT32 || (type)(u32) > (type)CM_MAX_UINT32)) {     \
-            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "UNSIGNED INTEGER");                        \
-            return CM_ERROR;                                                              \
-        }                                                                                 \
-    } while (0)
-
+     
 /* simple mathematical calculation */
 #define MIN(A, B)        ((B) < (A) ? (B) : (A))
 #define MAX(A, B)        ((B) > (A) ? (B) : (A))
@@ -367,8 +357,15 @@ static inline void cm_sleep(uint32 ms)
 #define CM_MAX_LOG_HOME_LEN             \
     (uint32)(CM_MAX_PATH_LEN - 20) // reserve 20 characters for the stitching path(e. g./run,/audit)
 
-
+#define CM_SINGLE_QUOTE_LEN             (uint32)2
 #define CM_NAME_BUFFER_SIZE             (uint32)CM_ALIGN4(CM_MAX_NAME_LEN + 1)
+
+/* file */
+#define CM_MAX_CONFIG_FILE_SIZE SIZE_K(64) /* 64K */
+#define CM_MAX_CONFIG_BUFF_SIZE SIZE_M(1)
+#define CM_MAX_CONFIG_LINE_SIZE SIZE_K(2)
+
+#define CM_PARAM_BUFFER_SIZE (uint32)1024
 
 #define MEC_MIN_CHANNEL_NUM      (uint32)(1)
 #define MEC_DEFAULT_CHANNEL_NUM  (uint32)(5)
@@ -445,6 +442,7 @@ typedef enum en_compress_algorithm {
 #define CM_MAX_SSL_EXPIRE_THRESHOLD   (uint32)180
 #define CM_MIN_SSL_EXPIRE_THRESHOLD   (uint32)7
 #define CM_PASSWORD_BUFFER_SIZE (uint32)512
+#define CM_MAX_SSL_PWD_CIPHER_LEN  (uint32)1024
 #define CM_MAX_MESSAGE_BUFFER_SIZE (SIZE_M(10))
 
 #define KEY_LF                  10L

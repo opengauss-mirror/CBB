@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_date.c
- *    Implement of date
+ *
  *
  * IDENTIFICATION
  *    src/cm_time/cm_date.c
@@ -26,7 +26,7 @@
 #include "cm_timer.h"
 #include "cm_date_to_text.h"
 
-static text_t CM_NLS_DATE_FORMAT = { "YYYY-MM-DD HH24:MI:SS", 21 };
+static const text_t CM_NLS_DATE_FORMAT = { "YYYY-MM-DD HH24:MI:SS", 21 };
 
 uint16 g_month_days[2][12] = {
     { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 },
@@ -545,8 +545,8 @@ void cm_now_detail(date_detail_t *detail)
     detail->hour = (uint8)ut.tm_hour;
     detail->min = (uint8)ut.tm_min;
     detail->sec = (uint8)ut.tm_sec;
-    detail->millisec = (uint16)((tv.tv_usec) / MICROSECS_PER_MILLISEC);
-    detail->microsec = (uint16)(tv.tv_usec % MICROSECS_PER_MILLISEC);
+    detail->millisec = (uint16)((tv.tv_usec) / (long)MICROSECS_PER_MILLISEC);
+    detail->microsec = (uint16)(tv.tv_usec % (long)MICROSECS_PER_MILLISEC);
     detail->nanosec = 0;
 #endif
 }
@@ -869,7 +869,13 @@ void cm_decode_date(date_t date, date_detail_t *detail)
 status_t cm_date2text_ex(date_t date, const text_t *fmt, uint32 precision, text_t *text, uint32 max_len)
 {
     date_detail_t detail;
+    errno_t rc_memzero;
     text_t format_text;
+
+    rc_memzero = (errno_t)memset_sp(&detail, sizeof(date_detail_t), 0, sizeof(date_detail_t));
+    if (rc_memzero != EOK) {
+        return CM_ERROR;
+    }
 
     cm_decode_date(date, &detail);
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -85,7 +85,7 @@ static inline status_t cm_ptlist_extend(ptlist_t *list, uint32 extent_size)
     pointer_t *new_items = NULL;
     uint32 buf_size;
     errno_t errcode;
-    buf_size = (list->capacity + extent_size) * sizeof(pointer_t);
+    buf_size = (uint32)((list->capacity + extent_size) * sizeof(pointer_t));
     if (buf_size == 0 || (buf_size / sizeof(pointer_t) != list->capacity + extent_size)) {
         LOG_DEBUG_ERR("cm_ptlist_add extending list failed");
         return CM_ERROR;
@@ -122,7 +122,9 @@ static inline status_t cm_ptlist_extend(ptlist_t *list, uint32 extent_size)
 static inline status_t cm_ptlist_add(ptlist_t *list, pointer_t item)
 {
     if (list->count >= list->capacity) { /* extend the list */
-        cm_ptlist_extend(list, LIST_EXTENT_SIZE);
+        if (cm_ptlist_extend(list, LIST_EXTENT_SIZE) != CM_SUCCESS) {
+            return CM_ERROR;
+        }
     }
     list->items[list->count] = item;
     list->count++;
@@ -132,7 +134,9 @@ static inline status_t cm_ptlist_add(ptlist_t *list, pointer_t item)
 static inline status_t cm_ptlist_insert(ptlist_t *list, uint32 index, pointer_t item)
 {
     if (index >= list->capacity) { /* extend the list */
-        cm_ptlist_extend(list, (index - list->capacity) + LIST_EXTENT_SIZE);
+        if (cm_ptlist_extend(list, (index - list->capacity) + LIST_EXTENT_SIZE) != CM_SUCCESS) {
+            return CM_ERROR;
+        }
     }
 
     list->count++;

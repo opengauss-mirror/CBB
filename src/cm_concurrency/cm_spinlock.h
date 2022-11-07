@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -123,7 +123,7 @@ static inline void cm_spin_sleep(void)
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = 100;
-    nanosleep(&ts, NULL);
+    (void)nanosleep(&ts, NULL);
 }
 
 static inline void cm_spin_sleep_ex(uint32 tick)
@@ -131,7 +131,7 @@ static inline void cm_spin_sleep_ex(uint32 tick)
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = tick;
-    nanosleep(&ts, NULL);
+    (void)nanosleep(&ts, NULL);
 }
 
 #endif
@@ -283,7 +283,6 @@ static inline void cm_spin_lock_by_sid(uint32 sid, spinlock_t *lock, spin_statis
 {
     uint32 spin_times = 0;
     uint32 sleep_times = 0;
-
 
     if (SECUREC_UNLIKELY(lock == NULL)) {
         return;

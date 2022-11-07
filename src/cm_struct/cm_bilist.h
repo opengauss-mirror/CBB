@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-#define BILIST_NODE_OF(type, node, field) ((type *)((char *)(node)-OFFSET_OF(type, field)))
+#define BILIST_NODE_OF(type, node, field) ((type *)((char *)(node) - OFFSET_OF(type, field)))
 
 typedef struct st_bilist_node {
     struct st_bilist_node *prev;

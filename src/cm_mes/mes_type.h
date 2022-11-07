@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -25,14 +25,24 @@
 #ifndef __MES_TYPE_H__
 #define __MES_TYPE_H__
 
-#include "cs_pipe.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef WIN32
+typedef unsigned __int64 uint64;
+#else
+#ifndef HAVE_UINT64
+#define HAVE_UINT64
+typedef unsigned long long uint64;
+#endif
+#endif
+
 #define MES_MAX_BUFFERLIST ((int)4) /* Number of buffers supported by the bufferlist */
 #define MES_MAX_BUFFPOOL_NUM ((int)8)
+#define MES_MAX_INSTANCES            (unsigned int)64
+#define MES_MAX_IP_LEN 64
+#define MES_MAX_LOG_PATH 4096
 
 typedef enum en_mes_task_group_id_t {
     MES_TASK_GROUP_ZERO = 0,
@@ -59,48 +69,67 @@ typedef enum en_mes_time_stat {
     MES_TIME_CEIL
 } mes_time_stat_t;
 
+typedef enum en_mes_pipe_type {
+    MES_TYPE_TCP = 1,
+    MES_TYPE_IPC = 2,
+    MES_TYPE_DOMAIN_SCOKET = 3,
+    MES_TYPE_SSL = 4,
+    MES_TYPE_EMBEDDED = 5, /* embedded mode, reserved */
+    MES_TYPE_DIRECT = 6,   /* direct mode, reserved */
+    MES_TYPE_RDMA = 7,     /* direct mode, reserved */
+    MES_TYPE_CEIL
+} mes_pipe_type_t;
+
 typedef struct st_mes_addr {
-    char ip[CM_MAX_IP_LEN];
-    uint16 port;
-    uint8 reserved[2];
+    char ip[MES_MAX_IP_LEN];
+    unsigned short port;
+    unsigned char reserved[2];
 } mes_addr_t;
 
 typedef struct st_mes_buffer_attr {
-    uint32 size;
-    uint32 count;
+    unsigned int size;
+    unsigned int count;
 } mes_buffer_attr_t;
 
 typedef struct st_mes_buffer_pool_attr {
-    uint32 pool_count;
-    uint32 queue_count;
+    unsigned int pool_count;
+    unsigned int queue_count;
     mes_buffer_attr_t buf_attr[MES_MAX_BUFFPOOL_NUM];
 } mes_buffer_pool_attr_t;
 
 typedef struct st_mes_profile {
-    uint32 inst_id;
-    uint32 inst_cnt;
-    cs_pipe_type_t pipe_type;
+    unsigned int inst_id;
+    unsigned int inst_cnt;
+    mes_pipe_type_t pipe_type;
     mes_buffer_pool_attr_t buffer_pool_attr;
-    uint32 channel_cnt;
-    uint32 work_thread_cnt;
-    bool32 mes_elapsed_switch;
-    mes_addr_t inst_net_addr[CM_MAX_INSTANCES];
-    uint32 task_group[MES_TASK_GROUP_ALL];
-    uint32 conn_created_during_init : 1; // Indicates whether to connected to other instances during MES initialization
-    uint32 reserved : 31;
+    unsigned int channel_cnt;
+    unsigned int work_thread_cnt;
+    unsigned int mes_elapsed_switch;
+    unsigned char rdma_rpc_use_busypoll;    // busy poll need to occupy the cpu core
+    unsigned char rdma_rpc_is_bind_core;
+    unsigned char rdma_rpc_bind_core_start;
+    unsigned char rdma_rpc_bind_core_end;
+    char ock_log_path[MES_MAX_LOG_PATH];
+    mes_addr_t inst_net_addr[MES_MAX_INSTANCES];
+    unsigned int task_group[MES_TASK_GROUP_ALL];
+    // Indicates whether to connected to other instances during MES initialization
+    unsigned int conn_created_during_init : 1;
+    unsigned int reserved : 31;
 } mes_profile_t;
 
 typedef struct st_mes_message_head {
-    uint8 cmd; // command
-    uint8 flags;
-    uint8 src_inst; // from instance
-    uint8 dst_inst; // to instance
-    uint16 src_sid; // from session
-    uint16 dst_sid; // to session
-    uint16 size;
-    uint8 unused[2];
-    uint32 rsn;
+    unsigned char cmd; // command
+    unsigned char flags;
+    unsigned char src_inst; // from instance
+    unsigned char dst_inst; // to instance
+    unsigned short src_sid; // from session
+    unsigned short dst_sid; // to session
+    unsigned short size;
+    unsigned short tickets;
+    unsigned int rsn;
 } mes_message_head_t;
+
+#define MES_MSG_HEAD_SIZE sizeof(mes_message_head_t)
 
 typedef struct st_mes_message {
     mes_message_head_t *head;
@@ -109,27 +138,28 @@ typedef struct st_mes_message {
 
 typedef struct st_mes_buffer {
     char *buf;  /* data buffer */
-    uint32 len; /* buffer length */
+    unsigned int len; /* buffer length */
 } mes_buffer_t;
 
 typedef struct st_mes_bufflist {
-    uint16 cnt;
+    unsigned short cnt;
     mes_buffer_t buffers[MES_MAX_BUFFERLIST];
 } mes_bufflist_t;
 
 #define MES_INIT_MESSAGE_HEAD(head, v_cmd, v_flags, v_src_inst, v_dst_inst, v_src_sid, v_dst_sid) \
     do {                                                                                          \
-        (head)->cmd = v_cmd;                                                                      \
-        (head)->flags = v_flags;                                                                  \
-        (head)->src_inst = v_src_inst;                                                            \
-        (head)->dst_inst = v_dst_inst;                                                            \
-        (head)->src_sid = v_src_sid;                                                              \
-        (head)->dst_sid = v_dst_sid;                                                              \
+        (head)->cmd = (uint8)(v_cmd);                                                               \
+        (head)->flags = (uint8)(v_flags);                                                           \
+        (head)->src_inst = (uint8)(v_src_inst);                                                     \
+        (head)->dst_inst = (uint8)(v_dst_inst);                                                     \
+        (head)->src_sid = (uint16)(v_src_sid);                                                      \
+        (head)->dst_sid = (uint16)(v_dst_sid);                                                      \
     } while (0)
 
 #define MES_MESSAGE_BODY(msg) ((msg)->buffer + sizeof(mes_message_head_t))
 
-typedef void (*mes_message_proc_t)(uint32 work_thread, mes_message_t *message);
+typedef void (*mes_message_proc_t)(unsigned int work_thread, mes_message_t *message);
+typedef int(*usr_cb_decrypt_pwd_t)(const char *cipher, unsigned int len, char *plain, unsigned int size);
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -35,13 +35,15 @@
 #include "mes_tcp.h"
 #include "mes_type.h"
 #include "mes_msg_pool.h"
+#include "mes_rdma_rpc.h"
+#include "cm_rwlock.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define MES_IS_INST_SEND(bits, id) (((bits) >> (id)) & 0x1)
-#define MES_INST_SENT_SUCCESS(bits, id) ((bits) |= (0x1 << (id)))
+#define MES_INST_SENT_SUCCESS(bits, id) ((bits) |= ((uint64)0x1 << (id)))
 #define MEG_GET_BUF_ID(msg_buf) (*(uint32 *)((char *)(msg_buf) - sizeof(uint32)))
 #define MES_MESSAGE_TINY_SIZE (64)
 #define MES_MESSAGE_BUFFER_SIZE \
@@ -52,14 +54,14 @@ extern "C" {
 
 #define MES_LOG_WAR_HEAD_EX(head, message)                                                             \
     do {                                                                                               \
-        LOG_RUN_WAR("[mes]%s: %s. cmd=%u, rsn=%u, src_inst=%u, dst_inst=%u, src_sid=%u, dst_sid=%u.",  \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
             (char *)__func__, (message), (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, \
             (head)->src_sid, (head)->dst_sid);                                                         \
     } while (0);
 
 #define MES_LOG_ERR_HEAD_EX(head, message)                                                             \
     do {                                                                                               \
-        LOG_RUN_ERR("[mes]%s: %s. cmd=%u, rsn=%u, src_inst=%u, dst_inst=%u, src_sid=%u, dst_sid=%u.",  \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
             (char *)__func__, (message), (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, \
             (head)->src_sid, (head)->dst_sid);                                                         \
     } while (0);
@@ -96,9 +98,30 @@ typedef bool32 (*mes_connection_ready_t)(uint32 inst_id);
 
 typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue);
 
+typedef struct rdma_rpc_lsnr_t {
+    OckRpcServer server_handle;
+    rwlock_t server_lock;
+} rdma_rpc_lsnr_t;
+
 typedef struct st_mes_lsnr {
     tcp_lsnr_t tcp;
+    rdma_rpc_lsnr_t rdma;
 } mes_lsnr_t;
+
+typedef struct st_mes_channel {
+    rwlock_t recv_lock;
+    rwlock_t send_lock;
+    cs_pipe_t send_pipe;
+    cs_pipe_t recv_pipe;
+    rdma_rpc_client_t rdma_client;
+    thread_t thread;
+    uint16 id;
+    volatile bool8 recv_pipe_active;
+    volatile bool8 send_pipe_active;
+    atomic_t send_count;
+    atomic_t recv_count;
+    mes_msgqueue_t msg_queue;
+} mes_channel_t;
 
 typedef struct st_mes_waiting_room {
     mes_mutex_t mutex;           // msg ack wake up mes_recv
@@ -113,6 +136,7 @@ typedef struct st_mes_waiting_room {
     volatile uint32 check_rsn;
     volatile bool8 broadcast_flag;
     char res[3];
+    uint64 succ_insts;
 } mes_waiting_room_t;
 
 typedef struct st_mes_conn {
@@ -147,8 +171,14 @@ typedef struct st_mes_instance {
     mq_context_t mq_ctx;
     mes_message_proc_t proc;
     bool32 is_enqueue[CM_MAX_MES_MSG_CMD];
+    ssl_ctx_t  *ssl_acceptor_fd;
+    ssl_ctx_t  *ssl_connector_fd;
 } mes_instance_t;
 
+#define INST_ID_MOVE_LEFT_BIT_CNT 8
+// for ssl
+extern bool32 g_ssl_enable;
+extern usr_cb_decrypt_pwd_t usr_cb_decrypt_pwd;
 
 typedef struct timeval cm_timeval;
 
@@ -159,7 +189,7 @@ static __inline uint64 db_rdtsc(void)
 #else
     uint32 lo, hi;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-    return (((uint64)hi << 32) | lo);
+    return (((uint64)hi << UINT32_BITS) | lo);
 #endif
 }
 
@@ -176,6 +206,10 @@ typedef struct st_mes_callback {
 // Do not modify
 extern mes_instance_t g_cbb_mes;
 #define MES_GLOBAL_INST_MSG g_cbb_mes
+#define MES_SESSION_TO_CHANNEL_ID(sid) (uint8)((sid) % MES_GLOBAL_INST_MSG.profile.channel_cnt)
+
+bool32 mes_connection_ready(uint32 inst_id);
+int mes_send_bufflist(mes_bufflist_t *buff_list);
 
 void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_t *msg);
 
@@ -210,6 +244,8 @@ extern mes_stat_t g_mes_stat;
 uint64 cm_get_time_usec(void);
 
 void mes_local_stat(uint32 cmd);
+
+status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size);
 
 static inline void mes_get_consume_time_start(uint64 *stat_time)
 {
