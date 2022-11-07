@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -103,15 +103,12 @@ bool32 cm_wait_cond(cm_thread_cond_t *cond, uint32 ms)
     }
 
 #ifdef WIN32
-
     (void)cm_atomic32_inc(&cond->count);
     ret = WaitForSingleObject(cond->sem, ms);
     cm_atomic32_dec(&cond->count);
     return (WAIT_OBJECT_0 == ret);
 #else
     struct timespec signal_tv;
-
-
     cm_get_timespec(&signal_tv, ms);
     (void)pthread_mutex_lock(&cond->lock);
     ret = pthread_cond_timedwait(&cond->cond, &cond->lock, &signal_tv);
@@ -306,7 +303,7 @@ uint32 cm_get_current_thread_id(void)
         g_tid = (uint32)gettid();
     }
 
-    return g_tid;
+    return (uint32)g_tid;
 }
 #endif
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_profile_stat.c
- *    cm profile statistics
+ *
  *
  * IDENTIFICATION
  *    src/cm_utils/cm_profile_stat.c
@@ -36,13 +36,13 @@ extern "C" {
 static thread_t g_profile_stat_thread;
 static bool32 g_profile_stat_init = CM_FALSE;
 static stat_item_t *g_stat_table[STAT_TABLE_SIZE][MAX_STAT_ITEM_SIZE][MAX_ITEM_COUNT] = {{{0}}};
-static uint32 g_stat_count[STAT_TABLE_SIZE][MAX_STAT_ITEM_SIZE] = { 0 };
+static uint32 g_stat_count[STAT_TABLE_SIZE][MAX_STAT_ITEM_SIZE] = { {0} };
 spinlock_t g_lock;
 static thread_local_var stat_item_t *stat_item_local[STAT_TABLE_SIZE][MAX_STAT_ITEM_SIZE] = {{0}};
 atomic_t g_stat_table_id;
 static stat_result_t g_stat_result;
 static const char *g_stat_unit_str[STAT_UNIT_CEIL] = {"", "us", "ms", "s", "byte", "KB", "MB", "GB"};
-static stat_item_attr_t g_stat_item_attrs[MAX_STAT_ITEM_SIZE] = { 0 };
+static stat_item_attr_t g_stat_item_attrs[MAX_STAT_ITEM_SIZE];
 static uint32 g_stat_item_count;
 
 status_t cm_register_stat_item(uint32 stat_item_id, const char *name, stat_unit_t unit, uint32 indicator,
@@ -73,43 +73,44 @@ void cm_stat_record(uint32 stat_item_id, uint64 value)
         return;
     }
     int64 table_id = cm_atomic_get(&g_stat_table_id);
-    stat_item_t **item_local = &stat_item_local[table_id][stat_item_id];
-    if (*item_local == NULL) {
+    stat_item_t *item_local = stat_item_local[table_id][stat_item_id];
+    if (item_local == NULL) {
         cm_spin_lock(&g_lock, NULL);
         uint32 cnt = g_stat_count[table_id][stat_item_id];
         if (cnt >= MAX_ITEM_COUNT) {
             cm_spin_unlock(&g_lock);
             return;
         }
-        *item_local = (stat_item_t *)malloc(sizeof(stat_item_t));
-        if (*item_local == NULL) {
+        item_local = (stat_item_t *)malloc(sizeof(stat_item_t));
+        if (item_local == NULL) {
             cm_spin_unlock(&g_lock);
             return;
         }
+        stat_item_local[table_id][stat_item_id] = item_local;
         g_stat_count[table_id][stat_item_id]++;
         cm_spin_unlock(&g_lock);
 
-        (*item_local)->count = 0;
-        (*item_local)->value = 0;
-        (*item_local)->avg_value = 0;
-        (*item_local)->max = 0;
-        (*item_local)->min = CM_MAX_UINT64;
-        (*item_local)->id = stat_item_id;
-        g_stat_table[table_id][stat_item_id][cnt] = *item_local;
+        item_local->count = 0;
+        item_local->value = 0;
+        item_local->avg_value = 0;
+        item_local->max = 0;
+        item_local->min = CM_MAX_UINT64;
+        item_local->id = stat_item_id;
+        g_stat_table[table_id][stat_item_id][cnt] = item_local;
     }
 
-    (*item_local)->value += value;
-    (*item_local)->count++;
+    item_local->value += value;
+    item_local->count++;
     if (g_stat_item_attrs[stat_item_id].indicator & STAT_INDICATOR_MAX) {
-        (*item_local)->max = MAX(value, (*item_local)->max);
+        item_local->max = MAX(value, item_local->max);
     }
     if (g_stat_item_attrs[stat_item_id].indicator & STAT_INDICATOR_MIN) {
-        (*item_local)->min = MIN(value, (*item_local)->min);
+        item_local->min = MIN(value, item_local->min);
     }
 }
 static inline int get_cal_table_id(void)
 {
-    return (int)(cm_atomic_get(&g_stat_table_id) ^ 1);
+    return (int)((uint64)cm_atomic_get(&g_stat_table_id) ^ 1);
 }
 static inline void cal_item_result_by_ratio(const stat_item_t *stat_item, stat_item_result_t *result, double ratio)
 {
@@ -159,7 +160,7 @@ static void stat_agg_items(stat_item_t *stat_item)
     int cal_table_id = get_cal_table_id();
     if (g_stat_item_attrs[stat_item->id].func != NULL) {
         stat_item->count = 1;
-        stat_item->value = g_stat_item_attrs[stat_item->id].func(stat_item->id);
+        stat_item->value = (uint64)g_stat_item_attrs[stat_item->id].func(stat_item->id);
         stat_item->avg_value = (double)stat_item->value;
         stat_item->max = stat_item->value;
         stat_item->min = stat_item->value;
@@ -190,7 +191,7 @@ static void stat_agg_items(stat_item_t *stat_item)
 static void stat_calculate(void)
 {
     if (!cm_atomic_cas(&g_stat_table_id, 0, 1)) {
-        cm_atomic_cas(&g_stat_table_id, 1, 0);
+        (void)cm_atomic_cas(&g_stat_table_id, 1, 0);
     }
     cm_latch_x(&g_stat_result.latch, 0, NULL);
     for (uint32 i = 0; i < g_stat_item_count; i++) {
@@ -219,7 +220,7 @@ static inline status_t build_item_head(const char *item_name, const char *suffix
 
 static status_t stat_build_head(char *buf, uint32 begin, uint32 end)
 {
-    char tmp_buf[STAT_ITEM_WIDTH + 1] = {'\0'};
+    char tmp_buf[STAT_ITEM_WIDTH + 1] =  { 0 };
     for (uint32 i = (uint32)begin; i < (uint32)end; i++) {
         stat_unit_t unit = g_stat_item_attrs[i].unit;
         if (g_stat_item_attrs[i].indicator & STAT_INDICATOR_ACC) {
@@ -243,7 +244,7 @@ static status_t stat_build_head(char *buf, uint32 begin, uint32 end)
 }
 static status_t stat_concat_content_format(char *buf, double value, bool32 need_converted)
 {
-    char tmp_buf[STAT_ITEM_WIDTH + 1] = {'\0'};
+    char tmp_buf[STAT_ITEM_WIDTH + 1] = { 0 };
     if (need_converted) {
         PRTS_RETURN_IFERR(
             snprintf_s(tmp_buf, STAT_ITEM_WIDTH + 1, STAT_ITEM_WIDTH, "%-*llu", STAT_ITEM_WIDTH, (uint64)(value)));
@@ -283,7 +284,7 @@ static void stat_print_range(bool8 head_off, uint32 begin, uint32 end)
     if (end > g_stat_item_count) {
         end = g_stat_item_count;
     }
-    char buf[CM_MAX_LOG_CONTENT_LENGTH] = {'\0'};
+    char buf[CM_MAX_LOG_CONTENT_LENGTH] = { 0 };
     status_t ret;
     if (!head_off) {
         ret = stat_build_head(buf, begin, end);
@@ -379,6 +380,15 @@ void cm_profile_stat_uninit(void)
         stat_free();
     }
     g_profile_stat_init = CM_FALSE;
+}
+
+void cm_set_stat_item_null(void)
+{
+    for (uint32 i = 0; i < STAT_TABLE_SIZE; i++) {
+        for (uint32 j = 0; j < MAX_STAT_ITEM_SIZE; j++) {
+            stat_item_local[i][j] = NULL;
+        }
+    }
 }
 
 #ifdef __cplusplus

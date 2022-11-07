@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -181,8 +181,6 @@ static inline void cm_str2text_safe(char *str, uint32 len, text_t *text)
 /** Convert a digital char into numerical digit */
 #define CM_C2D(c) ((c) - '0')
 
-
-
 /** Copy src text to dest text */
 static inline status_t cm_text_copy(text_t *dest, text_t *src)
 {
@@ -347,14 +345,14 @@ static inline void cm_int2text(int32 value, text_t *text)
     text->len = (uint32)iret_snprintf;
 }
 
-static inline void cm_concat_int32(text_t *text, uint32 text_str_max_size, uint32 i32)
+static inline void cm_concat_int32(text_t *text, uint32 text_str_max_size, int32 i32)
 {
     text_t text_int;
     char buff[CM_MAX_INT32_STRLEN + 1];
     text_int.str = buff;
     text_int.len = 0;
     cm_int2text(i32, &text_int);
-    cm_concat_string(text, text_str_max_size, text_int.str);
+    (void)cm_concat_string(text, text_str_max_size, text_int.str);
 }
 
 static inline void cm_rtrim_text(text_t *text)

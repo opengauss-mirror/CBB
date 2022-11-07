@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -236,11 +236,11 @@ status_t cm_hex2int64(const char *str, uint32 strlen, int64 *res)
     unsigned char *ptr = (unsigned char *)str;
     for (uint32 i = 0; i < strlen; i++) {
         if (*ptr >= '0' && *ptr <= '9') {
-            iret = (iret << 4) + ((*ptr) - '0'); // one character said 4 bit for hex
+            iret = (int64)((uint64)iret << 4) + ((*ptr) - '0'); // one character said 4 bit for hex
         } else if (*ptr >= 'A' && *ptr <= 'F') {
-            iret = (iret << 4) + (((*ptr) - 'A') + 10);
+            iret = (int64)((uint64)iret << 4) + (((*ptr) - 'A') + 10);
         } else if (*ptr >= 'a' && *ptr <= 'f') {
-            iret = (iret << 4) + (((*ptr) - 'a') + 10);
+            iret = (int64)((uint64)iret << 4) + (((*ptr) - 'a') + 10);
         } else {
             return CM_ERROR;
         }

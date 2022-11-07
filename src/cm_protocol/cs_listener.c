@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -25,6 +25,8 @@
 #include "cs_listener.h"
 #include "cm_epoll.h"
 #include "cm_file.h"
+#include "mes.h"
+#include "mes_cb.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,11 +37,15 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
 {
     pipe->type = CS_TYPE_TCP;
     tcp_link_t *link = &pipe->link.tcp;
-    link->local.salen = sizeof(link->local.addr);
+    link->local.salen = (socklen_t)sizeof(link->local.addr);
     (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
 
-    link->remote.salen = sizeof(link->remote.addr);
+    link->remote.salen = (socklen_t)sizeof(link->remote.addr);
+#ifdef WIN32
     link->sock = (socket_t)accept(sock_ready, SOCKADDR(&link->remote), &link->remote.salen);
+#else
+    link->sock = (socket_t)accept4(sock_ready, SOCKADDR(&link->remote), &link->remote.salen, SOCK_CLOEXEC);
+#endif
 
     if (link->sock == CS_INVALID_SOCKET) {
         return CM_FALSE;
@@ -100,6 +106,12 @@ static void srv_tcp_lsnr_proc(thread_t *thread)
     pipe.type = CS_TYPE_TCP;
     cm_set_thread_name("tcp_lsnr");
 
+    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    if (cb_thread_init != NULL) {
+        cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
+        LOG_RUN_INF("[mes]: tcp lsnr thread init callback done");
+    }
+
     while (!thread->closed) {
         cs_try_tcp_accept(lsnr, &pipe);
         if (lsnr->status == LSNR_STATUS_PAUSING) {
@@ -155,7 +167,7 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
     option = 1;
     code = setsockopt(*sock, SOL_SOCKET, SO_REUSEADDR, (char *)&option, sizeof(uint32));
     if (-1 == code) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CM_THROW_ERROR(ERR_SET_SOCKET_OPTION, "");
         return CM_ERROR;
@@ -166,7 +178,7 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
         whether the address has been bound before bpage to it.
         ************************************************************************/
     if (cs_tcp_try_connect(host, lsnr->port)) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CM_THROW_ERROR(ERR_TCP_PORT_CONFLICTED, host, (uint32)lsnr->port);
         return CM_ERROR;
@@ -174,7 +186,7 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
 
     code = bind(*sock, SOCKADDR(&sock_addr), sock_addr.salen);
     if (code != 0) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CM_THROW_ERROR(ERR_SOCKET_BIND, host, (uint32)lsnr->port, cm_get_os_error());
         return CM_ERROR;
@@ -182,7 +194,7 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
 
     code = listen(*sock, SOMAXCONN);
     if (code != 0) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CM_THROW_ERROR(ERR_SOCKET_LISTEN, "listen socket", cm_get_os_error());
         return CM_ERROR;
@@ -198,7 +210,7 @@ void cs_close_lsnr_socks(tcp_lsnr_t *lsnr)
     uint32 loop;
     for (loop = 0; loop < CM_MAX_LSNR_HOST_COUNT; ++loop) {
         if (lsnr->socks[loop] != CS_INVALID_SOCKET) {
-            cs_close_socket(lsnr->socks[loop]);
+            (void)cs_close_socket(lsnr->socks[loop]);
             lsnr->socks[loop] = CS_INVALID_SOCKET;
         }
     }
@@ -261,13 +273,13 @@ status_t cs_start_tcp_lsnr(tcp_lsnr_t *lsnr, connect_action_t action)
     }
 
     if (cs_create_lsnr_socks(lsnr) != CM_SUCCESS) {
-        LOG_RUN_ERR("[MEC]failed to create lsnr sockets for listener type %d", lsnr->type);
+        LOG_RUN_ERR("[MEC]failed to create lsnr sockets for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
 
     if (cs_lsnr_init_epoll_fd(lsnr) != CM_SUCCESS) {
         cs_close_lsnr_socks(lsnr);
-        LOG_RUN_ERR("[MEC]failed to init epoll fd for listener type %d", lsnr->type);
+        LOG_RUN_ERR("[MEC]failed to init epoll fd for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
 
@@ -276,7 +288,7 @@ status_t cs_start_tcp_lsnr(tcp_lsnr_t *lsnr, connect_action_t action)
         cs_close_lsnr_socks(lsnr);
         (void)epoll_close(lsnr->epoll_fd);
         lsnr->status = LSNR_STATUS_STOPPED;
-        LOG_RUN_ERR("[MEC]failed to create accept thread for listener type %d", lsnr->type);
+        LOG_RUN_ERR("[MEC]failed to create accept thread for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
     return CM_SUCCESS;

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -27,6 +27,7 @@
 
 #include "cm_scsi.h"
 #include "cm_list.h"
+#include "ddes_perctrl_api.h"
 
 #define CM_IOF_ERR_DUP_OP (-2)
 

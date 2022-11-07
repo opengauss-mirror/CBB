@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -92,6 +92,7 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
     const mes_buffer_attr_t *buf_attr);
 void mes_destory_buffer_chunk(mes_buf_chunk_t *chunk);
 char *mes_alloc_buf_item(uint32 len);
+char *mes_alloc_buf_item_fc(uint32 len);
 void mes_free_buf_item(char *buffer);
 
 #ifdef __cplusplus

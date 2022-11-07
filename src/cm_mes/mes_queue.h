@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -29,6 +29,7 @@
 #include "cm_defs.h"
 #include "cm_spinlock.h"
 #include "cm_error.h"
+#include "cm_thread.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,13 +75,16 @@ typedef struct st_mes_task_context {
     mes_msgqueue_t queue;
 } mes_task_context_t;
 
+#define MES_GROUP_QUEUE_NUM CM_MES_MAX_CHANNEL_NUM
 typedef struct st_mes_task_group {
     uint8 is_set;
     uint8 task_num;
     uint8 start_task_idx;
     uint8 reserved;
     mes_task_group_id_t group_id;
-    mes_msgqueue_t queue;
+    mes_msgqueue_t queue[MES_GROUP_QUEUE_NUM];
+    uint32_t push_cursor;
+    uint32_t pop_cursor;
 } mes_task_group_t;
 
 typedef struct st_mes_mq_group {
@@ -110,6 +114,7 @@ void mes_task_proc(thread_t *thread);
 void mes_init_msg_queue(void);
 void mes_free_msg_queue(void);
 int mes_put_inter_msg(mes_message_t *msg);
+int mes_put_inter_msg_in_queue(mes_message_t *msg, mes_msgqueue_t *queue);
 void mes_put_msgitem_enqueue(mes_msgitem_t *msgitem);
 mes_msgitem_t *mes_alloc_msgitem_nolock(mes_msgqueue_t *queue);
 mes_msgitem_t *mes_alloc_msgitem(mes_msgqueue_t *queue);

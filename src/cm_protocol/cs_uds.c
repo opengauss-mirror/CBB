@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cs_uds.c
- *    Implement of uds management
+ *
  *
  * IDENTIFICATION
  *    src/cm_protocol/cs_uds.c
@@ -39,7 +39,7 @@ status_t cs_create_uds_socket(socket_t *sock)
 {
     CM_RETURN_IFERR(cs_uds_init());
 #ifndef WIN32
-    *sock = (socket_t)socket(AF_UNIX, SOCK_STREAM, 0);
+    *sock = (socket_t)socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (*sock == CS_INVALID_SOCKET) {
         return CM_ERROR;
     }
@@ -48,9 +48,9 @@ status_t cs_create_uds_socket(socket_t *sock)
     return CM_SUCCESS;
 }
 
-status_t cs_uds_connect(const char *server_path, const char *client_path, uds_link_t *uds_link)
+status_t cs_uds_connect(const char *server_path, const char *client_path, uds_link_t *link)
 {
-    if (CM_IS_EMPTY_STR(server_path) || uds_link == NULL) {
+    if (CM_IS_EMPTY_STR(server_path) || link == NULL) {
         return CM_ERROR;
     }
 
@@ -66,32 +66,32 @@ status_t cs_uds_connect(const char *server_path, const char *client_path, uds_li
     }
 
     if (fscanf_s(hFile, "%d", &port) < 0) {
-        fclose(hFile);
+        (void)fclose(hFile);
         return CM_ERROR;
     }
 
-    fclose(hFile);
-    if (cs_tcp_connect("127.0.0.1", port, (tcp_link_t *)uds_link, NULL, &attr) != CM_SUCCESS) {
+    (void)fclose(hFile);
+    if (cs_tcp_connect("127.0.0.1", port, (tcp_link_t *)link, NULL, &attr) != CM_SUCCESS) {
         return CM_ERROR;
     }
 #else
     if (!CM_IS_EMPTY_STR(client_path)) {
-        cs_uds_build_addr(&uds_link->local, client_path);
-        unlink(uds_link->local.addr.sun_path);
-        if (bind(uds_link->sock, SOCKADDR(&uds_link->local), uds_link->local.salen) < 0) {
+        cs_uds_build_addr(&link->local, client_path);
+        (void)unlink(link->local.addr.sun_path);
+        if (bind(link->sock, SOCKADDR(&link->local), link->local.salen) < 0) {
             return CM_ERROR;
         }
         (void)chmod(client_path, SERVICE_FILE_PERMISSIONS);
     }
 
-    cs_uds_build_addr(&uds_link->remote, server_path);
-    cs_set_buffer_size(uds_link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
-    if (connect(uds_link->sock, SOCKADDR(&uds_link->remote), uds_link->remote.salen) != 0) {
+    cs_uds_build_addr(&link->remote, server_path);
+    cs_set_buffer_size(link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
+    if (connect(link->sock, SOCKADDR(&link->remote), link->remote.salen) != 0) {
         return CM_ERROR;
     }
 
 #endif
-    uds_link->closed = CM_FALSE;
+    link->closed = CM_FALSE;
 
     return CM_SUCCESS;
 }
@@ -103,7 +103,7 @@ void cs_uds_disconnect(uds_link_t *link)
         return;
     }
 #ifdef WIN32
-    cs_close_socket(link->sock);
+    (void)cs_close_socket(link->sock);
     link->sock = CS_INVALID_SOCKET;
 #else
     cs_uds_socket_close(&link->sock);
@@ -112,7 +112,7 @@ void cs_uds_disconnect(uds_link_t *link)
 }
 
 #ifdef WIN32
-status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool32 *ready)
+status_t cs_uds_wait(uds_link_t *link, uint32 wait_for, int32 timeout, bool32 *ready)
 {
     int32 count;
     fd_set socket_set;
@@ -123,12 +123,12 @@ status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool3
         *ready = CM_FALSE;
     }
 
-    if (uds_link->closed) {
+    if (link->closed) {
         return CM_ERROR;
     }
 
     FD_ZERO(&socket_set);
-    FD_SET(uds_link->sock, &socket_set);
+    FD_SET(link->sock, &socket_set);
 
     if (timeout != 0) {
         tv.tv_sec = timeout / CM_TIME_THOUSAND_UN;
@@ -139,9 +139,9 @@ status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool3
     }
 
     if (wait_for == CS_WAIT_FOR_WRITE) {
-        count = select((int)uds_link->sock + 1, NULL, &socket_set, NULL, tv_ptr);
+        count = select((int)link->sock + 1, NULL, &socket_set, NULL, tv_ptr);
     } else {
-        count = select((int)uds_link->sock + 1, &socket_set, NULL, NULL, tv_ptr);
+        count = select((int)link->sock + 1, &socket_set, NULL, NULL, tv_ptr);
     }
 
     if (count >= 0) {
@@ -153,14 +153,14 @@ status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool3
     }
 
     if (errno != EINTR) {
-        uds_link->closed = CM_TRUE;
+        link->closed = CM_TRUE;
         return CM_ERROR;
     }
 
     return CM_SUCCESS;
 }
 #else
-status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool32 *ready)
+status_t cs_uds_wait(uds_link_t *link, uint32 wait_for, int32 timeout, bool32 *ready)
 {
     struct pollfd fd;
     int32 ret;
@@ -170,13 +170,14 @@ status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool3
         *ready = CM_FALSE;
     }
 
-    if (uds_link->closed) {
+    if (link->closed) {
+        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
         return CM_ERROR;
     }
 
     tv = (timeout == 0 ? -1 : timeout);
 
-    fd.fd = uds_link->sock;
+    fd.fd = link->sock;
     fd.revents = 0;
     if (wait_for == CS_WAIT_FOR_WRITE) {
         fd.events = POLLOUT;
@@ -197,23 +198,29 @@ status_t cs_uds_wait(uds_link_t *uds_link, uint32 wait_for, int32 timeout, bool3
             *ready = CM_TRUE;
         }
 
-        if (fd.revents & POLLHUP) {
-            cs_uds_disconnect(uds_link);
+        if ((uint16)fd.revents & POLLHUP) {
+            cs_uds_disconnect(link);
+            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
             return CM_ERROR;
         }
         return CM_SUCCESS;
     }
 
     if (errno != EINTR) {
-        cs_uds_disconnect(uds_link);
+        cs_uds_disconnect(link);
+        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
         return CM_ERROR;
+    }
+
+    if (ready != NULL) {
+        *ready = CM_TRUE;
     }
 
     return CM_SUCCESS;
 }
 #endif
 
-status_t cs_uds_send(const uds_link_t *uds_link, const char *buf, uint32 size, int32 *send_size)
+status_t cs_uds_send(const uds_link_t *link, const char *buf, uint32 size, int32 *send_size)
 {
     int code;
 
@@ -222,7 +229,7 @@ status_t cs_uds_send(const uds_link_t *uds_link, const char *buf, uint32 size, i
         return CM_SUCCESS;
     }
 
-    *send_size = send(uds_link->sock, buf, size, 0);
+    *send_size = (int32)send(link->sock, buf, size, 0);
     if (*send_size <= 0) {
 #ifdef WIN32
         code = WSAGetLastError();
@@ -240,18 +247,18 @@ status_t cs_uds_send(const uds_link_t *uds_link, const char *buf, uint32 size, i
     return CM_SUCCESS;
 }
 
-status_t cs_uds_send_timed(uds_link_t *uds_link, const char *buf, uint32 size, uint32 timeout)
+status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint32 timeout)
 {
     int32 remain_size, offset, writen_size;
     uint32 wait_interval = 0;
     bool32 ready = CM_FALSE;
 
-    if (uds_link->closed) {
+    if (link->closed) {
         return CM_ERROR;
     }
 
     /* for most cases, all data are written by the following call */
-    if (cs_uds_send(uds_link, buf, size, &writen_size) != CM_SUCCESS) {
+    if (cs_uds_send(link, buf, size, &writen_size) != CM_SUCCESS) {
         return CM_ERROR;
     }
 
@@ -259,7 +266,7 @@ status_t cs_uds_send_timed(uds_link_t *uds_link, const char *buf, uint32 size, u
     offset = writen_size;
 
     while (remain_size > 0) {
-        if (cs_uds_wait(uds_link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
+        if (cs_uds_wait(link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
             return CM_ERROR;
         }
 
@@ -272,7 +279,7 @@ status_t cs_uds_send_timed(uds_link_t *uds_link, const char *buf, uint32 size, u
             continue;
         }
 
-        if (cs_uds_send(uds_link, buf + offset, remain_size, &writen_size) != CM_SUCCESS) {
+        if (cs_uds_send(link, buf + offset, (uint32)remain_size, &writen_size) != CM_SUCCESS) {
             return CM_ERROR;
         }
 
@@ -284,7 +291,7 @@ status_t cs_uds_send_timed(uds_link_t *uds_link, const char *buf, uint32 size, u
 }
 
 /* cs_tcp_recv must following cs_tcp_wait */
-status_t cs_uds_recv(const uds_link_t *uds_link, char *buf, uint32 size, int32 *recv_size)
+status_t cs_uds_recv(const uds_link_t *link, char *buf, uint32 size, int32 *recv_size)
 {
     int32 rsize;
 
@@ -294,7 +301,7 @@ status_t cs_uds_recv(const uds_link_t *uds_link, char *buf, uint32 size, int32 *
     }
 
     for (;;) {
-        rsize = recv(uds_link->sock, buf, size, 0);
+        rsize = (int32)recv(link->sock, buf, size, 0);
         if (rsize > 0) {
             break;
         }
@@ -310,7 +317,7 @@ status_t cs_uds_recv(const uds_link_t *uds_link, char *buf, uint32 size, int32 *
     return CM_SUCCESS;
 }
 
-status_t cs_uds_recv_timed(uds_link_t *uds_link, char *buf, uint32 size, uint32 timeout)
+status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 timeout)
 {
     uint32 remain_size, offset;
     uint32 wait_interval = 0;
@@ -318,17 +325,15 @@ status_t cs_uds_recv_timed(uds_link_t *uds_link, char *buf, uint32 size, uint32 
     bool32 ready = CM_FALSE;
 
     remain_size = size;
-    offset = 0;
-
-    if (cs_uds_recv(uds_link, buf + offset, remain_size, &recv_size) != CM_SUCCESS) {
+    if (cs_uds_recv(link, buf, remain_size, &recv_size) != CM_SUCCESS) {
         return CM_ERROR;
     }
 
     remain_size -= recv_size;
-    offset += recv_size;
+    offset = (uint32)recv_size;
 
     while (remain_size > 0) {
-        if (cs_uds_wait(uds_link, CS_WAIT_FOR_READ, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
+        if (cs_uds_wait(link, CS_WAIT_FOR_READ, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
             return CM_ERROR;
         }
 
@@ -341,7 +346,7 @@ status_t cs_uds_recv_timed(uds_link_t *uds_link, char *buf, uint32 size, uint32 
             continue;
         }
 
-        if (cs_uds_recv(uds_link, buf + offset, remain_size, &recv_size) != CM_SUCCESS) {
+        if (cs_uds_recv(link, buf + offset, remain_size, &recv_size) != CM_SUCCESS) {
             return CM_ERROR;
         }
 
@@ -368,7 +373,7 @@ static bool32 cs_uds_try_connect(const char *path)
 
     cs_uds_build_addr(&un, path);
     result = (0 == connect(sock, SOCKADDR(&un), un.salen));
-    cs_close_socket(sock);
+    (void)cs_close_socket(sock);
     return result;
 }
 #endif
@@ -405,7 +410,7 @@ static status_t cs_uds_init_socket(const char *name, sock_addr_t *sock_addr, soc
     tcp_option_t option = 1;
     int32 code = setsockopt(*sock, SOL_SOCKET, SO_REUSEADDR, (char *)&option, sizeof(uint32));
     if (-1 == code) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CloseHandle(*hFile);
         return CM_ERROR;
@@ -427,7 +432,7 @@ status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permiss
 
     int32 code = bind(*sock, SOCKADDR(&sock_addr), sock_addr.salen);
     if (code != 0) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CloseHandle(*hFile);
         return CM_ERROR;
@@ -439,7 +444,7 @@ status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permiss
     (void)getsockname(*sock, SOCKADDR(&sockname), &sockname.salen);
     int iret_snprintf = snprintf_s(port, sizeof(port), sizeof(port) - 1, "%u", ntohs(SOCKADDR_PORT(&sockname)));
     if (iret_snprintf == -1) {
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         CloseHandle(*hFile);
         return CM_ERROR;
@@ -450,7 +455,7 @@ status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permiss
     (void)memset_s(&ovp, sizeof(ovp), 0, sizeof(ovp));
     if (!LockFileEx(*hFile, LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ovp)) {
         CloseHandle(*hFile);
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         return CM_ERROR;
     }
@@ -458,7 +463,7 @@ status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permiss
     code = listen(*sock, 20);
     if (code != 0) {
         CloseHandle(*hFile);
-        cs_close_socket(*sock);
+        (void)cs_close_socket(*sock);
         *sock = CS_INVALID_SOCKET;
         return CM_ERROR;
     }
@@ -482,7 +487,7 @@ status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permiss
     CM_RETURN_IFERR(status);
     cs_uds_build_addr(&un, name);
 
-    unlink(un.addr.sun_path);
+    (void)unlink(un.addr.sun_path);
     /* bind the name to the descriptor */
     if (bind(*sock, SOCKADDR(&un), un.salen) < 0) {
         cs_uds_socket_close(sock);
@@ -507,7 +512,7 @@ int32 cs_uds_getsockname(socket_t sock_ready, cs_sockaddr_un_t *un)
     }
 #ifndef WIN32
     if (un->salen >= sizeof(cs_sockaddr_un_t)) {
-        un->salen = sizeof(cs_sockaddr_un_t) - 1;
+        un->salen = (socklen_t)(sizeof(cs_sockaddr_un_t) - 1);
     }
 
     un->addr.sun_path[sizeof_sun_path(un->salen)] = 0;
@@ -519,13 +524,13 @@ int32 cs_uds_getsockname(socket_t sock_ready, cs_sockaddr_un_t *un)
 void cs_uds_socket_close(socket_t *sockfd)
 {
     cs_sockaddr_un_t un;
-    un.salen = sizeof(un.addr);
+    un.salen = (socklen_t)sizeof(un.addr);
     int ret = cs_uds_getsockname(*sockfd, &un);
     if (ret < 0) {
         return;
     }
 
-    cs_close_socket(*sockfd);
+    (void)cs_close_socket(*sockfd);
     *sockfd = CS_INVALID_SOCKET;
     return;
 }

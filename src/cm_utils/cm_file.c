@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -130,7 +130,7 @@ status_t cm_fopen(const char *filename, const char *mode, uint32 perm, FILE **fp
 #ifndef WIN32
     int32 err_no = fchmod(cm_fileno(*fp), perm);
     if (err_no != 0) {
-        fclose(*fp);
+        (void)fclose(*fp);
         *fp = NULL;
         CM_THROW_ERROR(ERR_OPEN_FILE, filename, err_no);
         return CM_ERROR;
@@ -275,7 +275,7 @@ disk_perf_t g_disk_perf;
 
 void cm_get_disk_delay(uint64 *delay, uint64 *count, uint64 *size)
 {
-    static disk_perf_t pre_stat;
+    static disk_perf_t pre_stat = {0};
     disk_perf_t cur_stat = g_disk_perf;
     *delay = cur_stat.delay - pre_stat.delay;
     *count = cur_stat.count - pre_stat.count;
@@ -400,11 +400,10 @@ static void cm_get_parent_dir(char *path, uint32 len)
 /* cm_fsync_file_ex: try to fsync a file */
 static status_t cm_fsync_file_ex(const char *file, bool32 isdir)
 {
-    int32 flags = O_BINARY;
+    uint32 flags = O_BINARY;
     flags |= (!isdir) ? O_RDWR : O_RDONLY;
 
-    int32 fd = open(file, flags, 0);
-
+    int32 fd = open(file, (int32)flags, 0);
     /* Some OSes don't allow to open directories (Windows returns EACCES), just ignore the error in that case. */
     if (fd < 0 && isdir && (errno == EISDIR || errno == EACCES)) {
         return CM_SUCCESS;
@@ -415,11 +414,11 @@ static status_t cm_fsync_file_ex(const char *file, bool32 isdir)
 
     /* Some OSes don't allow us to fsync directories at all, just ignore those errors. */
     if (cm_fsync_file(fd) != CM_SUCCESS && !(isdir && (errno == EBADF || errno == EINVAL))) {
-        close(fd);
+        (void)close(fd);
         return CM_ERROR;
     }
 
-    close(fd);
+    (void)close(fd);
     return CM_SUCCESS;
 }
 
@@ -632,6 +631,35 @@ bool32 cm_dir_exist(const char *dir_path)
     return CM_FALSE;
 }
 
+#define CM_PATH_SPECIAL_CHAR_NUM 9
+bool32 cm_check_exist_special_char(const char *dir_path, uint32 size)
+{
+    uint32 i, j;
+    char special_char[CM_PATH_SPECIAL_CHAR_NUM] = { '|', ';', '&', '$', '>', '<', '`', '!', '\n'};
+    for (i = 0; i < size; i++) {
+        for (j = 0; j < CM_PATH_SPECIAL_CHAR_NUM; j++) {
+            if (dir_path[i] == special_char[j]) {
+                return CM_TRUE;
+            }
+        }
+    }
+    return CM_FALSE;
+}
+
+#define CM_UDS_PATH_SPECIAL_CHAR_NUM 10
+bool32 cm_check_uds_path_special_char(const char *dir_path, uint32 size)
+{
+    uint32 i, j;
+    char special_char[CM_UDS_PATH_SPECIAL_CHAR_NUM] = { '|', ';', '&', '$', '>', '<', '`', '!', '\n', '%'};
+    for (i = 0; i < size; i++) {
+        for (j = 0; j < CM_UDS_PATH_SPECIAL_CHAR_NUM; j++) {
+            if (dir_path[i] == special_char[j]) {
+                return CM_TRUE;
+            }
+        }
+    }
+    return CM_FALSE;
+}
 
 void cm_trim_dir(const char *file_name, uint32 size, char *buf)
 {
@@ -705,7 +733,7 @@ void cm_trim_home_path(char *home_path, uint32 len)
 
 status_t cm_access_file(const char *file_name, uint32 mode)
 {
-    if (access(file_name, mode) != 0) {
+    if (access(file_name, (int32)mode) != 0) {
         return CM_ERROR;
     }
     return CM_SUCCESS;
@@ -725,6 +753,10 @@ status_t cm_create_dir_ex(const char *dir_name)
     char dir[CM_MAX_PATH_LEN + 1];
     size_t dir_len = strlen(dir_name);
     uint32 i;
+    if (dir_len > CM_MAX_PATH_LEN) {
+        LOG_DEBUG_ERR("the dir name's len is too big.");
+        return CM_ERROR;
+    }
 
     errno_t errcode = strncpy_s(dir, (size_t)CM_MAX_PATH_LEN, dir_name, (size_t)dir_len);
     if (errcode != EOK) {
@@ -759,12 +791,12 @@ status_t cm_create_dir_ex(const char *dir_name)
     return CM_SUCCESS;
 }
 
-status_t cm_truncate_file(int32 fd, int64 offset)
+status_t cm_truncate_file(int32 file, int64 offset)
 {
 #ifdef WIN32
-    if (_chsize_s(fd, offset) != 0) {
+    if (_chsize_s(file, offset) != 0) {
 #else
-    if (ftruncate(fd, offset) != 0) {
+    if (ftruncate(file, offset) != 0) {
 #endif
         CM_THROW_ERROR(ERR_TRUNCATE_FILE, offset, errno);
         return CM_ERROR;
@@ -862,12 +894,11 @@ uint32 cm_file_permissions(uint16 val)
     return file_perm;
 }
 
-
 void cm_get_filesize(const char *filename, uint32 *filesize)
 {
     struct stat statbuf;
-    stat(filename, &statbuf);
-    *filesize = statbuf.st_size;
+    (void)stat(filename, &statbuf);
+    *filesize = (uint32)statbuf.st_size;
 }
 
 #ifdef __cplusplus

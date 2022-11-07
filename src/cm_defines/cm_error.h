@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -25,18 +25,16 @@
 #define __CM_ERROR_H_
 
 #include "cm_defs.h"
-#include <stdarg.h>
-
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
 typedef enum en_status {
     CM_ERROR = -1,
     CM_SUCCESS = 0,
     CM_TIMEDOUT = 1,
+    CM_PIPECLOSED = 2,
 } status_t;
 
 /*
@@ -85,6 +83,7 @@ typedef enum en_cm_errno {
     ERR_COMPRESS_FREE_ERROR = 29,
     ERR_NULL_PTR = 30,
     ERR_UNLOCK_FILE = 31,
+    ERR_NOT_EXIST_FILE = 32,
     // 60 - 70 buddy memory error
     ERR_MEM_ZONE_INIT_FAIL = 60,
     ERR_MEM_OUT_OF_MEMORY = 61,
@@ -100,7 +99,9 @@ typedef enum en_cm_errno {
     ERR_VALUE_ERROR = 107,
     ERR_INVALID_VALUE = 108,
     ERR_MALLOC_BYTES_MEMORY = 109,
-
+    ERR_PASSWORD_IS_TOO_SIMPLE = 110,
+    ERR_PASSWORD_FORMAT_ERROR = 111,
+    ERR_INVALID_PARAM = 112,
     /* Error code for access interface of SCSI */
     ERR_SCSI_LOCK_OCCUPIED = 136,
     ERR_SCSI_REG_CONFLICT = 137,
@@ -191,7 +192,8 @@ typedef enum en_cm_errno {
     ERR_MES_EPOLL_INIT_FAIL = 625,
     ERR_MES_SOCKET_FAIL = 626,
     ERR_MES_CONNECT_TIMEOUT = 627,
-
+    ERR_MES_RECV_PIPE_INACTIVE = 628,
+    ERR_MES_INVALID_MSG_HEAD = 629,
     // The max error number
     ERR_CODE_CEIL = 2000,
 } cm_errno_t;
@@ -226,6 +228,13 @@ int32 cm_get_error_code(void);
 const char *cm_get_errormsg(int32 code);
 void cm_get_error(int32 *code, const char **message);
 
+static inline void cm_panic(bool32 condition)
+{
+    if (SECUREC_UNLIKELY(!condition)) {
+        *((uint32 *)NULL) = 1;
+    }
+}
+
 #define securec_check_ret(err)                        \
     do {                                              \
         if ((err) != EOK) {                           \
@@ -234,15 +243,22 @@ void cm_get_error(int32 *code, const char **message);
         }                                             \
     } while (0)
 
+#define securec_check_panic(err)                        \
+        do {                                              \
+            if ((err) != EOK) {                           \
+                cm_panic(0);                              \
+            }                                             \
+        } while (0)
 
 #define CM_THROW_ERROR(error_no, ...)                                                                                  \
     do {                                                                                                               \
-        cm_set_error((char *)__FILE__, (uint32)__LINE__, (cm_errno_t)error_no, g_error_desc[error_no], ##__VA_ARGS__); \
+        cm_set_error((char *)__FILE_NAME__, (uint32)__LINE__, (cm_errno_t)error_no,    \
+            g_error_desc[error_no], ##__VA_ARGS__); \
     } while (0)
 
 #define CM_THROW_ERROR_EX(error_no, format, ...)                                                          \
     do {                                                                                                  \
-        cm_set_error_ex((char *)__FILE__, (uint32)__LINE__, (cm_errno_t)error_no, format, ##__VA_ARGS__); \
+        cm_set_error_ex((char *)__FILE_NAME__, (uint32)__LINE__, (cm_errno_t)error_no, format, ##__VA_ARGS__); \
     } while (0)
 
 void cm_set_error(const char *file, uint32 line, cm_errno_t code, const char *format, ...) CM_CHECK_FMT(4, 5);
@@ -257,7 +273,10 @@ char *cm_concat_t2s(const char *buf1, uint32 len1, const char *buf2, uint32 len2
 char *cm_t2s_ex(const char *buf, uint32 len);
 char *cm_t2s_case(const char *buf, uint32 len, bool32 case_sensitive);
 void cm_register_error(uint16 errnum, const char *errmsg);
-
+typedef status_t (*cm_error_handler)(const char *file, uint32 line, cm_errno_t code, const char *format,
+    va_list args);
+status_t cm_set_log_error(const char *file, uint32 line, cm_errno_t code, const char *format, va_list args);
+void cm_init_error_handler(cm_error_handler handler);
 #define T2S(text) cm_t2s((text)->str, (text)->len)
 #define T2S_EX(text) cm_t2s_ex((text)->str, (text)->len)
 #define T2S_CASE(text, flag) cm_t2s_case((text)->str, (text)->len, (flag))

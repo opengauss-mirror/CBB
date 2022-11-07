@@ -102,8 +102,8 @@ export CBB_LIBRARYS=$(pwd)/../../../library
 mkdir -p $CBB_LIBRARYS/huawei_security
 mkdir -p $CBB_LIBRARYS/openssl
 
-export LIB_PATH=$binarylib_dir/kernel/dependency/
-export P_LIB_PATH=$binarylib_dir/kernel/platform/
+export LIB_PATH=$binarylib_dir/kernel/dependency
+export P_LIB_PATH=$binarylib_dir/kernel/platform
 
 cp -r $P_LIB_PATH/Huawei_Secure_C/comm/lib     $CBB_LIBRARYS/huawei_security/lib
 cp -r $LIB_PATH/openssl/comm/lib                  $CBB_LIBRARYS/openssl/lib
@@ -122,6 +122,9 @@ fi
 
 mkdir -p $binarylib_dir/kernel/component/${OUT_PACKAGE}/include
 mkdir -p $binarylib_dir/kernel/component/${OUT_PACKAGE}/lib
+mkdir -p $binarylib_dir/kernel/component/${OUT_PACKAGE}/bin
 cp src/*.h $binarylib_dir/kernel/component/${OUT_PACKAGE}/include
 cp src/*/*.h $binarylib_dir/kernel/component/${OUT_PACKAGE}/include
+cp src/*/*/*.h $binarylib_dir/kernel/component/${OUT_PACKAGE}/include
 cp output/lib/libcbb* $binarylib_dir/kernel/component/${OUT_PACKAGE}/lib
+cp output/bin/* $binarylib_dir/kernel/component/${OUT_PACKAGE}/bin

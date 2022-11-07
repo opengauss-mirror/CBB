@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -81,7 +81,7 @@ void cs_disconnect(cs_pipe_t *pipe);
 void cs_shutdown(const cs_pipe_t *pipe);
 status_t cs_wait(cs_pipe_t *pipe, uint32 wait_for, int32 timeout, bool32 *ready);
 status_t cs_read_bytes(cs_pipe_t *pipe, char *buf, uint32 max_size, int32 *size);
-status_t cs_read_fixed_size(cs_pipe_t *pipe, char *buf, int32 size);
+status_t cs_read_fixed_size(cs_pipe_t *pipe, char *buf, uint32 size);
 status_t cs_send_fixed_size(cs_pipe_t *pipe, char *buf, int32 size);
 status_t cs_send_bytes(cs_pipe_t *pipe, const char *buf, uint32 size);
 socket_t cs_get_socket_fd(const cs_pipe_t *pipe);

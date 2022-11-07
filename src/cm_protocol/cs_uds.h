@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cs_uds.h
- *    uds api header file
+ *
  *
  * IDENTIFICATION
  *    src/cm_protocol/cs_uds.h
@@ -58,7 +58,7 @@ typedef struct st_uds_link {
 
 #ifndef WIN32
 #define sizeof_addr_un(x) (OFFSET_OF(struct sockaddr_un, sun_path) + strlen((x).sun_path))
-#define sizeof_sun_path(x) ((x)-OFFSET_OF(struct sockaddr_un, sun_path))
+#define sizeof_sun_path(x) ((x) - OFFSET_OF(struct sockaddr_un, sun_path))
 #define SERVICE_FILE_PERMISSIONS 384
 
 static inline void cs_uds_build_addr(cs_sockaddr_un_t *un, const char *name)
@@ -73,7 +73,7 @@ static inline void cs_uds_build_addr(cs_sockaddr_un_t *un, const char *name)
     if (errcode != EOK) {
         cm_panic(0);
     }
-    un->salen = sizeof_addr_un(un->addr);
+    un->salen = (socklen_t)sizeof_addr_un(un->addr);
 }
 #endif
 
@@ -86,7 +86,7 @@ status_t cs_uds_recv(const uds_link_t *link, char *buf, uint32 size, int32 *recv
 status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 timeout);
 status_t cs_uds_wait(uds_link_t *link, uint32 wait_for, int32 timeout, bool32 *ready);
 status_t cs_uds_create_listener(const char *name, socket_t *sock, uint16 permissions);
-int32 cs_uds_getsockname(socket_t sock_ready, cs_sockaddr_un_t *addr);
+int32 cs_uds_getsockname(socket_t sock_ready, cs_sockaddr_un_t *un);
 void cs_uds_socket_close(socket_t *sockfd);
 
 #ifdef __cplusplus
