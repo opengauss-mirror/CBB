@@ -60,6 +60,10 @@ void stop_rdma_rpc_lsnr(void);
 
 int mes_ockrpc_init_ssl(void);
 
+int mes_ockrpc_tls_cert_verify(void* x509, const char* crlPath);
+
+void mes_ockrpc_tls_get_private_key(const char** privateKeyPath, char** keypass, OckRpcTlsKeypassErase *erase);
+
 #ifdef __cplusplus
 }
 #endif

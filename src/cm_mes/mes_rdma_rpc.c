@@ -95,7 +95,6 @@ typedef struct ockrpc_ssl_cfg {
 
 ockrpc_ssl_cfg g_ockrpc_ssl_cfg;
 
-void mes_ockrpc_tls_get_private_key(const char** privateKeyPath, char** keypass, OckRpcTlsKeypassErase *erase);
 void mes_ockrpc_tls_get_cert(const char **certPath);
 void mes_ockrpc_tls_get_CA_verify(const char **caPath, const char **crlPath, OckRpcTlsCertVerify *verify);
 
