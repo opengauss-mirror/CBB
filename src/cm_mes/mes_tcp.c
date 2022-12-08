@@ -702,8 +702,10 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
         return ERR_MES_SENDPIPE_NO_REDAY;
     }
-
     mes_get_consume_time_start(&stat_time);
+    LOG_DEBUG_INF("Begin tcp send buffer, buffer list cnt is %u. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, "
+                "src_sid=%hu, dst_sid=%hu.",
+        buff_list->cnt, (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, (head)->src_sid, (head)->dst_sid);
     for (int i = 0; i < buff_list->cnt; i++) {
         if (cs_send_fixed_size(&channel->send_pipe, buff_list->buffers[i].buf, buff_list->buffers[i].len) !=
             CM_SUCCESS) {
