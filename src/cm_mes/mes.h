@@ -198,8 +198,8 @@ int mes_send_data3(const mes_message_head_t *head, unsigned int head_size, const
  * @param msg - send msg.
  * @return CM_SUCCESS - success;otherwise: failed
  */
-int mes_send_data4(const mes_message_head_t *head, const void *body1, unsigned int len1, const void *body2,
-    unsigned int len2);
+int mes_send_data4(const mes_message_head_t *head, unsigned int head_size, const void *body1, unsigned int len1,
+    const void *body2, unsigned int len2);
 
 /*
  * @brief recv msg

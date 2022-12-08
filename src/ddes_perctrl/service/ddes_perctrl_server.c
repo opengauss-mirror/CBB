@@ -480,6 +480,14 @@ static int32 perctrl_proc()
 int main(int argc, char **argv)
 {
 #ifndef WIN32
+    // check root
+    if (geteuid() == 0 || getuid() != geteuid()) {
+        (void)printf("The root user is not permitted to execute the perctrl "
+                     "and the real uids must be the same as the effective uids.\n");
+        (void)fflush(stdout);
+        return CM_ERROR;
+    }
+
     if (cm_regist_signal(SIGPIPE, SIG_IGN) != CM_SUCCESS) {
         return CM_ERROR;
     }

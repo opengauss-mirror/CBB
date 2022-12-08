@@ -1071,10 +1071,12 @@ void mes_notify_broadcast_msg_recv_and_cahce(mes_message_t *msg)
 
     cm_spin_lock(&room->lock, NULL);
     if (room->rsn == msg->head->rsn) {
-        (void)cm_atomic32_inc(&room->ack_count);
         room->broadcast_msg[msg->head->src_inst] = msg->buffer;
-        room->check_rsn = msg->head->rsn;
-        mes_mutex_unlock(&room->broadcast_mutex);
+        (void)cm_atomic32_inc(&room->ack_count);
+        if (room->ack_count >= room->req_count) {
+            room->check_rsn = msg->head->rsn;
+            mes_mutex_unlock(&room->broadcast_mutex);
+        }
         cm_spin_unlock(&room->lock);
     } else {
         cm_spin_unlock(&room->lock);
@@ -1307,11 +1309,10 @@ int mes_send_data3(const mes_message_head_t *head, unsigned int head_size, const
     return ret;
 }
 
-int mes_send_data4(const mes_message_head_t *head, const void *body1, unsigned int len1, const void *body2,
-    unsigned int len2)
+int mes_send_data4(const mes_message_head_t *head, unsigned int head_size, const void *body1, unsigned int len1,
+    const void *body2, unsigned int len2)
 {
     uint64 start_stat_time = 0;
-    int ret;
     mes_bufflist_t buff_list;
 
     if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
@@ -1320,7 +1321,7 @@ int mes_send_data4(const mes_message_head_t *head, const void *body1, unsigned i
     }
 
     buff_list.cnt = 0;
-    mes_append_bufflist(&buff_list, head, sizeof(mes_message_head_t));
+    mes_append_bufflist(&buff_list, head, head_size);
     mes_append_bufflist(&buff_list, body1, len1);
     mes_append_bufflist(&buff_list, body2, len2);
 
@@ -1329,7 +1330,7 @@ int mes_send_data4(const mes_message_head_t *head, const void *body1, unsigned i
     }
 
     mes_get_consume_time_start(&start_stat_time);
-    ret = MES_SEND_BUFFLIST(&buff_list);
+    int ret = MES_SEND_BUFFLIST(&buff_list);
     if (ret == CM_SUCCESS) {
         mes_send_stat(head->cmd);
         mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);

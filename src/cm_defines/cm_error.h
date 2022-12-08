@@ -238,7 +238,7 @@ static inline void cm_panic(bool32 condition)
 #define securec_check_ret(err)                        \
     do {                                              \
         if ((err) != EOK) {                           \
-            CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode); \
+            CM_THROW_ERROR(ERR_SYSTEM_CALL, err);     \
             return CM_ERROR;                          \
         }                                             \
     } while (0)
