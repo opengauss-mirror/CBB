@@ -80,7 +80,7 @@ static status_t get_param_by_name(const char *param_name, char *param_value, uns
             PRTS_RETURN_IFERR(ret);
             break;
         case PARAM_STRING:
-            len = (uint32)strlen(out_value.v_char_array);
+            len = (uint32)strlen(out_value.v_char_array) + 1;
             if (size < len) {
                 LOG_RUN_ERR("[param] the output buffer is small");
                 return CM_ERROR;
