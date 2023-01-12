@@ -62,6 +62,7 @@ typedef struct st_chan_t {
 chan_t *cm_chan_new(uint32 capacity, uint32 size);
 status_t cm_chan_send(chan_t *chan, const void *elem);
 status_t cm_chan_send_timeout(chan_t *chan, const void *elem, uint32 timeout_ms);
+status_t cm_chan_try_send(chan_t *chan, const void *elem);
 status_t cm_chan_recv(chan_t *chan, void *elem);
 status_t cm_chan_recv_timeout(chan_t *chan, void *elem, uint32 timeout_ms);
 
