@@ -28,6 +28,7 @@
 #include "openssl/x509.h"
 #include "openssl/hmac.h"
 #include "openssl/rand.h"
+#include "cm_utils.h"
 #ifdef WIN32
 #include <wincrypt.h>
 #endif
@@ -264,6 +265,12 @@ status_t cm_rand(uchar *buf, uint32 len)
     return CM_SUCCESS;
 }
 
+uint32 cm_random(uint32 range)
+{
+    int64 seed;
+    (void)cm_rand((uchar *)&seed, sizeof(int64));
+    return cm_rand_int32(&seed, range);
+}
 #ifdef __cplusplus
 }
 #endif

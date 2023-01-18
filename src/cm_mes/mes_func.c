@@ -534,7 +534,7 @@ static int mes_init_session_room(void)
 
         GS_INIT_SPIN_LOCK(room->lock);
 
-        room->rsn = cm_random(i);
+        room->rsn = 0;
         room->check_rsn = room->rsn;
     }
     return CM_SUCCESS;

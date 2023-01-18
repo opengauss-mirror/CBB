@@ -41,6 +41,7 @@ status_t cm_base64_encode(uchar *src, uint32 src_len, char *cipher, uint32 *ciph
 uint32 cm_base64_decode(const char *src, uint32 src_len, uchar *dest_data, uint32 buff_len);
 
 status_t cm_rand(uchar *buf, uint32 len);
+uint32 cm_random(uint32 range);
 
 #ifdef __cplusplus
 }
