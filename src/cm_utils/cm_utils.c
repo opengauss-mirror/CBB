@@ -140,12 +140,11 @@ static inline uint32 cm_rand_next(int64 *seed, uint32 bits)
     return (uint32)((uint64)next_seed >> (48 - bits));
 }
 
-uint32 cm_random(uint32 range)
+uint32 cm_rand_int32(int64 *seed, uint32 range)
 {
-    int64 seed = 0;
     uint32 r_next, r_mask, value;
 
-    r_next = cm_rand_next(&seed, 31);
+    r_next = cm_rand_next(seed, 31);
     r_mask = range - 1;
 
     if ((range & r_mask) == 0) {
@@ -155,7 +154,7 @@ uint32 cm_random(uint32 range)
         r_next = value % range;
         while (value + r_mask < r_next) {
             r_next = value % range;
-            value = cm_rand_next(&seed, 31);
+            value = cm_rand_next(seed, 31);
         }
     }
     return r_next;
