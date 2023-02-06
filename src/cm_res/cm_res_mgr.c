@@ -43,27 +43,25 @@ static void cm_res_json_free(mem_pool_t *ctx, void *buf)
     gfree(buf);
 }
 
-static status_t cm_res_init_memctx(cm_res_mgr_t *cm_res_mgr)
+status_t cm_res_init_memctx(cm_res_mem_ctx_t *res_mem_ctx)
 {
-    if (cm_res_mgr->alloc.mem_ctx == NULL) {
-        status_t ret = buddy_pool_init("test_ddes_json_mem_pool", COMM_MEM_POOL_MIN_SIZE, COMM_MEM_POOL_MAX_SIZE,
-            &cm_res_mgr->mem_pool);
-        if (ret != CM_SUCCESS) {
-            return ret;
-        }
-        cm_res_mgr->alloc.mem_ctx = &cm_res_mgr->mem_pool;
-        cm_res_mgr->mem_pool_using = 1;
+    status_t ret = buddy_pool_init("test_ddes_json_mem_pool", COMM_MEM_POOL_MIN_SIZE, COMM_MEM_POOL_MAX_SIZE,
+        &res_mem_ctx->mem_pool);
+    if (ret != CM_SUCCESS) {
+        return ret;
     }
+    res_mem_ctx->alloc.mem_ctx = &res_mem_ctx->mem_pool;
+    res_mem_ctx->alloc.f_alloc = (f_malloc_t)cm_res_json_malloc;
+    res_mem_ctx->alloc.f_free = (f_free_t)cm_res_json_free;
     return CM_SUCCESS;
 }
 
-static void cm_res_uninit_memctx(cm_res_mgr_t *cm_res_mgr)
+void cm_res_uninit_memctx(cm_res_mem_ctx_t *res_mem_ctx)
 {
-    if (cm_res_mgr->mem_pool_using != 0) {
-        buddy_pool_deinit(&cm_res_mgr->mem_pool);
-        cm_res_mgr->alloc.mem_ctx = NULL;
-        cm_res_mgr->mem_pool_using = 0;
-    }
+    buddy_pool_deinit(&res_mem_ctx->mem_pool);
+    res_mem_ctx->alloc.mem_ctx = NULL;
+    res_mem_ctx->alloc.f_alloc = NULL;
+    res_mem_ctx->alloc.f_free = NULL;
 }
 
 static status_t cm_res_init_stat_func(cm_res_mgr_t *cm_res_mgr)
@@ -101,27 +99,6 @@ static status_t cm_res_init_lock_func(cm_res_mgr_t *cm_res_mgr)
     return ret;
 }
 
-static status_t cm_res_init_alloc(cm_res_mgr_t *cm_res_mgr, cm_allocator_t *alloc)
-{
-    cm_res_mgr->mem_pool_using = 0;
-    if (alloc == NULL || alloc->f_alloc == NULL || alloc->f_free == NULL || alloc->mem_ctx == NULL) {
-        cm_res_mgr->alloc.f_alloc = (f_malloc_t)cm_res_json_malloc;
-        cm_res_mgr->alloc.f_free = (f_free_t)cm_res_json_free;
-        // init memctx when using if not input
-        cm_res_mgr->alloc.mem_ctx = NULL;
-    } else {
-        cm_res_mgr->alloc = *alloc;
-    }
-    return CM_SUCCESS;
-}
-
-static void cm_res_uninit_alloc(cm_res_mgr_t *cm_res_mgr)
-{
-    cm_res_uninit_memctx(cm_res_mgr);
-    cm_allocator_t alloc = {0};
-    cm_res_mgr->alloc = alloc;
-}
-
 status_t cm_res_mgr_init(const char *so_lib_path, cm_res_mgr_t *cm_res_mgr, cm_allocator_t *alloc)
 {
     if (so_lib_path == NULL || strlen(so_lib_path) == 0) {
@@ -144,7 +121,7 @@ status_t cm_res_mgr_init(const char *so_lib_path, cm_res_mgr_t *cm_res_mgr, cm_a
     if (ret != CM_SUCCESS) {
         return ret;
     }
-    return cm_res_init_alloc(cm_res_mgr, alloc);
+    return CM_SUCCESS;
 }
 
 void cm_res_mgr_uninit(cm_res_mgr_t *cm_res_mgr)
@@ -153,7 +130,6 @@ void cm_res_mgr_uninit(cm_res_mgr_t *cm_res_mgr)
         cm_close_dl(cm_res_mgr->so_hanle);
         cm_res_mgr->so_hanle = NULL;
     }
-    cm_res_uninit_alloc(cm_res_mgr);
 }
 
 // register info by interface
@@ -199,12 +175,9 @@ int cm_res_trans_lock(cm_res_mgr_t *cm_res_mgr, const char *lock_name, unsigned 
 }
 
 // get origin stats info by interface
-cm_res_stat_ptr_t cm_res_get_stat(cm_res_mgr_t *cm_res_mgr)
+cm_res_stat_ptr_t cm_res_get_stat(cm_res_mgr_t *cm_res_mgr, cm_res_mem_ctx_t *res_mem_ctx)
 {
     if (cm_res_mgr->so_hanle == NULL) {
-        return NULL;
-    }
-    if (cm_res_init_memctx(cm_res_mgr) != CM_SUCCESS) {
         return NULL;
     }
     char *json = cm_res_mgr->cm_get_res_stat();
@@ -213,7 +186,7 @@ cm_res_stat_ptr_t cm_res_get_stat(cm_res_mgr_t *cm_res_mgr)
     }
     text_t txt = {json, (uint32)strlen(json)};
     json_t *statJson;
-    status_t ret = json_create(&statJson, &txt, &cm_res_mgr->alloc);
+    status_t ret = json_create(&statJson, &txt, &res_mem_ctx->alloc);
     cm_res_mgr->cm_free_res_stat(json);
     if (ret != CM_SUCCESS) {
         return NULL;
@@ -228,7 +201,6 @@ void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat)
     }
     json_t *statJson = (json_t *)res_stat;
     json_destory(statJson);
-    cm_res_uninit_memctx(cm_res_mgr);
 }
 
 // get detail stats info
