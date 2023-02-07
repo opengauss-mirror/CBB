@@ -41,10 +41,12 @@ typedef void (*cm_notify_func_t)(void);
 #define CM_RES_STATUS_ONLINE 1
 #define CM_RES_STATUS_OFFLINE 2
 
-typedef struct st_cm_res_mgr_func {
+typedef struct st_cm_res_mem_ctx {
     mem_pool_t mem_pool;
-    bool32 mem_pool_using;
     cm_allocator_t alloc;
+} cm_res_mem_ctx_t;
+
+typedef struct st_cm_res_mgr_func {
     void *so_hanle;
     /*
     * cm client init function for resource
@@ -123,8 +125,10 @@ int cm_res_trans_lock(cm_res_mgr_t *cm_res_mgr, const char *lock_name, unsigned 
 
 // get stats info by interface, return res_stat or NULL
 typedef void *cm_res_stat_ptr_t;
-cm_res_stat_ptr_t cm_res_get_stat(cm_res_mgr_t *cm_res_mgr);
+cm_res_stat_ptr_t cm_res_get_stat(cm_res_mgr_t *cm_res_mgr, cm_res_mem_ctx_t *res_mem_ctx);
 void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat);
+status_t cm_res_init_memctx(cm_res_mem_ctx_t *res_mem_ctx);
+void cm_res_uninit_memctx(cm_res_mem_ctx_t *res_mem_ctx);
 
 // get detail stats info
 int cm_res_get_instance_count(cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat);
