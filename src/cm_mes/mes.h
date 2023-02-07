@@ -282,7 +282,7 @@ int mes_broadcast_and_wait(unsigned int sid, uint64 inst_bits, const void *msg_d
  * @param sid -  Session ID.
  * @return rsn
  */
-unsigned int mes_get_current_rsn(unsigned int sid);
+unsigned long long mes_get_current_rsn(unsigned int sid);
 
 /*
  * @brief Init ack message head
@@ -345,7 +345,7 @@ int mes_wait_acks_and_recv_msg2(unsigned int sid, unsigned int timeout, uint64 s
  * @param sid -  Session ID.
  * @return rsn -  The request sequence number
  */
-unsigned int mes_get_rsn(unsigned int sid);
+unsigned long long mes_get_rsn(unsigned int sid);
 
 /*
  * @brief Obtain the number of times the commond was sent.
