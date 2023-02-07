@@ -772,7 +772,7 @@ int mes_rdma_rpc_send_data(const void* msg_data)
     if (ret != OCK_RPC_OK) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR("OckRpcClientCall failed, cmd(%d), inst_id(%d), dst_id(%d), size(%d),\
-            headsize(%lu), ip(%s), port(%d), rsn(%u), src_sid(%d), dest_sid(%d)",
+            headsize(%lu), ip(%s), port(%d), rsn(%llu), src_sid(%d), dest_sid(%d)",
             head->cmd, head->src_inst, head->dst_inst, head->size, sizeof(mes_message_head_t),
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].ip,
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].port,
@@ -829,7 +829,7 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
     if (ret != OCK_RPC_OK) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR("OckRpcClientBuffListCall failed, cmd(%d), inst_id(%d), dst_id(%d), size(%d), headsize(%lu),\
-            ip(%s), port(%d), rsn(%u), src_sid(%d), dest_sid(%d)",
+            ip(%s), port(%d), rsn(%llu), src_sid(%d), dest_sid(%d)",
             head->cmd, head->src_inst, head->dst_inst, head->size, sizeof(mes_message_head_t),
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].ip,
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].port,

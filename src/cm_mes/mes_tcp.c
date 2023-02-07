@@ -703,7 +703,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         return ERR_MES_SENDPIPE_NO_REDAY;
     }
     mes_get_consume_time_start(&stat_time);
-    LOG_DEBUG_INF("Begin tcp send buffer, buffer list cnt is %u. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, "
+    LOG_DEBUG_INF("Begin tcp send buffer, buffer list cnt is %u. cmd=%hhu, rsn=%llu, src_inst=%hhu, dst_inst=%hhu, "
                 "src_sid=%hu, dst_sid=%hu.",
         buff_list->cnt, (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, (head)->src_sid, (head)->dst_sid);
     for (int i = 0; i < buff_list->cnt; i++) {

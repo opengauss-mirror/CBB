@@ -54,14 +54,14 @@ extern "C" {
 
 #define MES_LOG_WAR_HEAD_EX(head, message)                                                             \
     do {                                                                                               \
-        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%llu, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
             (char *)__func__, (message), (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, \
             (head)->src_sid, (head)->dst_sid);                                                         \
     } while (0);
 
 #define MES_LOG_ERR_HEAD_EX(head, message)                                                             \
     do {                                                                                               \
-        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%u, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, rsn=%llu, src_inst=%hhu, dst_inst=%hhu, src_sid=%hu, dst_sid=%hu.",  \
             (char *)__func__, (message), (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, \
             (head)->src_sid, (head)->dst_sid);                                                         \
     } while (0);
@@ -132,8 +132,8 @@ typedef struct st_mes_waiting_room {
     uint32 err_code;
     atomic32_t req_count;
     atomic32_t ack_count;
-    volatile uint32 rsn; // requestion sequence number
-    volatile uint32 check_rsn;
+    volatile uint64 rsn; // requestion sequence number
+    volatile uint64 check_rsn;
     volatile bool8 broadcast_flag;
     char res[3];
     uint64 succ_insts;

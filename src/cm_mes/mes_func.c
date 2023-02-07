@@ -145,10 +145,10 @@ static void mes_mutex_unlock(mes_mutex_t *mutex)
 static inline void mes_protect_when_timeout(mes_waiting_room_t *room)
 {
     cm_spin_lock(&room->lock, NULL);
-    (void)cm_atomic32_inc((atomic32_t *)(&room->rsn));
+    (void)cm_atomic_inc((atomic_t *)(&room->rsn));
     if (!pthread_mutex_trylock(&room->mutex)) { // trylock to avoid mutex has been unlocked.
         mes_free_buf_item((char *)room->msg_buf);
-        LOG_RUN_ERR("[mes]%s: mutex has unlock, rsn=%u, room rsn=%u.", (char *)__func__,
+        LOG_RUN_ERR("[mes]%s: mutex has unlock, rsn=%llu, room rsn=%llu.", (char *)__func__,
             ((mes_message_head_t *)room->msg_buf)->rsn, room->rsn);
     }
     cm_spin_unlock(&room->lock);
@@ -157,7 +157,7 @@ static inline void mes_protect_when_timeout(mes_waiting_room_t *room)
 static inline void mes_protect_when_brcast_timeout(mes_waiting_room_t *room, uint64 success_inst)
 {
     cm_spin_lock(&room->lock, NULL);
-    (void)cm_atomic32_inc((atomic32_t *)(&room->rsn));
+    (void)cm_atomic_inc((atomic_t *)(&room->rsn));
     cm_spin_unlock(&room->lock);
     (void)pthread_mutex_trylock(&room->broadcast_mutex);
     if (success_inst != 0) {
@@ -1350,7 +1350,7 @@ int mes_allocbuf_and_recv_data(unsigned short sid, mes_message_t *msg, unsigned 
             if (wait_time >= timeout) {
                 mes_protect_when_timeout(
                     room); // when timeout the ack msg may reach, so need do some check and protect.
-                LOG_RUN_ERR("recv data rsn %u ", room->rsn);
+                LOG_RUN_ERR("recv data rsn %llu ", room->rsn);
                 return ERR_MES_WAIT_OVERTIME;
             }
             continue;
@@ -1362,7 +1362,7 @@ int mes_allocbuf_and_recv_data(unsigned short sid, mes_message_t *msg, unsigned 
             msg->head->rsn)) { // this situation should not happen, keep this code to observe some time.
             // rsn not match, ignore this message
             MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
-            LOG_RUN_ERR("[mes]%s: receive unmatch msg, rsn=%u, room rsn=%u.", (char *)__func__,
+            LOG_RUN_ERR("[mes]%s: receive unmatch msg, rsn=%llu, room rsn=%llu.", (char *)__func__,
                 ((mes_message_head_t *)msg->buffer)->rsn, room->rsn);
             mes_release_message_buf(msg);
             MES_MESSAGE_DETACH(msg);
@@ -1474,7 +1474,7 @@ int mes_wait_acks(unsigned int sid, unsigned int timeout)
             if (wait_time >= timeout) {
                 room->ack_count = 0; // invalid broadcast ack
                 mes_protect_when_brcast_timeout(room, 0);
-                LOG_RUN_WAR("[mes]timeout rsn=%u, check rsn=%u, sid=%u, ack_count=%d, req_count=%d", room->rsn,
+                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%u, ack_count=%d, req_count=%d", room->rsn,
                     room->check_rsn, sid, room->ack_count, room->req_count);
                 return ERR_MES_WAIT_OVERTIME;
             }
@@ -1506,7 +1506,7 @@ int mes_wait_acks2(unsigned int sid, unsigned int timeout, uint64 *succ_insts)
             if (wait_time >= timeout) {
                 room->ack_count = 0; // invalid broadcast ack
                 mes_protect_when_brcast_timeout(room, 0);
-                LOG_RUN_WAR("[mes]timeout rsn=%u, check rsn=%u, sid=%d, ack_count=%d, req_count=%d", room->rsn,
+                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%d, ack_count=%d, req_count=%d", room->rsn,
                     room->check_rsn, sid, room->ack_count, room->req_count);
                 ret = ERR_MES_WAIT_OVERTIME;
                 break;
@@ -1560,7 +1560,7 @@ int mes_wait_acks_and_recv_msg2(unsigned int sid, unsigned int timeout, uint64 s
             if (wait_time >= timeout) {
                 overtime_proc_func(success_inst, recv_msg);
                 mes_protect_when_brcast_timeout(room, success_inst);
-                LOG_RUN_WAR("[mes]timeout rsn=%u, check rsn=%u, sid=%u, ack_count=%d, req_count=%d", room->rsn,
+                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%u, ack_count=%d, req_count=%d", room->rsn,
                     room->check_rsn, sid, room->ack_count, room->req_count);
                 room->ack_count = 0; // invalid broadcast ack
                 return ERR_MES_WAIT_OVERTIME;
@@ -1589,9 +1589,9 @@ int mes_wait_acks_and_recv_msg(unsigned int sid, unsigned int timeout, uint64 su
     return mes_wait_acks_and_recv_msg2(sid, timeout, success_inst, recv_msg, mes_wait_acks_overtime_proc);
 }
 
-unsigned int mes_get_current_rsn(unsigned int sid)
+unsigned long long mes_get_current_rsn(unsigned int sid)
 {
-    uint32 rsn;
+    uint64 rsn;
     mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
 
     cm_spin_lock(&room->lock, NULL);
@@ -1614,12 +1614,12 @@ void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *a
     ack_head->flags = 0;
 }
 
-unsigned int mes_get_rsn(unsigned int sid)
+unsigned long long mes_get_rsn(unsigned int sid)
 {
-    uint32 rsn;
+    uint64 rsn;
     mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
     cm_spin_lock(&room->lock, NULL);
-    rsn = (uint32)cm_atomic32_inc((atomic32_t *)(&room->rsn));
+    rsn = (uint64)cm_atomic_inc((atomic_t *)(&room->rsn));
     cm_spin_unlock(&room->lock);
     return rsn;
 }
