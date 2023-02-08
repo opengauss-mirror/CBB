@@ -373,7 +373,12 @@ static void mes_rdma_rpc_default_proc_func(OckRpcServerContext handle, OckRpcMes
     mes_msgqueue_t *my_queue = &channel->msg_queue;
 
     (void)cm_atomic_inc(&(channel->recv_count));
-    char* data = mes_alloc_buf_item_fc(head->size);
+    char *data = mes_alloc_buf_item_fc(head->size);
+    if (SECUREC_UNLIKELY(data == NULL)) {
+        LOG_RUN_ERR("[mes proc]: get buf item failed, size(%u).", (uint32)head->size);
+        OckRpcServerCleanupCtx(handle);
+        return;
+    }
 
     if (memcpy_sp((void*)data, head->size, msg.data, head->size) != EOK) {
         LOG_RUN_ERR("[mes proc] malloc data failed, size(%lu).", msg.len);
