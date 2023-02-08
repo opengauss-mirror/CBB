@@ -263,6 +263,9 @@ static int mes_send_inter_buffer_list(mes_bufflist_t *buff_list)
     }
 
     buffer = mes_alloc_buf_item(total_len);
+    if (buffer == NULL) {
+        return ERR_MES_MALLOC_FAIL;
+    }
 
     for (int i = 0; i < buff_list->cnt; i++) {
         ret = memcpy_s(buffer + pos, total_len - pos, buff_list->buffers[i].buf, buff_list->buffers[i].len);
@@ -387,6 +390,9 @@ static int mes_send_inter_msg(const void *msg_data)
     mes_message_head_t *msgdata = (mes_message_head_t *)msg_data;
 
     buffer = mes_alloc_buf_item(msgdata->size);
+    if (buffer == NULL) {
+        return ERR_MES_MALLOC_FAIL;
+    }
 
     ret = memcpy_s(buffer, msgdata->size, msg_data, msgdata->size);
     if (ret != EOK) {
