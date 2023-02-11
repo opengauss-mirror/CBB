@@ -73,6 +73,8 @@ typedef struct st_log_param {
     bool32 log_suppress_enable;
     char instance_name[CM_MAX_NAME_LEN];
     volatile uint32 audit_level;
+    char *log_compress_buf;
+    bool8 log_compressed;
 } log_param_t;
 
 /* _log_level */
@@ -120,6 +122,7 @@ typedef struct st_log_file_handle {
     int file_handle;
     uint32 file_inode;
     log_type_t log_type;
+    bool8 log_compressed;
 } log_file_handle_t;
 
 typedef void (*cm_log_write_func_t)(log_file_handle_t *log_file_handle, char *buf, uint32 size);
@@ -133,11 +136,12 @@ typedef void (*cm_log_write_func_t)(log_file_handle_t *log_file_handle, char *bu
 #define CM_MAX_LOG_PERMISSIONS      777
 #define CM_DEF_LOG_PATH_PERMISSIONS 700
 #define CM_DEF_LOG_FILE_PERMISSIONS 600
-
+#define CM_LOG_COMPRESS_BUFSIZE     SIZE_M(10)
 #define CM_MAX_TIME_STRLEN            (uint32)(48)
 
 log_file_handle_t *cm_log_logger_file(uint32 log_count);
 status_t cm_log_init(log_type_t log_type, const char *file_name);
+void cm_log_open_compress(log_type_t log_type, bool8 log_compressed);
 void cm_log_uninit(void);
 void cm_log_set_path_permissions(uint16 val);
 void cm_log_set_file_permissions(uint16 val);

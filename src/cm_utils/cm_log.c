@@ -27,6 +27,7 @@
 #include "cm_thread.h"
 #include "cm_timer.h"
 #include "cm_hash.h"
+#include "zlib.h"
 
 #ifndef _WIN32
 #include <dirent.h>
@@ -478,8 +479,8 @@ static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE
 }
 #endif
 
-static status_t cm_log_get_bak_file_list(
-    char *backup_file_name[CM_MAX_LOG_FILE_COUNT], uint32 *backup_file_count, const char *log_file)
+static status_t cm_log_get_bak_file_list(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+    uint32 *backup_file_count, const char *log_file, bool32 need_compressed)
 {
     // 1.The log file path, the file name, and extension of the log file are parsed from the input parameters
     const char *log_dir = NULL;
@@ -489,6 +490,7 @@ static status_t cm_log_get_bak_file_list(
     /*
     for example , if log_file = "/home/enipcore/log/run/zenith.log"
     then log_dir = "/home/enipcore/log/run", log_file_name = "zenith", log_ext_name = "log"
+    if need_compressed is true, then log_ext_name = "rlog.gz"
     */
     char buf[CM_FILE_NAME_BUFFER_SIZE] = {0};
     errcode = strncpy_s(buf, CM_FILE_NAME_BUFFER_SIZE, log_file, CM_MAX_FILE_NAME_LEN);
@@ -516,8 +518,16 @@ static status_t cm_log_get_bak_file_list(
 
     log_ext_name = p + 1;
 
+    char backup_log_ext_name[CM_FILE_NAME_BUFFER_SIZE] = { 0 };
+    if (need_compressed) {
+        PRTS_RETURN_IFERR(snprintf_s(backup_log_ext_name,
+            CM_FILE_NAME_BUFFER_SIZE, CM_MAX_FILE_NAME_LEN, "%s.%s", log_ext_name, "gz"));
+    } else {
+        PRTS_RETURN_IFERR(snprintf_s(backup_log_ext_name,
+            CM_FILE_NAME_BUFFER_SIZE, CM_MAX_FILE_NAME_LEN, "%s", log_ext_name));
+    }
     // 2.Iterate through the directory and add the found backup files to the backup_file_name.
-    return cm_log_search_backup_file(backup_file_name, backup_file_count, log_dir, log_file_name, log_ext_name);
+    return cm_log_search_backup_file(backup_file_name, backup_file_count, log_dir, log_file_name, backup_log_ext_name);
 }
 
 // Deletes redundant backup files with the number of files that need to be preserved
@@ -615,6 +625,7 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
     uint32 need_bak_file_count = log_file_handle->log_type == LOG_AUDIT ?
         g_log_param.audit_backup_file_count : g_log_param.log_backup_file_count;
     uint32 file_name_len = CM_MAX_FILE_NAME_LEN;
+    bool32 need_compressed = CM_FALSE;
 
     // When you do not back up, delete the log file directly, and re-open will automatically generate a new empty file.
     if (need_bak_file_count == 0) {
@@ -628,8 +639,11 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
             (size_t)file_name_len));
         return CM_SUCCESS;
     }
-
-    CM_RETURN_IFERR(cm_log_get_bak_file_list(bak_file_name, &backup_file_count, log_file_handle->file_name));
+    
+    if (cm_log_param_instance()->log_compressed) {
+        need_compressed = CM_TRUE;
+    }
+    CM_RETURN_IFERR(cm_log_get_bak_file_list(bak_file_name, &backup_file_count, log_file_handle->file_name, need_compressed));
 
     // Passing need_bak_file_count - 1 is because log_file_handle->file_name is about to be converted to a backup file.
     cm_log_remove_bak_file(bak_file_name, remove_file_count, backup_file_count, need_bak_file_count - 1);
@@ -719,6 +733,93 @@ static void cm_write_rmv_and_bak_file_log(char *bak_file_name[CM_MAX_LOG_FILE_CO
     }
 }
 
+static status_t cm_alloc_compress_buf(char **buffer)
+{
+    if (cm_log_param_instance()->log_compress_buf != NULL) {
+        *buffer = cm_log_param_instance()->log_compress_buf;
+    } else {
+        *buffer = malloc(CM_LOG_COMPRESS_BUFSIZE);
+        if (*buffer == NULL) {
+            CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)CM_LOG_COMPRESS_BUFSIZE, "log compress memory");
+            return CM_ERROR;
+        }
+        errno_t rc = memset_s(*buffer, CM_LOG_COMPRESS_BUFSIZE, 0, CM_LOG_COMPRESS_BUFSIZE);
+        if (rc != EOK) {
+            CM_FREE_PTR(*buffer);
+            return CM_ERROR;
+        }
+    }
+    return CM_SUCCESS;
+}
+
+static void cm_free_compress_buf(char *buffer)
+{
+    if (cm_log_param_instance()->log_compress_buf != buffer) {
+        CM_FREE_PTR(buffer);
+    }
+}
+
+static status_t compress_file_to_gzip(const char *infilename, const char *outfilename)
+{
+    uint32 num_read = 0;
+    char *buffer = NULL;
+    uint32 buffer_len = CM_LOG_COMPRESS_BUFSIZE;
+    CM_RETURN_IFERR(cm_alloc_compress_buf(&buffer));
+
+    FILE *infile = fopen(infilename, "r");
+    if (infile == NULL) {
+        cm_free_compress_buf(buffer);
+        return CM_ERROR;
+    }
+
+    gzFile outfile = gzopen(outfilename, "wb9");
+    if (outfile == NULL) {
+        (void)fclose(infile);
+        cm_free_compress_buf(buffer);
+        return CM_ERROR;
+    }
+
+    while ((num_read = (uint32)fread(buffer, sizeof(char), buffer_len, infile)) > 0) {
+        if (gzwrite(outfile, buffer, num_read) == 0) {
+            (void)fclose(infile);
+            (void)gzclose(outfile);
+            cm_free_compress_buf(buffer);
+            return CM_ERROR;
+        }
+    }
+
+    errno_t rc = memset_s(buffer, buffer_len, 0, buffer_len);
+    (void)fclose(infile);
+    (void)gzclose(outfile);
+    cm_free_compress_buf(buffer);
+    if (rc != EOK) {
+        return CM_FALSE;
+    }
+    return CM_SUCCESS;
+}
+
+static void cm_compress_log_file(log_file_handle_t *log_file_handle, char *bak_file_name, uint32 file_name_len)
+{
+    char new_bak_file_name[CM_FILE_NAME_BUFFER_SIZE];
+    if (!cm_log_param_instance()->log_compressed || !log_file_handle->log_compressed) {
+        return;
+    }
+
+    if (strlen(bak_file_name) == 0) {
+        return;
+    }
+
+    PRTS_RETVOID_IFERR(snprintf_s(new_bak_file_name,
+        CM_FILE_NAME_BUFFER_SIZE, CM_MAX_FILE_NAME_LEN, "%s.%s", bak_file_name, "gz"));
+    if (compress_file_to_gzip(bak_file_name, new_bak_file_name) == CM_SUCCESS &&
+        chmod(new_bak_file_name, cm_log_param_instance()->log_bak_file_permissions) == 0 &&
+        cm_remove_file(bak_file_name) == CM_SUCCESS) {
+            return;
+    }
+    LOG_RUN_ERR("failed to rotate the log file:%s", bak_file_name);
+    return;
+}
+
 static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf, uint32 size,
                                   bool32 need_rec_filelog, cm_log_write_func_t func)
 {
@@ -768,6 +869,7 @@ static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf,
         handle_before_log = log_file_handle->file_handle;
         func(log_file_handle, buf, size);
         cm_spin_unlock(&log_file_handle->lock);
+        cm_compress_log_file(log_file_handle, new_bak_file_name, CM_FILE_NAME_BUFFER_SIZE);
         cm_write_rmv_and_bak_file_log(bak_file_name, remove_file_count, new_bak_file_name);
         if (handle_before_log == CM_INVALID_FD && log_file_handle->file_handle != CM_INVALID_FD) {
             LOG_RUN_FILE_INF(CM_FALSE, "[LOG] file '%s' is added", log_file_handle->file_name);
@@ -1102,6 +1204,12 @@ status_t cm_log_init(log_type_t log_type, const char *file_name)
     log_file->file_inode = 0;
     log_file->log_type = log_type;
     return CM_SUCCESS;
+}
+
+void cm_log_open_compress(log_type_t log_type, bool8 log_compressed)
+{
+    log_file_handle_t *log_file = &g_logger[log_type];
+    log_file->log_compressed = log_compressed;
 }
 
 void cm_log_uninit(void)
