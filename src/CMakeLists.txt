@@ -19,6 +19,7 @@ include_directories(.)
 ## other dependency include 
 include_directories(${CBB_SECUREC_INC_PATH})
 include_directories(${CBB_OPENSSL_PATH})
+include_directories(${ZLIB_INC_PATH})
 
 ## source
 aux_source_directory(./ COMMON_SRC)
@@ -57,15 +58,15 @@ set(COMMON_ALL_SRC
         )
 
 add_library(cbb SHARED ${COMMON_ALL_SRC})
-target_link_libraries(cbb ${3rd_libssl} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
+target_link_libraries(cbb ${3rd_libssl} ${zlib} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
 
 add_library(cbb_static STATIC ${COMMON_ALL_SRC})
 set_property(TARGET cbb_static PROPERTY OUTPUT_NAME "cbb")
-target_link_libraries(cbb_static ${3rd_libssl} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
+target_link_libraries(cbb_static ${3rd_libssl} ${zlib} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
 
 add_library(cbb_static_master STATIC ${COMMON_ALL_SRC})
 set_property(TARGET cbb_static_master PROPERTY OUTPUT_NAME "cbb_static")
-target_link_libraries(cbb_static_master ${3rd_libssl} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
+target_link_libraries(cbb_static_master ${3rd_libssl} ${zlib} pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
 
 set(PERSIST_SRC
         ${CM_STRUCT_SRC}
@@ -79,4 +80,4 @@ set(PERSIST_SRC
         )
 
 ADD_EXECUTABLE(perctrl ${PERSIST_SRC})
-target_link_libraries(perctrl pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} -Wl,--no-whole-archive)
+target_link_libraries(perctrl pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} ${zlib} -Wl,--no-whole-archive)
