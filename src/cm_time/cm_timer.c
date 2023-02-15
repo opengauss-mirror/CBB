@@ -85,6 +85,9 @@ static void timer_proc(thread_t *thread)
 
 status_t cm_start_timer(gs_timer_t *timer)
 {
+    if (timer->init) {
+        return CM_SUCCESS;
+    }
     cm_now_detail((date_detail_t *)&timer->detail);
     timer->now = cm_encode_date((const date_detail_t *)&timer->detail);
     timer->today = (date_t)(timer->now / (int64)DAY_USECS) * (int64)DAY_USECS;
@@ -92,10 +95,12 @@ status_t cm_start_timer(gs_timer_t *timer)
     int16 tz_min = (int16)cm_get_time_zone();
     timer->tz = tz_min / (int32)SECONDS_PER_MIN;
     timer->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
+    timer->init = CM_TRUE;
     return cm_create_thread(timer_proc, 0, timer, &timer->thread);
 }
 
 void cm_close_timer(gs_timer_t *timer)
 {
     cm_close_thread(&timer->thread);
+    timer->init = CM_FALSE;
 }

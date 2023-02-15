@@ -100,11 +100,6 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
         return ERR_MES_READ_MSG_FAIL;
     }
 
-    if (SECUREC_UNLIKELY(head->cmd >= CM_MAX_MES_MSG_CMD)) {
-        MES_LOG_ERR_HEAD_EX(head, "invalid cmd");
-        return ERR_MES_CMD_TYPE_ERR;
-    }
-
     if (SECUREC_UNLIKELY(head->src_inst >= CM_MAX_INSTANCES || head->dst_inst >= CM_MAX_INSTANCES)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return ERR_MES_INVALID_MSG_HEAD;
@@ -157,6 +152,11 @@ static int mes_process_event(mes_channel_t *channel)
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes]mes_read_message head failed.");
         return ERR_MES_SOCKET_FAIL;
+    }
+
+    // ignore heartbeat msg
+    if (head.cmd == MES_HEARTBEAT_CMD) {
+        return CM_SUCCESS;
     }
 
     ret = mes_get_message_buf(&msg, &head);
@@ -232,6 +232,41 @@ static void mes_tcp_try_connect(mes_channel_t *channel)
     return;
 }
 
+static void mes_tcp_heartbeat(mes_channel_t *channel)
+{
+    if (g_timer()->now - channel->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
+        return;
+    }
+
+    // dst_inst and src_sid used to get current channel in mes_tcp_send_data
+    mes_message_head_t head = { 0 };
+    head.cmd = MES_HEARTBEAT_CMD;
+    head.dst_inst = MES_INSTANCE_ID(channel->id);
+    head.src_sid = MES_CHANNEL_ID(channel->id);
+    head.size = (uint16)sizeof(mes_message_head_t);
+
+    (void)mes_send_data(&head);
+}
+
+static void mes_close_send_pipe(mes_channel_t *channel)
+{
+    cm_rwlock_wlock(&channel->send_lock);
+    if (!channel->send_pipe_active) {
+        cm_rwlock_unlock(&channel->send_lock);
+        return;
+    }
+    cs_disconnect(&channel->send_pipe);
+    channel->send_pipe_active = CM_FALSE;
+    cm_rwlock_unlock(&channel->send_lock);
+    return;
+}
+
+static void mes_close_channel(mes_channel_t *channel)
+{
+    mes_close_recv_pipe(channel);
+    mes_close_send_pipe(channel);
+}
+
 static void mes_channel_entry(thread_t *thread)
 {
     char thread_name[CM_MAX_THREAD_NAME_LEN];
@@ -251,6 +286,8 @@ static void mes_channel_entry(thread_t *thread)
     while (!thread->closed) {
         if (!channel->send_pipe_active) {
             mes_tcp_try_connect(channel);
+        } else {
+            mes_tcp_heartbeat(channel);
         }
 
         cm_rwlock_wlock(&channel->recv_lock);
@@ -280,6 +317,9 @@ static void mes_channel_entry(thread_t *thread)
         }
         cm_rwlock_unlock(&channel->recv_lock);
     }
+
+    // thread closing, release pipes
+    mes_close_channel(channel);
 }
 
 static int mes_diag_proto_type(cs_pipe_t *pipe)
@@ -334,26 +374,7 @@ static int mes_read_message(cs_pipe_t *pipe, mes_message_t *msg)
     return CM_SUCCESS;
 }
 
-static void mes_close_send_pipe(mes_channel_t *channel)
-{
-    cm_rwlock_wlock(&channel->send_lock);
-    if (!channel->send_pipe_active) {
-        cm_rwlock_unlock(&channel->send_lock);
-        return;
-    }
-    cs_disconnect(&channel->send_pipe);
-    channel->send_pipe_active = CM_FALSE;
-    cm_rwlock_unlock(&channel->send_lock);
-    return;
-}
-
-static void mes_close_channel(mes_channel_t *channel)
-{
-    mes_close_recv_pipe(channel);
-    mes_close_send_pipe(channel);
-}
-
-void mes_tcp_disconnect(uint32 inst_id)
+void mes_tcp_disconnect(uint32 inst_id, bool32 wait)
 {
     uint32 i;
     mes_channel_t *channel = NULL;
@@ -361,8 +382,11 @@ void mes_tcp_disconnect(uint32 inst_id)
 
     for (i = 0; i < channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
-        cm_close_thread(&channel->thread);
-        mes_close_channel(channel);
+        if (wait) {
+            cm_close_thread(&channel->thread)
+        } else {
+            cm_close_thread_nowait(&channel->thread);
+        }
     }
 }
 
@@ -452,7 +476,7 @@ void mes_disconnect_batch(const unsigned char *inst_id_list, unsigned char inst_
 {
     for (uint8 i = 0; i < inst_id_cnt; i++) {
         if (MES_GLOBAL_INST_MSG.profile.inst_id != inst_id_list[i]) {
-            mes_disconnect(inst_id_list[i]);
+            mes_disconnect_nowait(inst_id_list[i]);
         }
     }
 }
@@ -593,11 +617,10 @@ int mes_start_lsnr(void)
             lsnr_host, MES_GLOBAL_INST_MSG.profile.inst_id, MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.port);
         return ERR_MES_START_LSRN_FAIL;
     }
-    LOG_RUN_INF("[mes]: MES LSNR %s:%hu\n", lsnr_host, MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.port);
+    LOG_RUN_INF("[mes]: MES LSNR %s:%hu", lsnr_host, MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.port);
 
     return CM_SUCCESS;
 }
-
 
 bool32 mes_tcp_connection_ready(uint32 inst_id)
 {
@@ -645,6 +668,10 @@ int mes_tcp_connect(uint32 inst_id)
     for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         channel->id = (inst_id << INST_ID_MOVE_LEFT_BIT_CNT) | i;
+        channel->last_send_time = g_timer()->now;
+
+        // wait last thread close finish
+        cm_close_thread(&channel->thread);
 
         if (cm_create_thread(mes_channel_entry, 0, (void *)channel, &channel->thread) != CM_SUCCESS) {
             LOG_RUN_ERR("create thread channel entry failed, node id %u channel id %u", inst_id, i);
@@ -681,6 +708,7 @@ int mes_tcp_send_data(const void *msg_data)
         return ERR_MES_SEND_MSG_FAIL;
     }
 
+    channel->last_send_time = g_timer()->now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&channel->send_lock);
 
@@ -716,6 +744,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
             return ERR_MES_SEND_MSG_FAIL;
         }
     }
+    channel->last_send_time = g_timer()->now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&channel->send_lock);
 

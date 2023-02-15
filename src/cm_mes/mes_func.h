@@ -86,7 +86,7 @@ typedef pthread_mutex_t mes_mutex_t;
 
 typedef int (*mes_connect_t)(uint32 inst_id);
 
-typedef void (*mes_disconnect_t)(uint32 inst_id);
+typedef void (*mes_disconnect_t)(uint32 inst_id, bool32 wait);
 
 typedef int (*mes_send_data_t)(const void *msg_data);
 
@@ -121,6 +121,7 @@ typedef struct st_mes_channel {
     atomic_t send_count;
     atomic_t recv_count;
     mes_msgqueue_t msg_queue;
+    date_t last_send_time;
 } mes_channel_t;
 
 typedef struct st_mes_waiting_room {
