@@ -43,6 +43,7 @@ typedef struct st_gs_timer {
     volatile int32 tz;              // time zone (h)
     volatile int64 host_tz_offset;  // host timezone offset (us)
     thread_t thread;
+    bool32 init;
 } gs_timer_t;
 
 

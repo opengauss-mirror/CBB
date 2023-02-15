@@ -46,7 +46,7 @@ int mes_rdma_rpc_connect_handle(uint32 inst_id);
 
 void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id);
 
-void mes_rdma_rpc_disconnect_handle(uint32 inst_id);
+void mes_rdma_rpc_disconnect_handle(uint32 inst_id, bool32 wait);
 
 int mes_rdma_rpc_send_data(const void* msg_data);
 

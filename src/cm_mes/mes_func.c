@@ -39,7 +39,7 @@ mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
 
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
-#define MES_DISCONNECT(inst_id) g_cbb_mes_callback.disconnect_func(inst_id)
+#define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_SEND_DATA(data) g_cbb_mes_callback.send_func(data)
 #define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
@@ -931,6 +931,11 @@ int mes_init(mes_profile_t *profile)
     mes_init_stat(profile);
 
     do {
+        ret = cm_start_timer(g_timer());
+        if (ret != CM_SUCCESS) {
+            break;
+        }
+
         ret = mes_set_profile(profile);
         if (ret != CM_SUCCESS) {
             break;
@@ -1127,6 +1132,28 @@ int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
     return CM_SUCCESS;
 }
 
+void mes_disconnect_nowait(unsigned int inst_id)
+{
+    mes_conn_t *conn;
+
+    if (!MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
+        LOG_RUN_WAR("[mes]: mes_disconnect: inst_id %u already disconnect.", inst_id);
+        return;
+    }
+
+    conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
+
+    cm_thread_lock(&conn->lock);
+
+    MES_DISCONNECT(inst_id, CM_FALSE);
+
+    MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect = CM_FALSE;
+
+    cm_thread_unlock(&conn->lock);
+
+    LOG_RUN_INF("[mes]: disconnect node %u.", inst_id);
+}
+
 void mes_disconnect(unsigned int inst_id)
 {
     mes_conn_t *conn;
@@ -1140,7 +1167,7 @@ void mes_disconnect(unsigned int inst_id)
 
     cm_thread_lock(&conn->lock);
 
-    MES_DISCONNECT(inst_id);
+    MES_DISCONNECT(inst_id, CM_TRUE);
 
     MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect = CM_FALSE;
 
@@ -1246,7 +1273,7 @@ int mes_send_data(mes_message_head_t *msg)
         return ERR_MES_MSG_TOO_LARGE;
     }
 
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
+    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id && head->cmd != MES_HEARTBEAT_CMD) {
         return mes_send_inter_msg(msg);
     }
     mes_get_consume_time_start(&start_stat_time);

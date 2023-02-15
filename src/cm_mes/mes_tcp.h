@@ -35,16 +35,18 @@
 extern "C" {
 #endif
 
-#define MES_URL_BUFFER_SIZE (CM_HOST_NAME_BUFFER_SIZE + 16)
-#define MES_INSTANCE_ID(id) (uint8)((id) >> UINT8_BITS)
-#define MES_CHANNEL_ID(id) (uint8)((id)&0x00FF)
-#define MES_CONNECT_CMD (uint8)(CM_MAX_MES_MSG_CMD + 1)
+#define MES_URL_BUFFER_SIZE         (CM_HOST_NAME_BUFFER_SIZE + 16)
+#define MES_INSTANCE_ID(id)         (uint8)((id) >> UINT8_BITS)
+#define MES_CHANNEL_ID(id)          (uint8)((id)&0x00FF)
+#define MES_CONNECT_CMD             (uint8)(CM_MAX_MES_MSG_CMD + 1)
+#define MES_HEARTBEAT_CMD           (uint8)(255)
+#define MES_HEARTBEAT_INTERVAL      (1)
 
 
 int mes_init_tcp_resource(void);
 void mes_free_channels(void);
 void mes_stop_channels(void);
-void mes_tcp_disconnect(uint32 inst_id);
+void mes_tcp_disconnect(uint32 inst_id, bool32 wait);
 int mes_tcp_connect(uint32 inst_id);
 int mes_tcp_send_data(const void *msg_data);
 int mes_start_lsnr(void);

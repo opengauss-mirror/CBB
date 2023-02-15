@@ -745,7 +745,7 @@ void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id)
     return ;
 }
 
-void mes_rdma_rpc_disconnect_handle(uint32 inst_id)
+void mes_rdma_rpc_disconnect_handle(uint32 inst_id, bool32 wait)
 {
     LOG_RUN_INF("mes_rdma_rpc_disconnect_handle start, inst_id(%u)", inst_id);
     for (uint32_t i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; ++i) {
