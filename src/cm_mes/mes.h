@@ -124,6 +124,13 @@ int mes_connect(unsigned int inst_id, const char *ip, unsigned short port);
 void mes_disconnect(unsigned int inst_id);
 
 /*
+ * @brief DisConnecting to the instance
+ * @param inst_id -  the instance id.
+ * @return
+ */
+void mes_disconnect_nowait(unsigned int inst_id);
+
+/*
  * @brief Connecting to the instances
  * @param inst_id_list -  the instance id.
  * @param inst_id_cnt -  the instance count
