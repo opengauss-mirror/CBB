@@ -383,7 +383,7 @@ void mes_tcp_disconnect(uint32 inst_id, bool32 wait)
     for (i = 0; i < channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         if (wait) {
-            cm_close_thread(&channel->thread)
+            cm_close_thread(&channel->thread);
         } else {
             cm_close_thread_nowait(&channel->thread);
         }
