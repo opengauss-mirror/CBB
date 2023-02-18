@@ -99,19 +99,22 @@ set(CBB_SERVICE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/service)
 ## other dependency include
 set(CBB_SECUREC_INC_PATH        "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/include/")
 set(CBB_OPENSSL_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/openssl/include/")
+set(ZLIB_INC_PATH               "${CMAKE_CURRENT_SOURCE_DIR}/library/zlib/include/")
 
 ## lib
 set(SECUREC_LIB_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/lib/")
 set(OPENSSL_LIB_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/openssl/lib/")
+set(ZLIB_PATH                   "${CMAKE_CURRENT_SOURCE_DIR}/library/zlib/lib/")
 
 ## output path
 set (LIBRARY_OUTPUT_PATH        ${CMAKE_CURRENT_SOURCE_DIR}/output/lib)
 set (EXECUTABLE_OUTPUT_PATH     ${CMAKE_CURRENT_SOURCE_DIR}/output/bin)
 
-link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH} ${CJSON_LIB_PATH})
+link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH} ${ZLIB_PATH} ${CJSON_LIB_PATH})
 
 set(vpp_libsecurec "securec")
 set(3rd_libssl "ssl")
 set(sdp "sdp")
+set(zlib "z")
 
 add_subdirectory(src)
