@@ -128,6 +128,7 @@ typedef struct st_mes_message_head {
     unsigned short tickets;
     unsigned int unused;
     unsigned long long rsn;
+    unsigned int cluster_ver;
 } mes_message_head_t;
 
 #define MES_MSG_HEAD_SIZE sizeof(mes_message_head_t)

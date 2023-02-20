@@ -1645,6 +1645,7 @@ void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *a
     ack_head->rsn = req_head->rsn;
     ack_head->size = size;
     ack_head->flags = 0;
+    ack_head->cluster_ver = req_head->cluster_ver;
 }
 
 unsigned long long mes_get_rsn(unsigned int sid)
