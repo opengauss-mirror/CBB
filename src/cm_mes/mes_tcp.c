@@ -104,11 +104,6 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return ERR_MES_INVALID_MSG_HEAD;
     }
-
-    if (SECUREC_UNLIKELY(head->src_sid >= CM_MAX_MES_ROOMS)) {
-        MES_LOG_ERR_HEAD_EX(head, "invalid src session id");
-        return ERR_MES_INVALID_MSG_HEAD;
-    }
     return CM_SUCCESS;
 }
 
