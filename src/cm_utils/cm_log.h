@@ -129,7 +129,7 @@ typedef void (*cm_log_write_func_t)(log_file_handle_t *log_file_handle, char *bu
 
 #define CM_MIN_LOG_FILE_SIZE        SIZE_M(1)                  // this value can not be less than 1M
 #define CM_MAX_LOG_FILE_SIZE        ((uint64)SIZE_M(1024) * 4) // this value can not be larger than 4G
-#define CM_MAX_LOG_FILE_COUNT       128                        // this value can not be larger than 128
+#define CM_MAX_LOG_FILE_COUNT       1024                        // this value can not be larger than 1024
 #define CM_MAX_LOG_CONTENT_LENGTH   CM_MESSAGE_BUFFER_SIZE
 #define CM_MAX_LOG_HEAD_LENGTH      100     // UTC+8 2019-01-16 22:40:15.292|DCF|00000|140084283451136|INFO> 65
 #define CM_MAX_LOG_NEW_BUFFER_SIZE  1048576 // (1024 * 1024)
