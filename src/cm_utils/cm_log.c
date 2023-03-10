@@ -368,7 +368,7 @@ static bool32 cm_log_compare_file(const char *left_file_name, const char *right_
     return left_file_stat.st_mtime > right_file_stat.st_mtime;
 }
 
-static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
     uint32 *backup_file_count, const char *log_dir, const char *bak_file)
 {
     uint32 i, j;
@@ -395,7 +395,7 @@ static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_CO
         }
     }
 
-    if (*backup_file_count == CM_MAX_LOG_FILE_COUNT) {
+    if (*backup_file_count == CM_MAX_LOG_FILE_COUNT_LARGER) {
         if (i == 0) {
             cm_log_remove_file(file_name);
             CM_FREE_PTR(file_name);
@@ -424,7 +424,7 @@ static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_CO
 }
 
 #ifdef _WIN32
-static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
     uint32 *backup_file_count, const char *log_dir, const char *log_file_name, const char *log_ext_name)
 {
     char bak_file_fmt[CM_FILE_NAME_BUFFER_SIZE] = {0};
@@ -452,7 +452,7 @@ static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE
     return CM_SUCCESS;
 }
 #else
-static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
     uint32 *backup_file_count, const char *log_dir, const char *file_name, const char *log_ext_name)
 {
     struct dirent *ent = NULL;
@@ -479,7 +479,7 @@ static status_t cm_log_search_backup_file(char *backup_file_name[CM_MAX_LOG_FILE
 }
 #endif
 
-static status_t cm_log_get_bak_file_list(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+static status_t cm_log_get_bak_file_list(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
     uint32 *backup_file_count, const char *log_file, bool32 need_compressed)
 {
     // 1.The log file path, the file name, and extension of the log file are parsed from the input parameters
@@ -531,7 +531,7 @@ static status_t cm_log_get_bak_file_list(char *backup_file_name[CM_MAX_LOG_FILE_
 }
 
 // Deletes redundant backup files with the number of files that need to be preserved
-static void cm_log_remove_bak_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT],
+static void cm_log_remove_bak_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
                                    uint32 *remove_file_count,
                                    uint32 backup_file_count,
                                    uint32 need_backup_count)
@@ -615,7 +615,7 @@ static void cm_log_get_bak_file_name(const log_file_handle_t *log_file_handle, c
     3.new_bak_file_name : a new log file name dcf.rlog transferred to, for example dcf.rlog
 */
 static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
-                                        char *bak_file_name[CM_MAX_LOG_FILE_COUNT],
+                                        char *bak_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
                                         char new_bak_file_name[CM_FILE_NAME_BUFFER_SIZE],
                                         uint32 *remove_file_count)
 {
@@ -720,7 +720,7 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     }
 }
 
-static void cm_write_rmv_and_bak_file_log(char *bak_file_name[CM_MAX_LOG_FILE_COUNT],
+static void cm_write_rmv_and_bak_file_log(char *bak_file_name[CM_MAX_LOG_FILE_COUNT_LARGER],
                                           uint32 remove_file_count,
                                           char curr_bak_file_name[CM_FILE_NAME_BUFFER_SIZE])
 {
@@ -829,7 +829,7 @@ static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf,
     // in SUSE 11 (8  Intel(R) Xeon(R) CPU E5-2690 v2 @ 3.00GHz)
     uint32 timeout_ticks = 10000;
     char new_bak_file_name[CM_FILE_NAME_BUFFER_SIZE];
-    char *bak_file_name[CM_MAX_LOG_FILE_COUNT];
+    char *bak_file_name[CM_MAX_LOG_FILE_COUNT_LARGER];
     uint32 remove_file_count = 0;
     int handle_before_log;
     uint64 max_file_size;
