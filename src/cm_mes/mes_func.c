@@ -1383,7 +1383,7 @@ int mes_allocbuf_and_recv_data(unsigned short sid, mes_message_t *msg, unsigned 
             if (wait_time >= timeout) {
                 mes_protect_when_timeout(
                     room); // when timeout the ack msg may reach, so need do some check and protect.
-                LOG_RUN_ERR("recv data rsn %llu ", room->rsn);
+                LOG_DEBUG_WAR("recv data rsn %llu ", room->rsn);
                 return ERR_MES_WAIT_OVERTIME;
             }
             continue;
