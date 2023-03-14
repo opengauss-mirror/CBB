@@ -234,6 +234,68 @@ static status_t CRYPT_decrypt(uint32 alg_id, const uchar *key, uint32 key_len, c
     return CM_SUCCESS;
 }
 
+status_t cm_get_component(char *buff, uint32 buff_size)
+{
+    char init_vector[32] = {
+        (char)0x72, (char)0xA1, (char)0x8D, (char)0x39,
+        (char)0xBC, (char)0x46, (char)0xEF, (char)0x53,
+        (char)0x91, (char)0x6B, (char)0x2C, (char)0xF7,
+        (char)0xDA, (char)0x43, (char)0x98, (char)0xCE,
+        (char)0x5F, (char)0xE8, (char)0x33, (char)0xD6,
+        (char)0xC4, (char)0x79, (char)0xB2, (char)0x54,
+        (char)0xF, (char)0x9A, (char)0x28, (char)0x13,
+        (char)0x67, (char)0x25, (char)0xAF, (char)0xDB,
+    };
+    init_vector[0] = (char)init_vector[25] + (char)init_vector[2];
+    init_vector[1] = (char)init_vector[7] | (char)init_vector[11];
+    init_vector[2] = (char)init_vector[17] ^ (char)init_vector[29];
+    init_vector[3] = (char)init_vector[5] << (char)init_vector[22];
+    init_vector[4] = (char)init_vector[0] | (char)init_vector[18];
+    init_vector[5] = (char)init_vector[21] & (char)init_vector[12];
+    init_vector[6] = (char)init_vector[9] << (char)init_vector[31];
+    init_vector[7] = (char)init_vector[8] ^ (char)init_vector[6];
+    init_vector[8] = (char)init_vector[15] | (char)init_vector[28];
+    init_vector[9] = (char)init_vector[30] + (char)init_vector[4];
+    init_vector[10] = (char)init_vector[16] & (char)init_vector[30];
+    init_vector[11] = (char)init_vector[1] - (char)init_vector[24];
+    init_vector[12] = (char)init_vector[28] << (char)init_vector[19];
+    init_vector[13] = (char)init_vector[13] ^ (char)init_vector[3];
+    init_vector[14] = (char)init_vector[14] | (char)init_vector[10];
+    init_vector[15] = (char)init_vector[27] ^ (char)init_vector[15];
+    init_vector[16] = (char)init_vector[23] << (char)init_vector[20];
+    init_vector[17] = (char)init_vector[18] + (char)init_vector[26];
+    init_vector[18] = (char)init_vector[4] << (char)init_vector[17];
+    init_vector[19] = (char)init_vector[11] | (char)init_vector[22];
+    init_vector[20] = (char)init_vector[18] & (char)init_vector[2];
+    init_vector[21] = (char)init_vector[26] + (char)init_vector[16];
+    init_vector[22] = (char)init_vector[15] - (char)init_vector[28];
+    init_vector[23] = (char)init_vector[2] + (char)init_vector[17];
+    init_vector[24] = (char)init_vector[20] | (char)init_vector[16];
+    init_vector[25] = (char)init_vector[7] & (char)init_vector[15];
+    init_vector[26] = (char)init_vector[19] + (char)init_vector[29];
+    init_vector[27] = (char)init_vector[14] - (char)init_vector[9];
+    init_vector[28] = (char)init_vector[31] | (char)init_vector[10];
+    init_vector[29] = (char)init_vector[28] + (char)init_vector[1];
+    init_vector[30] = (char)init_vector[25] & (char)init_vector[12];
+    init_vector[31] = (char)init_vector[6] ^ (char)init_vector[18];
+    MEMS_RETURN_IFERR(memcpy_sp(buff, (size_t)buff_size, init_vector, sizeof(init_vector)));
+    return CM_SUCCESS;
+}
+
+status_t cm_get_actual_component(char *component, uint32 component_len, char *component1)
+{
+    char src_component[RANDOM_LEN + 1] = { 0 };
+    if (cm_get_component(src_component, RANDOM_LEN) != CM_SUCCESS) {
+        LOG_DEBUG_ERR("get component failed");
+        return CM_ERROR;
+    }
+    for (uint32 i = 0; i < RANDOM_LEN; i++) {
+        src_component[i] = src_component[i] ^ component1[i];
+    }
+    MEMS_RETURN_IFERR(memcpy_sp(component, (size_t)component_len, src_component, RANDOM_LEN));
+    return CM_SUCCESS;
+}
+
 status_t cm_encrypt_pwd(uchar *plain_text, uint32 plain_len, cipher_t *cipher)
 {
     if (plain_len > CM_PASSWD_MAX_LEN) {
@@ -252,8 +314,13 @@ status_t cm_encrypt_pwd(uchar *plain_text, uint32 plain_len, cipher_t *cipher)
     }
 
     uchar key[RANDOM_LEN] = { 0 };
+    char component[RANDOM_LEN + 1] = { 0 };
+    if (cm_get_actual_component(component, RANDOM_LEN, (char *)cipher->rand) != CM_SUCCESS) {
+        LOG_DEBUG_ERR("Get component failed when encrypt pwd");
+        return CM_ERROR;
+    }
     /* use PKCS5 HMAC sha256 to dump the key for encryption */
-    int32 ret = PKCS5_PBKDF2_HMAC((const char *)cipher->rand, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
+    int32 ret = PKCS5_PBKDF2_HMAC((const char *)component, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
         EVP_sha256(), RANDOM_LEN, key);
     if (ret != 1) {
         LOG_DEBUG_ERR("PKCS5_PBKDF2_HMAC generate the derived key failed, errcode:%d", ret);
@@ -277,9 +344,13 @@ status_t cm_encrypt_pwd(uchar *plain_text, uint32 plain_len, cipher_t *cipher)
 status_t cm_decrypt_pwd(cipher_t *cipher, uchar *plain_text, uint32 *plain_len)
 {
     uchar key[RANDOM_LEN] = { 0 };
-
+    char component[RANDOM_LEN + 1] = { 0 };
+    if (cm_get_actual_component(component, RANDOM_LEN, (char *)cipher->rand) != CM_SUCCESS) {
+        LOG_DEBUG_ERR("Get component failed when decrypt pwd");
+        return CM_ERROR;
+    }
     /* get the decrypt key value */
-    int32 ret = PKCS5_PBKDF2_HMAC((const char *)cipher->rand, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
+    int32 ret = PKCS5_PBKDF2_HMAC((const char *)component, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
         EVP_sha256(), RANDOM_LEN, key);
     if (ret != 1) {
         LOG_DEBUG_ERR("PKCS5_PBKDF2_HMAC generate the derived key failed, errcode:%d", ret);
