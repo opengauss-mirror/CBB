@@ -39,7 +39,7 @@ extern "C" {
 #define MES_INSTANCE_ID(id)         (uint8)((id) >> UINT8_BITS)
 #define MES_CHANNEL_ID(id)          (uint8)((id)&0x00FF)
 #define MES_CONNECT_CMD             (uint8)(CM_MAX_MES_MSG_CMD + 1)
-#define MES_HEARTBEAT_CMD           (uint8)(255)
+#define MES_HEARTBEAT_CMD           (uint8)(254)
 #define MES_HEARTBEAT_INTERVAL      (1)
 
 
