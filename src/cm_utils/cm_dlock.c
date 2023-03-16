@@ -324,7 +324,7 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
     int32 ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE != ret) {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     } else {
@@ -348,7 +348,7 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
             // the lock is hold by another instance
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     }
@@ -480,7 +480,7 @@ status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body, cons
     }
     ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
-        LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, ret %d.", lock->lock_addr, ret);
+        LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, ret %d, errno %d.", lock->lock_addr, ret, errno);
         return CM_ERROR;
     }
 #endif
@@ -574,7 +574,7 @@ int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev)
         if (CM_SCSI_ERR_MISCOMPARE == ret) {
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     }
