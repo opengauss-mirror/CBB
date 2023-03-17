@@ -41,10 +41,12 @@ int32 cm_iof_register(iof_reg_out_t *iof_out)
     ret = perctrl_scsi3_register(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_CONFLICT == ret) {
-            LOG_DEBUG_INF("Scsi3 register conflict, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+            LOG_DEBUG_INF(
+                "Scsi3 register conflict, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
             return CM_IOF_ERR_DUP_OP;
         } else {
-            LOG_DEBUG_ERR("Scsi3 register failed, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+            LOG_DEBUG_ERR(
+                "Scsi3 register failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
             return CM_ERROR;
         }
     }
@@ -52,7 +54,7 @@ int32 cm_iof_register(iof_reg_out_t *iof_out)
     // Any host can perform reservation operations, but at least one host must perform
     ret = perctrl_scsi3_reserve(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
-        LOG_DEBUG_ERR("Scsi3 reserve failed, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+        LOG_DEBUG_ERR("Scsi3 reserve failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
         return CM_ERROR;
     }
     LOG_RUN_INF("IOfence register succ, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
@@ -73,14 +75,15 @@ int32 cm_iof_unregister(iof_reg_out_t *iof_out)
     ret = perctrl_scsi3_unregister(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_CONFLICT == ret) {
-            LOG_DEBUG_INF("Scsi3 unregister conflict, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+            LOG_DEBUG_INF(
+                "Scsi3 unregister conflict, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
             return CM_IOF_ERR_DUP_OP;
         } else {
             LOG_DEBUG_ERR("Scsi3 unregister failed, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
             return CM_ERROR;
         }
     }
-    LOG_RUN_INF("IOfence unregister succ, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+    LOG_RUN_INF("IOfence unregister succ, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
 
 #endif
     return CM_SUCCESS;
@@ -101,8 +104,8 @@ status_t cm_iof_kick(iof_reg_out_t *iof_out)
             CM_OUT_SCSI_SARK(iof_out), iof_out->dev);
         return CM_ERROR;
     }
-    LOG_RUN_INF("IOfence kick succ, rk %lld, rk_kick %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), CM_OUT_SCSI_SARK(iof_out),
-        iof_out->dev);
+    LOG_RUN_INF("IOfence kick succ, rk %lld, rk_kick %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out),
+        CM_OUT_SCSI_SARK(iof_out), iof_out->dev, errno);
 #endif
     return CM_SUCCESS;
 }
@@ -118,7 +121,7 @@ status_t cm_iof_clear(iof_reg_out_t *iof_out)
     }
     status = perctrl_scsi3_clear(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != status) {
-        LOG_DEBUG_ERR("Scsi3 clear failed, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
+        LOG_DEBUG_ERR("Scsi3 clear failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
         return CM_ERROR;
     }
     LOG_RUN_INF("IOfence clear succ, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
@@ -139,13 +142,13 @@ status_t cm_iof_inql(iof_reg_in_t *iof_in)
     iof_in->key_count = CM_MAX_RKEY_COUNT;
     status = perctrl_scsi3_rkeys(iof_in->dev, iof_in->reg_keys, &iof_in->key_count, &iof_in->generation);
     if (CM_SUCCESS != status) {
-        LOG_DEBUG_ERR("Scsi3 inql rkeys failed, dev %s.", iof_in->dev);
+        LOG_DEBUG_ERR("Scsi3 inql rkeys failed, dev %s, errno %d.", iof_in->dev, errno);
         return CM_ERROR;
     }
 
     status = perctrl_scsi3_rres(iof_in->dev, &iof_in->resk, &iof_in->generation);
     if (CM_SUCCESS != status) {
-        LOG_DEBUG_ERR("Scsi3 inql rres failed, dev %s.", iof_in->dev);
+        LOG_DEBUG_ERR("Scsi3 inql rres failed, dev %s, errno %d.", iof_in->dev, errno);
         return CM_ERROR;
     }
     LOG_RUN_INF("IOfence inql succ, dev %s.", iof_in->dev);
