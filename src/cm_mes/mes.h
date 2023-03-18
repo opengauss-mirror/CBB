@@ -472,6 +472,13 @@ int mes_set_param(const char *param_name, const char *param_value);
 */
 int mes_chk_ssl_cert_expire(void);
 
+/*
+ * @brief get g_cbb_mes address
+ *
+ * @return g_cbb_mes address
+*/
+void* mes_get_global_inst();
+
 #ifdef __cplusplus
 }
 #endif
