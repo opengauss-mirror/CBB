@@ -1772,3 +1772,8 @@ int mes_chk_ssl_cert_expire(void)
     ssl_ca_cert_expire(MES_GLOBAL_INST_MSG.ssl_acceptor_fd, (int32)cert_notify.ssl_cert_notify_time);
     return CM_SUCCESS;
 }
+
+void* mes_get_global_inst(void)
+{
+    return &g_cbb_mes;
+}
