@@ -38,6 +38,12 @@ static mes_callback_t g_cbb_mes_callback;
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
 
+static mes_global_ptr_t g_mes_ptr = {
+    .g_cbb_mes_ptr = &g_cbb_mes,
+    .g_mes_stat_ptr = &g_mes_stat,
+    .g_mes_elapsed_stat = &g_mes_elapsed_stat
+};
+
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_SEND_DATA(data) g_cbb_mes_callback.send_func(data)
@@ -1775,5 +1781,5 @@ int mes_chk_ssl_cert_expire(void)
 
 void* mes_get_global_inst(void)
 {
-    return &g_cbb_mes;
+    return &g_mes_ptr;
 }

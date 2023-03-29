@@ -242,6 +242,13 @@ typedef struct st_mes_stat {
 
 extern mes_elapsed_stat_t g_mes_elapsed_stat;
 extern mes_stat_t g_mes_stat;
+
+typedef struct st_mes_global_ptr {
+    mes_instance_t* g_cbb_mes_ptr;
+    mes_stat_t* g_mes_stat_ptr;
+    mes_elapsed_stat_t* g_mes_elapsed_stat;
+} mes_global_ptr_t;
+
 uint64 cm_get_time_usec(void);
 
 void mes_local_stat(uint32 cmd);
