@@ -840,7 +840,10 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
     char plain[CM_PASSWD_MAX_LEN + 1] = { 0 };
 
     // verify ssl key password and KMC module
-    CM_RETURN_IFERR(mes_verify_ssl_key_pwd(ssl_cfg, plain, sizeof(plain) - 1));
+    if (mes_verify_ssl_key_pwd(ssl_cfg, plain, sizeof(plain) - 1) != CM_SUCCESS) {
+        MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
+        return CM_ERROR;
+    }
 
     // create acceptor fd
     MES_GLOBAL_INST_MSG.ssl_acceptor_fd = cs_ssl_create_acceptor_fd(ssl_cfg);
