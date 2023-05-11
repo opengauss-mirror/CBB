@@ -733,49 +733,24 @@ static void cm_write_rmv_and_bak_file_log(char *bak_file_name[CM_MAX_LOG_FILE_CO
     }
 }
 
-static status_t cm_alloc_compress_buf(char **buffer)
-{
-    if (cm_log_param_instance()->log_compress_buf != NULL) {
-        *buffer = cm_log_param_instance()->log_compress_buf;
-    } else {
-        *buffer = malloc(CM_LOG_COMPRESS_BUFSIZE);
-        if (*buffer == NULL) {
-            CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)CM_LOG_COMPRESS_BUFSIZE, "log compress memory");
-            return CM_ERROR;
-        }
-        errno_t rc = memset_s(*buffer, CM_LOG_COMPRESS_BUFSIZE, 0, CM_LOG_COMPRESS_BUFSIZE);
-        if (rc != EOK) {
-            CM_FREE_PTR(*buffer);
-            return CM_ERROR;
-        }
-    }
-    return CM_SUCCESS;
-}
-
-static void cm_free_compress_buf(char *buffer)
-{
-    if (cm_log_param_instance()->log_compress_buf != buffer) {
-        CM_FREE_PTR(buffer);
-    }
-}
-
 static status_t compress_file_to_gzip(const char *infilename, const char *outfilename)
 {
     uint32 num_read = 0;
-    char *buffer = NULL;
+    char *buffer = cm_log_param_instance()->log_compress_buf;
+    if (buffer == NULL) {
+        LOG_RUN_ERR("log_compress_buf is NULL");
+        return CM_ERROR;
+    }
     uint32 buffer_len = CM_LOG_COMPRESS_BUFSIZE;
-    CM_RETURN_IFERR(cm_alloc_compress_buf(&buffer));
 
     FILE *infile = fopen(infilename, "r");
     if (infile == NULL) {
-        cm_free_compress_buf(buffer);
         return CM_ERROR;
     }
 
     gzFile outfile = gzopen(outfilename, "wb9");
     if (outfile == NULL) {
         (void)fclose(infile);
-        cm_free_compress_buf(buffer);
         return CM_ERROR;
     }
 
@@ -783,17 +758,21 @@ static status_t compress_file_to_gzip(const char *infilename, const char *outfil
         if (gzwrite(outfile, buffer, num_read) == 0) {
             (void)fclose(infile);
             (void)gzclose(outfile);
-            cm_free_compress_buf(buffer);
             return CM_ERROR;
         }
+    }
+
+    if (feof(infile) == 0) {
+        (void)fclose(infile);
+        (void)gzclose(outfile);
+        return CM_ERROR;
     }
 
     errno_t rc = memset_s(buffer, buffer_len, 0, buffer_len);
     (void)fclose(infile);
     (void)gzclose(outfile);
-    cm_free_compress_buf(buffer);
     if (rc != EOK) {
-        return CM_FALSE;
+        return CM_ERROR;
     }
     return CM_SUCCESS;
 }
