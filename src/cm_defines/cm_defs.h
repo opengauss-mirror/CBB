@@ -85,7 +85,7 @@ extern "C" {
 #define CM_TCP_KEEP_COUNT          (uint32)3
 #define CM_TCP_PORT_MAX_LENGTH     (uint32)5
 #define CM_POLL_WAIT               (uint32)50   /* mill-seconds */
-#define CM_CONNECT_TIMEOUT         (uint32)60000 /* mill-seconds */
+#define CM_CONNECT_TIMEOUT         (uint32)1000 /* mill-seconds */
 #define CM_SOCKET_TIMEOUT          (uint32)60000 /* mill-seconds */
 #define CM_TIME_THOUSAND_UN        (uint32)1000
 #define CM_HANDSHAKE_TIMEOUT       (uint32)600000 /* mill-seconds */
