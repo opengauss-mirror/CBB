@@ -1391,6 +1391,10 @@ int mes_allocbuf_and_recv_data(unsigned short sid, mes_message_t *msg, unsigned 
 
         MES_MESSAGE_ATTACH(msg, room->msg_buf);
         room->msg_buf = NULL;
+        if (msg->buffer == NULL) {
+            return ERR_MES_WAIT_OVERTIME;
+        }
+
         if (SECUREC_UNLIKELY(room->rsn !=
             msg->head->rsn)) { // this situation should not happen, keep this code to observe some time.
             // rsn not match, ignore this message
@@ -1776,4 +1780,17 @@ int mes_chk_ssl_cert_expire(void)
 void* mes_get_global_inst(void)
 {
     return &g_cbb_mes;
+}
+
+void mes_msg_end_wait(unsigned long long rsn, unsigned int sid)
+{
+    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
+    cm_spin_lock(&room->lock, NULL);
+    if (room->rsn == rsn && room->check_rsn != rsn) {
+        room->rsn = (uint64)cm_atomic_inc((atomic_t *)(&room->rsn));
+        room->msg_buf = NULL;
+        room->check_rsn = rsn;
+        mes_mutex_unlock(&room->mutex);
+    }
+    cm_spin_unlock(&room->lock);
 }
