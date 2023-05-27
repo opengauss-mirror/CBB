@@ -479,6 +479,12 @@ int mes_chk_ssl_cert_expire(void);
 */
 void* mes_get_global_inst();
 
+/*
+ * @brief end wait mes_allocbuf_and_recv_data
+ * @return
+*/
+void mes_msg_end_wait(unsigned long long rsn, unsigned int sid);
+
 #ifdef __cplusplus
 }
 #endif
