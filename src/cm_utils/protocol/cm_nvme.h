@@ -63,6 +63,15 @@ static inline uint64 le64_to_cpu(__le64 x)
 }
 
 enum {
+    CM_NVME_CMD_FUSE_FIRST = (1 << 0),
+    CM_NVME_CMD_FUSE_SECOND    = (1 << 1),
+
+    CM_NVME_CMD_SGL_METABUF    = (1 << 6),
+    CM_NVME_CMD_SGL_METASEG    = (1 << 7),
+    CM_NVME_CMD_SGL_ALL    = CM_NVME_CMD_SGL_METABUF | CM_NVME_CMD_SGL_METASEG,
+};
+
+enum {
     /*
      * Generic Command Status:
      */
@@ -245,7 +254,6 @@ struct nvme_reservation_status {
 };
 
 /* I/O commands */
-
 enum nvme_opcode {
     nvme_cmd_flush      = 0x00,
     nvme_cmd_write      = 0x01,
@@ -259,6 +267,39 @@ enum nvme_opcode {
     nvme_cmd_resv_report    = 0x0e,
     nvme_cmd_resv_acquire   = 0x11,
     nvme_cmd_resv_release   = 0x15,
+};
+
+/* Admin commands */
+
+enum nvme_admin_opcode {
+    nvme_admin_delete_sq        = 0x00,
+    nvme_admin_create_sq        = 0x01,
+    nvme_admin_get_log_page     = 0x02,
+    nvme_admin_delete_cq        = 0x04,
+    nvme_admin_create_cq        = 0x05,
+    nvme_admin_identify         = 0x06,
+    nvme_admin_abort_cmd        = 0x08,
+    nvme_admin_set_features     = 0x09,
+    nvme_admin_get_features     = 0x0a,
+    nvme_admin_async_event      = 0x0c,
+    nvme_admin_ns_mgmt          = 0x0d,
+    nvme_admin_activate_fw      = 0x10,
+    nvme_admin_download_fw      = 0x11,
+    nvme_admin_dev_self_test    = 0x14,
+    nvme_admin_ns_attach        = 0x15,
+    nvme_admin_keep_alive       = 0x18,
+    nvme_admin_directive_send   = 0x19,
+    nvme_admin_directive_recv   = 0x1a,
+    nvme_admin_virtual_mgmt     = 0x1c,
+    nvme_admin_nvme_mi_send     = 0x1d,
+    nvme_admin_nvme_mi_recv     = 0x1e,
+    nvme_admin_dbbuf            = 0x7C,
+    nvme_admin_format_nvm       = 0x80,
+    nvme_admin_security_send    = 0x81,
+    nvme_admin_compare          = 0x81,
+    nvme_admin_security_recv    = 0x82,
+    nvme_admin_sanitize_nvm     = 0x84,
+    nvme_admin_get_lba_status   = 0x86,
 };
 
 
@@ -283,6 +324,9 @@ int32 cm_nvme_clear(int32 fd, int64 crkey);
 int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey);
 int32 cm_nvme_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generation);
 int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation);
+int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
+int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
+int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
 
 const char *cm_nvme_status_to_string(uint32 status);
 

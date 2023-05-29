@@ -70,6 +70,27 @@ int cm_nvme_submit_io_passthru(int fd, struct nvme_passthru_cmd *cmd)
     return ioctl(fd, NVME_IOCTL_IO_CMD, cmd);
 }
 
+int cm_nvme_io(int fd, uint8 opcode, uint8 flags, uint64 slba, uint16 nblocks, uint16 control,
+        uint32 dsmgmt, uint32 reftag, uint16 apptag, uint16 appmask, void *data,
+        void *metadata)
+{
+    struct nvme_user_io io = {
+        .opcode     = opcode,
+        .flags      = flags,
+        .control    = control,
+        .nblocks    = nblocks,
+        .rsvd       = 0,
+        .metadata   = (uint64)(uintptr_t) metadata,
+        .addr       = (uint64)(uintptr_t) data,
+        .slba       = slba,
+        .dsmgmt     = dsmgmt,
+        .reftag     = reftag,
+        .appmask    = appmask,
+        .apptag     = apptag,
+    };
+    return ioctl(fd, NVME_IOCTL_SUBMIT_IO, &io);
+}
+
 bool32 cm_nvme_is_rkey_exist(const int64 *reg_keys, int32 key_count, int64 rkey)
 {
     int32 i;
@@ -422,6 +443,106 @@ int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
     }
 
     free(res_status);
+
+    return CM_SUCCESS;
+}
+
+int nvme_compare(int fd, uint64 slba, uint16 nblocks, uint16 control, uint32 dsmgmt,
+         uint32 reftag, uint16 apptag, uint16 appmask, void *data,
+         void *metadata)
+{
+    return cm_nvme_io(fd, nvme_cmd_compare, 0, slba, nblocks, control, dsmgmt,
+               reftag, apptag, appmask, data, metadata);
+}
+
+// nvme vaai read
+int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
+{
+    int32 status;
+    uint8 opcode = nvme_cmd_read;
+    uint8 flags = 0;
+    uint64 slba = block_addr;
+    uint16 nblocks = block_count - 1;
+    uint16 control = 0;
+    uint32 dsmgmt = 0;
+    uint32 reftag = 0;
+    uint16 apptag = 0;
+    uint16 appmask = 0;
+    void *data = buff;
+    void *metadata  = 0;
+
+    status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt,
+               reftag, apptag, appmask, data, metadata);
+
+    if (status != CM_NVME_SC_SUCCESS) {
+        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+
+// nvme vaai write
+int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
+{
+    int32 status;
+    uint8 opcode = nvme_cmd_write;
+    uint8 flags = 0;
+    uint64 slba = block_addr;
+    uint16 nblocks = block_count - 1;
+    uint16 control = 0;
+    uint32 dsmgmt = 0;
+    uint32 reftag = 0;
+    uint16 apptag = 0;
+    uint16 appmask = 0;
+    void *data = buff;
+    void *metadata  = 0;
+
+    status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt,
+               reftag, apptag, appmask, data, metadata);
+
+    if (status != CM_NVME_SC_SUCCESS) {
+        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+
+// nvme vaai compare and write
+int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
+{
+    int32 status;
+    uint8 opcode = nvme_cmd_compare;
+    uint8 flags = 0;
+    uint64 slba = block_addr;
+    uint16 nblocks = (block_count / 2) - 1;
+    uint16 control = 0;
+    uint32 dsmgmt = 0;
+    uint32 reftag = 0;
+    uint16 apptag = 0;
+    uint16 appmask = 0;
+    void *data = buff;
+    void *metadata  = 0;
+
+    status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt,
+               reftag, apptag, appmask, data, metadata);
+
+    if (status != CM_NVME_SC_SUCCESS) {
+        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        return CM_ERROR;
+    }
+
+
+    opcode = nvme_cmd_write;
+    data = buff + buff_len/2;
+    status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt,
+               reftag, apptag, appmask, data, metadata);
+
+    if (status != CM_NVME_SC_SUCCESS) {
+        LOG_DEBUG_ERR("Sending NVMe write command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        return CM_ERROR;
+    }
 
     return CM_SUCCESS;
 }

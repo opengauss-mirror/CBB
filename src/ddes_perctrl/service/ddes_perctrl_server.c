@@ -391,7 +391,7 @@ int32 exec_nvme_register(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_int64(req, &sark));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     int32 ret = cm_nvme_register(fd, sark);
-    LOG_DEBUG_INF("Exec register ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme register ret %d.\n", ret);
     (void)close(fd);
     return ret;
 }
@@ -407,7 +407,7 @@ int32 exec_nvme_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     int32 ret = cm_nvme_unregister(fd, rk);
     (void)close(fd);
-    LOG_DEBUG_INF("Exec unregister ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme unregister ret %d.\n", ret);
     return ret;
 }
 
@@ -422,7 +422,7 @@ int32 exec_nvme_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_reserve(fd, rk);
     (void)close(fd);
-    LOG_DEBUG_INF("Exec reserve ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme reserve ret %d.\n", ret);
     return ret;
 }
 
@@ -437,7 +437,7 @@ int32 exec_nvme_release(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_release(fd, rk);
     (void)close(fd);
-    LOG_DEBUG_INF("Exec release ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme release ret %d.\n", ret);
     return ret;
 }
 
@@ -452,7 +452,7 @@ int32 exec_nvme_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_clear(fd, rk);
     (void)close(fd);
-    LOG_DEBUG_INF("Exec clear ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme clear ret %d.\n", ret);
     return ret;
 }
 
@@ -468,31 +468,120 @@ int32 exec_nvme_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_preempt(fd, rk, sark);
     (void)close(fd);
-    LOG_DEBUG_INF("Exec preempt ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme preempt ret %d.\n", ret);
     return ret;
 }
 
 int32 exec_nvme_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    LOG_DEBUG_INF("Exec exec_nvme_read is not supported .use exec_scsi3_read instead.\n");
-    return exec_scsi3_caw(req, ack);
+    int32 fd;
+    uint64 block_addr;
+    text_t text = CM_NULL_TEXT;
+    char *scsi_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &scsi_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, (int64 *)&block_addr));
+    CM_RETURN_IFERR(ddes_get_text(req, &text));
+
+    char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
+    if (buff == NULL) {
+        LOG_DEBUG_ERR("Failed to alloc memory.\n");
+        return CM_ERROR;
+    }
+    errno_t errcode = memcpy_sp(buff, text.len, text.str, text.len);
+    if (errcode != EOK) {
+        free(buff);
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+        return CM_ERROR;
+    }
+
+    int32 ret = ddes_open_scsi_dev(scsi_dev, &fd);
+    if (ret != CM_SUCCESS) {
+        free(buff);
+        return CM_ERROR;
+    }
+    ret = cm_nvme_caw(fd, block_addr, 2, buff, (int32)text.len);
+    LOG_DEBUG_INF("Exec nvme caw ret %d.\n", ret);
+    free(buff);
+    (void)close(fd);
+    return ret;
 }
 
 int32 exec_nvme_read(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    LOG_DEBUG_INF("Exec exec_nvme_read is not supported .use exec_scsi3_read instead.\n");
-    return exec_scsi3_read(req, ack);
+    int32 fd, block_addr;
+    uint16 block_count;
+    text_t text = CM_NULL_TEXT;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
+    CM_RETURN_IFERR(ddes_get_text(req, &text));
+    char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
+    if (buff == NULL) {
+        LOG_DEBUG_ERR("Failed to alloc memory.\n");
+        return CM_ERROR;
+    }
+
+    errno_t errcode = memcpy_sp(buff, text.len, text.str, text.len);
+    if (errcode != EOK) {
+        free(buff);
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+        return CM_ERROR;
+    }
+
+    status_t ret = ddes_open_scsi_dev(iof_dev, &fd);
+    if (ret != CM_SUCCESS) {
+        free(buff);
+        return CM_ERROR;
+    }
+    ret = cm_nvme_read(fd, block_addr, block_count, buff, (int32)text.len);
+    free(buff);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec nvme read ret %d.\n", ret);
+    return ret;
 }
 
 int32 exec_nvme_write(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    LOG_DEBUG_INF("Exec exec_nvme_write is not supported .use exec_scsi3_write instead.\n");
-    return exec_scsi3_write(req, ack);
+    int32 fd, block_addr;
+    uint16 block_count;
+    text_t text = CM_NULL_TEXT;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
+    CM_RETURN_IFERR(ddes_get_text(req, &text));
+    char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
+    if (buff == NULL) {
+        LOG_DEBUG_ERR("Failed to alloc memory.\n");
+        return CM_ERROR;
+    }
+
+    errno_t errcode = memcpy_sp(buff, text.len, text.str, text.len);
+    if (errcode != EOK) {
+        free(buff);
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+        return CM_ERROR;
+    }
+
+    status_t ret = ddes_open_scsi_dev(iof_dev, &fd);
+    if (ret != CM_SUCCESS) {
+        free(buff);
+        return CM_ERROR;
+    }
+    ret = cm_nvme_write(fd, block_addr, block_count, buff, (int32)text.len);
+    free(buff);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec nvme write ret %d.\n", ret);
+    return ret;
 }
 
 int32 exec_nvme_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    LOG_DEBUG_INF("Exec exec_nvme_inql is not supported .use exec_scsi3_inql instead.\n");
+    LOG_DEBUG_INF("Exec exec_nvme_inql is not supported . Redirect to exec_scsi3_inql.\n");
     return exec_scsi3_inql(req, ack);
 }
 
@@ -510,7 +599,7 @@ int32 exec_nvme_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_rkeys(fd, reg_keys, &key_count, &generation);
-    LOG_DEBUG_INF("Exec rkeys ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme rkeys ret %d.\n", ret);
     if (ret != CM_SUCCESS) {
         (void)close(fd);
         return ret;
@@ -545,7 +634,7 @@ int32 exec_nvme_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_nvme_rres(fd, &rk, &generation);
-    LOG_DEBUG_INF("Exec rres ret %d.\n", ret);
+    LOG_DEBUG_INF("Exec nvme rres ret %d.\n", ret);
     if (ret != CM_SUCCESS) {
         (void)close(fd);
         return ret;
@@ -604,18 +693,22 @@ static int32 get_protocol(char *iof_dev)
 {
     int32 fd;
     int32 nsid;
+    int perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
 
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
 
     nsid = ioctl(fd, NVME_IOCTL_ID);
+
     if (nsid == -1){
         LOG_DEBUG_INF("ioctl get nsid error : %s\n", strerror(errno));
-        return PERCTRL_PROTOCOL_SCSI3;
+        perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
     } else {
-        return PERCTRL_PROTOCOL_NVME;
+        perctrl_protocol = PERCTRL_PROTOCOL_NVME;
     }
 
-    return PERCTRL_PROTOCOL_SCSI3;
+    (void)close(fd);
+
+    return perctrl_protocol;
 }
 
 static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
