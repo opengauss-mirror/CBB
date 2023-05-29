@@ -25,6 +25,9 @@
 #include "cm_signal.h"
 #include "ddes_perctrl_server.h"
 
+#include <sys/ioctl.h>
+#include "cm_utils/protocol/cm_nvme.h"
+
 static int req_fd = 0;
 static int ack_fd = 0;
 
@@ -32,6 +35,9 @@ static int ack_fd = 0;
 #define PERCTRL_ARG_COUNT_1 1
 #define PERCTRL_ARG_COUNT_2 2
 #define PERCTRL_ARG_COUNT_3 3
+
+#define PERCTRL_PROTOCOL_SCSI3 0
+#define PERCTRL_PROTOCOL_NVME 1
 
 #ifndef WIN32
 static status_t ddes_open_scsi_dev(const char *scsi_dev, int32 *fd)
@@ -82,7 +88,7 @@ static void ddes_return_success(perctrl_packet_t *req, perctrl_packet_t *ack, in
     ack->head->result = ret;
 }
 
-int32 exec_register(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_register(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 sark;
@@ -97,7 +103,7 @@ int32 exec_register(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk;
@@ -112,7 +118,7 @@ int32 exec_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk;
@@ -127,7 +133,7 @@ int32 exec_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_release(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_release(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk;
@@ -142,7 +148,7 @@ int32 exec_release(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk;
@@ -157,7 +163,7 @@ int32 exec_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk, sark;
@@ -173,7 +179,7 @@ int32 exec_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     uint64 block_addr;
@@ -208,7 +214,7 @@ int32 exec_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_read(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_read(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd, block_addr;
     uint16 block_count;
@@ -244,7 +250,7 @@ int32 exec_read(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_write(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_write(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd, block_addr;
     uint16 block_count;
@@ -280,7 +286,7 @@ int32 exec_write(perctrl_packet_t *req, perctrl_packet_t *ack)
     return ret;
 }
 
-int32 exec_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     inquiry_data_t inquiry_data;
@@ -308,7 +314,7 @@ int32 exec_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
     return CM_SUCCESS;
 }
 
-int32 exec_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int32 key_count = (int32)CM_MAX_RKEY_COUNT;
@@ -344,7 +350,7 @@ int32 exec_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
     return CM_SUCCESS;
 }
 
-int32 exec_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
+int32 exec_scsi3_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
     int64 rk = 0;
@@ -374,20 +380,205 @@ int32 exec_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
     return CM_SUCCESS;
 }
 
+
+int32 exec_nvme_register(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 sark;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &sark));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    int32 ret = cm_nvme_register(fd, sark);
+    LOG_DEBUG_INF("Exec register ret %d.\n", ret);
+    (void)close(fd);
+    return ret;
+}
+
+int32 exec_nvme_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    int32 ret = cm_nvme_unregister(fd, rk);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec unregister ret %d.\n", ret);
+    return ret;
+}
+
+int32 exec_nvme_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_reserve(fd, rk);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec reserve ret %d.\n", ret);
+    return ret;
+}
+
+int32 exec_nvme_release(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_release(fd, rk);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec release ret %d.\n", ret);
+    return ret;
+}
+
+int32 exec_nvme_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_clear(fd, rk);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec clear ret %d.\n", ret);
+    return ret;
+}
+
+int32 exec_nvme_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk, sark;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_get_int64(req, &sark));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_preempt(fd, rk, sark);
+    (void)close(fd);
+    LOG_DEBUG_INF("Exec preempt ret %d.\n", ret);
+    return ret;
+}
+
+int32 exec_nvme_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    LOG_DEBUG_INF("Exec exec_nvme_read is not supported .use exec_scsi3_read instead.\n");
+    return exec_scsi3_caw(req, ack);
+}
+
+int32 exec_nvme_read(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    LOG_DEBUG_INF("Exec exec_nvme_read is not supported .use exec_scsi3_read instead.\n");
+    return exec_scsi3_read(req, ack);
+}
+
+int32 exec_nvme_write(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    LOG_DEBUG_INF("Exec exec_nvme_write is not supported .use exec_scsi3_write instead.\n");
+    return exec_scsi3_write(req, ack);
+}
+
+int32 exec_nvme_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    LOG_DEBUG_INF("Exec exec_nvme_inql is not supported .use exec_scsi3_inql instead.\n");
+    return exec_scsi3_inql(req, ack);
+}
+
+int32 exec_nvme_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int32 key_count = (int32)CM_MAX_RKEY_COUNT;
+    uint32 generation;
+    int64 reg_keys[CM_MAX_RKEY_COUNT] = {0};
+    text_t text;
+    char buff[MAX_PACKET_LEN] = {0};
+    text.str = buff;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_rkeys(fd, reg_keys, &key_count, &generation);
+    LOG_DEBUG_INF("Exec rkeys ret %d.\n", ret);
+    if (ret != CM_SUCCESS) {
+        (void)close(fd);
+        return ret;
+    }
+
+    (void)close(fd);
+    errno_t errcode = memcpy_sp(text.str, sizeof(reg_keys), (char *)reg_keys, sizeof(reg_keys));
+    MEMS_RETURN_IFERR(errcode);
+    text.len = sizeof(reg_keys);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+
+    *(int32 *)text.str = key_count;
+    text.len = sizeof(int32);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+
+    *(uint32 *)text.str = generation;
+    text.len = sizeof(uint32);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+    return CM_SUCCESS;
+}
+
+int32 exec_nvme_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    int32 fd;
+    int64 rk = 0;
+    uint32 generation;
+    text_t text;
+    char buff[MAX_PACKET_LEN] = {0};
+    text.str = buff;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_rres(fd, &rk, &generation);
+    LOG_DEBUG_INF("Exec rres ret %d.\n", ret);
+    if (ret != CM_SUCCESS) {
+        (void)close(fd);
+        return ret;
+    }
+
+    (void)close(fd);
+    *(int64 *)text.str = rk;
+    text.len = sizeof(int64);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+
+    *(uint32 *)text.str = generation;
+    text.len = sizeof(uint32);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+    return CM_SUCCESS;
+}
+
+
 static perctrl_cmd_hdl_t g_perctrl_cmd_handle[] = {
-    { PERCTRL_CMD_REGISTER, exec_register },
-    { PERCTRL_CMD_UNREGISTER, exec_unregister },
-    { PERCTRL_CMD_REVERSE, exec_reserve },
-    { PERCTRL_CMD_RELEASE, exec_release },
-    { PERCTRL_CMD_CLEAR, exec_clear },
-    { PERCTRL_CMD_PREEMPT, exec_preempt },
-    { PERCTRL_CMD_CAW, exec_caw },
-    { PERCTRL_CMD_READ, exec_read },
-    { PERCTRL_CMD_WRITE, exec_write },
-    { PERCTRL_CMD_INQL, exec_inql },
-    { PERCTRL_CMD_RKEYS, exec_rkeys },
-    { PERCTRL_CMD_RRES, exec_rres }
+    { PERCTRL_CMD_REGISTER, {exec_scsi3_register,exec_nvme_register } },
+    { PERCTRL_CMD_UNREGISTER, {exec_scsi3_unregister,exec_nvme_unregister } },
+    { PERCTRL_CMD_REVERSE, {exec_scsi3_reserve,exec_nvme_reserve } },
+    { PERCTRL_CMD_RELEASE, {exec_scsi3_release,exec_nvme_release } },
+    { PERCTRL_CMD_CLEAR, {exec_scsi3_clear,exec_nvme_clear } },
+    { PERCTRL_CMD_PREEMPT, {exec_scsi3_preempt,exec_nvme_preempt } },
+    { PERCTRL_CMD_CAW, {exec_scsi3_caw,exec_nvme_caw } },
+    { PERCTRL_CMD_READ, {exec_scsi3_read,exec_nvme_read } },
+    { PERCTRL_CMD_WRITE, {exec_scsi3_write,exec_nvme_write } },
+    { PERCTRL_CMD_INQL, {exec_scsi3_inql,exec_nvme_inql } },
+    { PERCTRL_CMD_RKEYS, {exec_scsi3_rkeys,exec_nvme_rkeys } },
+    { PERCTRL_CMD_RRES, {exec_scsi3_rres,exec_nvme_rres } }
 };
+
+
 
 static perctrl_cmd_hdl_t *get_cmd_handle(int32 cmd)
 {
@@ -409,21 +600,48 @@ static perctrl_cmd_hdl_t *get_cmd_handle(int32 cmd)
     return NULL;
 }
 
+static int32 get_protocol(char *iof_dev)
+{
+    int32 fd;
+    int32 nsid;
+
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+
+    nsid = ioctl(fd, NVME_IOCTL_ID);
+    if (nsid == -1){
+        LOG_DEBUG_INF("ioctl get nsid error : %s\n", strerror(errno));
+        return PERCTRL_PROTOCOL_SCSI3;
+    } else {
+        return PERCTRL_PROTOCOL_NVME;
+    }
+
+    return PERCTRL_PROTOCOL_SCSI3;
+}
+
 static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 status = CM_ERROR;
+    char *iof_dev = NULL;
+    int perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
+
     req->head = (perctrl_cmd_head_t *)req->buf;
     int32 cmd = (int32)req->head->cmd;
     if (cmd == PERCTRL_CMD_EXIT) {
         exit(1);
     }
+
     perctrl_cmd_hdl_t *handle = get_cmd_handle(cmd);
     if ((handle == NULL) || (handle->exec == NULL)) {
         LOG_DEBUG_ERR("The req command: %d is not valid.", cmd);
         ddes_return_error(req, ack);
         return CM_ERROR;
     }
-    status = handle->exec(req, ack);
+
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    perctrl_protocol = get_protocol(iof_dev);
+
+    status = handle->exec[perctrl_protocol](req, ack);
     if (status == CM_ERROR) {
         LOG_DEBUG_ERR("Failed to execute command:%d.", cmd);
         ddes_return_error(req, ack);
