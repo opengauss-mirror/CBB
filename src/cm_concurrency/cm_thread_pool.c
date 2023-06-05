@@ -45,6 +45,7 @@ static void cm_pooling_thread_entry(thread_t *obj)
 
         if (pooling_thread->status == THREAD_STATUS_ENDING) {
             pooling_thread->status = THREAD_STATUS_ENDED;
+            pooling_thread->task = NULL;
         }
 
         if (ret == CM_SUCCESS && pooling_thread->task != NULL) {
