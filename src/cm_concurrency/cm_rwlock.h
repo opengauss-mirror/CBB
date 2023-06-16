@@ -49,6 +49,11 @@ static inline void cm_rwlock_wlock(rwlock_t *rwlock)
     cm_latch_x(rwlock, 0, NULL);
 }
 
+static inline bool32 cm_rwlock_trywlock(rwlock_t *rwlock)
+{
+    return cm_latch_timed_x(rwlock, 0, 0, NULL);
+}
+
 static inline void cm_rwlock_unlock(rwlock_t *rwlock)
 {
     cm_unlatch(rwlock, NULL);
@@ -79,6 +84,11 @@ static inline void cm_rwlock_rlock(rwlock_t *rwlock)
 static inline void cm_rwlock_wlock(rwlock_t *rwlock)
 {
     (void)pthread_rwlock_wrlock(rwlock);
+}
+
+static inline bool32 cm_rwlock_trywlock(rwlock_t *rwlock)
+{
+    return pthread_rwlock_trywrlock(rwlock) == 0;
 }
 
 static inline void cm_rwlock_unlock(rwlock_t *rwlock)
