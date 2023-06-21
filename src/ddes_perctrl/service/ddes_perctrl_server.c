@@ -166,7 +166,8 @@ int32 exec_scsi3_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
 int32 exec_scsi3_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 fd;
-    int64 rk, sark;
+    int64 rk;
+    int64 sark;
     char *iof_dev = NULL;
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
@@ -252,7 +253,8 @@ int32 exec_scsi3_read(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_scsi3_write(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    int32 fd, block_addr;
+    int32 fd;
+    int32 block_addr;
     uint16 block_count;
     text_t text = CM_NULL_TEXT;
     char *iof_dev = NULL;
@@ -509,7 +511,8 @@ int32 exec_nvme_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_nvme_read(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    int32 fd, block_addr;
+    int32 fd;
+    int32 block_addr;
     uint16 block_count;
     text_t text = CM_NULL_TEXT;
     char *iof_dev = NULL;
@@ -651,23 +654,20 @@ int32 exec_nvme_rres(perctrl_packet_t *req, perctrl_packet_t *ack)
     return CM_SUCCESS;
 }
 
-
 static perctrl_cmd_hdl_t g_perctrl_cmd_handle[] = {
-    { PERCTRL_CMD_REGISTER, {exec_scsi3_register,exec_nvme_register } },
-    { PERCTRL_CMD_UNREGISTER, {exec_scsi3_unregister,exec_nvme_unregister } },
-    { PERCTRL_CMD_REVERSE, {exec_scsi3_reserve,exec_nvme_reserve } },
-    { PERCTRL_CMD_RELEASE, {exec_scsi3_release,exec_nvme_release } },
-    { PERCTRL_CMD_CLEAR, {exec_scsi3_clear,exec_nvme_clear } },
-    { PERCTRL_CMD_PREEMPT, {exec_scsi3_preempt,exec_nvme_preempt } },
-    { PERCTRL_CMD_CAW, {exec_scsi3_caw,exec_nvme_caw } },
-    { PERCTRL_CMD_READ, {exec_scsi3_read,exec_nvme_read } },
-    { PERCTRL_CMD_WRITE, {exec_scsi3_write,exec_nvme_write } },
-    { PERCTRL_CMD_INQL, {exec_scsi3_inql,exec_nvme_inql } },
-    { PERCTRL_CMD_RKEYS, {exec_scsi3_rkeys,exec_nvme_rkeys } },
-    { PERCTRL_CMD_RRES, {exec_scsi3_rres,exec_nvme_rres } }
+    { PERCTRL_CMD_REGISTER, { exec_scsi3_register, exec_nvme_register } },
+    { PERCTRL_CMD_UNREGISTER, { exec_scsi3_unregister, exec_nvme_unregister } },
+    { PERCTRL_CMD_REVERSE, { exec_scsi3_reserve, exec_nvme_reserve } },
+    { PERCTRL_CMD_RELEASE, { exec_scsi3_release, exec_nvme_release } },
+    { PERCTRL_CMD_CLEAR, { exec_scsi3_clear, exec_nvme_clear } },
+    { PERCTRL_CMD_PREEMPT, { exec_scsi3_preempt, exec_nvme_preempt } },
+    { PERCTRL_CMD_CAW, { exec_scsi3_caw, exec_nvme_caw } },
+    { PERCTRL_CMD_READ, { exec_scsi3_read, exec_nvme_read } },
+    { PERCTRL_CMD_WRITE, { exec_scsi3_write, exec_nvme_write } },
+    { PERCTRL_CMD_INQL, { exec_scsi3_inql, exec_nvme_inql } },
+    { PERCTRL_CMD_RKEYS, { exec_scsi3_rkeys, exec_nvme_rkeys } },
+    { PERCTRL_CMD_RRES, { exec_scsi3_rres, exec_nvme_rres } }
 };
-
-
 
 static perctrl_cmd_hdl_t *get_cmd_handle(int32 cmd)
 {
@@ -695,11 +695,12 @@ static int32 get_protocol(char *iof_dev)
     int32 nsid;
     int perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
 
-    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    if (ddes_open_iof_dev(iof_dev, &fd) != CM_SUCCESS) {
+        return perctrl_protocol;
+    }
 
     nsid = ioctl(fd, NVME_IOCTL_ID);
-
-    if (nsid == -1){
+    if (nsid == -1) {
         LOG_DEBUG_INF("ioctl get nsid error : %s\n", strerror(errno));
         perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
     } else {
@@ -711,6 +712,7 @@ static int32 get_protocol(char *iof_dev)
     return perctrl_protocol;
 }
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 status = CM_ERROR;
@@ -736,7 +738,7 @@ static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
 
     status = handle->exec[perctrl_protocol](req, ack);
     if (status == CM_ERROR) {
-        LOG_DEBUG_ERR("Failed to execute command:%d.", cmd);
+        LOG_DEBUG_ERR("Failed to execute command:%d. status:%d.", cmd, status);
         ddes_return_error(req, ack);
         return CM_ERROR;
     }

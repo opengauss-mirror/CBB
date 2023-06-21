@@ -30,36 +30,38 @@
 
 #include "cm_types.h"
 
+#ifndef FORCE_CONVERT
 #ifdef __CHECKER__
-#define __force       __attribute__((force))
+#define FORCE_CONVERT     __attribute__((force))
 #else
-#define __force
+#define FORCE_CONVERT
+#endif
 #endif
 
 static inline __le16 cpu_to_le16(uint16 x)
 {
-    return (__force __le16)htole16(x);
+    return (FORCE_CONVERT __le16)htole16(x);
 }
 static inline __le32 cpu_to_le32(uint32 x)
 {
-    return (__force __le32)htole32(x);
+    return (FORCE_CONVERT __le32)htole32(x);
 }
 static inline __le64 cpu_to_le64(uint64 x)
 {
-    return (__force __le64)htole64(x);
+    return (FORCE_CONVERT __le64)htole64(x);
 }
 
 static inline uint16 le16_to_cpu(__le16 x)
 {
-    return le16toh((__force __u16)x);
+    return le16toh((FORCE_CONVERT __u16)x);
 }
 static inline uint32 le32_to_cpu(__le32 x)
 {
-    return le32toh((__force __u32)x);
+    return le32toh((FORCE_CONVERT __u32)x);
 }
 static inline uint64 le64_to_cpu(__le64 x)
 {
-    return le64toh((__force __u64)x);
+    return le64toh((FORCE_CONVERT __u64)x);
 }
 
 enum {
@@ -95,11 +97,11 @@ enum {
     CM_NVME_SC_SGL_INVALID_TYPE    = 0x11,
     CM_NVME_SC_CMB_INVALID_USE     = 0x12,
     CM_NVME_SC_PRP_INVALID_OFFSET  = 0x13,
-    CM_NVME_SC_ATOMIC_WRITE_UNIT_EXCEEDED= 0x14,
+    CM_NVME_SC_ATOMIC_WRITE_UNIT_EXCEEDED = 0x14,
     CM_NVME_SC_OPERATION_DENIED    = 0x15,
     CM_NVME_SC_SGL_INVALID_OFFSET  = 0x16,
 
-    CM_NVME_SC_INCONSISTENT_HOST_ID= 0x18,
+    CM_NVME_SC_INCONSISTENT_HOST_ID = 0x18,
     CM_NVME_SC_KEEP_ALIVE_EXPIRED  = 0x19,
     CM_NVME_SC_KEEP_ALIVE_INVALID  = 0x1A,
     CM_NVME_SC_PREEMPT_ABORT       = 0x1B,
@@ -108,7 +110,7 @@ enum {
 
     CM_NVME_SC_NS_WRITE_PROTECTED  = 0x20,
     CM_NVME_SC_CMD_INTERRUPTED     = 0x21,
-    CM_NVME_SC_TRANSIENT_TRANSPORT = 0x22, 
+    CM_NVME_SC_TRANSIENT_TRANSPORT = 0x22,
 
     CM_NVME_SC_LBA_RANGE       = 0x80,
     CM_NVME_SC_CAP_EXCEEDED        = 0x81,
@@ -147,14 +149,14 @@ enum {
     CM_NVME_SC_NS_NOT_ATTACHED     = 0x11a,
     CM_NVME_SC_THIN_PROV_NOT_SUPP  = 0x11b,
     CM_NVME_SC_CTRL_LIST_INVALID   = 0x11c,
-    CM_NVME_SC_DEVICE_SELF_TEST_IN_PROGRESS= 0x11d,
+    CM_NVME_SC_DEVICE_SELF_TEST_IN_PROGRESS = 0x11d,
     CM_NVME_SC_BP_WRITE_PROHIBITED = 0x11e,
     CM_NVME_SC_INVALID_CTRL_ID     = 0x11f,
-    CM_NVME_SC_INVALID_SECONDARY_CTRL_STATE= 0x120,
+    CM_NVME_SC_INVALID_SECONDARY_CTRL_STATE = 0x120,
     CM_NVME_SC_INVALID_NUM_CTRL_RESOURCE   = 0x121,
     CM_NVME_SC_INVALID_RESOURCE_ID = 0x122,
     CM_NVME_SC_PMR_SAN_PROHIBITED  = 0x123,
-    CM_NVME_SC_ANA_INVALID_GROUP_ID= 0x124,
+    CM_NVME_SC_ANA_INVALID_GROUP_ID = 0x124,
     CM_NVME_SC_ANA_ATTACH_FAIL     = 0x125,
 
     /*
@@ -270,7 +272,6 @@ enum nvme_opcode {
 };
 
 /* Admin commands */
-
 enum nvme_admin_opcode {
     nvme_admin_delete_sq        = 0x00,
     nvme_admin_create_sq        = 0x01,
@@ -328,7 +329,7 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
 int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
 int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
 
-const char *cm_nvme_status_to_string(uint32 status);
+const char* cm_nvme_status_to_string(uint32 status);
 
 
 #endif /* _CM_NVME_H */
