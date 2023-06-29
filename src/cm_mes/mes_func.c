@@ -1803,3 +1803,8 @@ void mes_msg_end_wait(unsigned long long rsn, unsigned int sid)
     }
     cm_spin_unlock(&room->lock);
 }
+
+unsigned int mes_get_max_watting_rooms(void)
+{
+    return CM_MAX_MES_ROOMS;
+}
