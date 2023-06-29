@@ -484,6 +484,12 @@ void* mes_get_global_inst();
 */
 void mes_msg_end_wait(unsigned long long rsn, unsigned int sid);
 
+/*
+ * @brief get mes_max_watting_rooms
+ * @return max_watting_rooms
+ */
+unsigned int mes_get_max_watting_rooms(void);
+
 #ifdef __cplusplus
 }
 #endif
