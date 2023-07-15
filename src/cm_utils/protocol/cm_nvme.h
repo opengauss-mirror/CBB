@@ -319,7 +319,7 @@ enum nvme_admin_opcode {
 
 int32 cm_nvme_register(int32 fd, int64 nrkey);
 int32 cm_nvme_unregister(int32 fd, int64 crkey);
-int32 cm_nvme_reserve(int32 fd, int64 crkey);
+int32 cm_nvme_reserve(int32 fd, int64 nrkey);
 int32 cm_nvme_release(int32 fd, int64 crkey);
 int32 cm_nvme_clear(int32 fd, int64 crkey);
 int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey);

@@ -36,8 +36,8 @@ static int ack_fd = 0;
 #define PERCTRL_ARG_COUNT_2 2
 #define PERCTRL_ARG_COUNT_3 3
 
-#define PERCTRL_PROTOCOL_SCSI3 0
-#define PERCTRL_PROTOCOL_NVME 1
+#define PERCTRL_IO_PROTOCOL_SCSI3 0
+#define PERCTRL_IO_PROTOCOL_NVME 1
 
 #ifndef WIN32
 static status_t ddes_open_scsi_dev(const char *scsi_dev, int32 *fd)
@@ -689,27 +689,27 @@ static perctrl_cmd_hdl_t *get_cmd_handle(int32 cmd)
     return NULL;
 }
 
-static int32 get_protocol(char *iof_dev)
+static int32 get_io_protocol(char *iof_dev)
 {
     int32 fd;
     int32 nsid;
-    int perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
+    int io_protocol = PERCTRL_IO_PROTOCOL_SCSI3;
 
     if (ddes_open_iof_dev(iof_dev, &fd) != CM_SUCCESS) {
-        return perctrl_protocol;
+        return io_protocol;
     }
 
     nsid = ioctl(fd, NVME_IOCTL_ID);
     if (nsid == -1) {
         LOG_DEBUG_INF("ioctl get nsid error : %s\n", strerror(errno));
-        perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
+        io_protocol = PERCTRL_IO_PROTOCOL_SCSI3;
     } else {
-        perctrl_protocol = PERCTRL_PROTOCOL_NVME;
+        io_protocol = PERCTRL_IO_PROTOCOL_NVME;
     }
 
     (void)close(fd);
 
-    return perctrl_protocol;
+    return io_protocol;
 }
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -717,7 +717,7 @@ static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 status = CM_ERROR;
     char *iof_dev = NULL;
-    int perctrl_protocol = PERCTRL_PROTOCOL_SCSI3;
+    int io_protocol = PERCTRL_IO_PROTOCOL_SCSI3;
 
     req->head = (perctrl_cmd_head_t *)req->buf;
     int32 cmd = (int32)req->head->cmd;
@@ -734,9 +734,9 @@ static status_t exec_perctrl_req(perctrl_packet_t *req, perctrl_packet_t *ack)
 
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
-    perctrl_protocol = get_protocol(iof_dev);
+    io_protocol = get_io_protocol(iof_dev);
 
-    status = handle->exec[perctrl_protocol](req, ack);
+    status = handle->exec[io_protocol](req, ack);
     if (status == CM_ERROR) {
         LOG_DEBUG_ERR("Failed to execute command:%d. status:%d.", cmd, status);
         ddes_return_error(req, ack);

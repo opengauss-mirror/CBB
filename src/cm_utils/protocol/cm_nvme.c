@@ -181,21 +181,22 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
     return CM_SUCCESS;
 }
 
-int32 cm_nvme_reserve(int32 fd, int64 crkey)
+int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 {
+    uint8 rrega = 0;  // Register Reservation Key
+    uint8 cptpl = 1;  // Reserved
     bool8 iekey = 0; // Ignore Existing Key
-    uint8 rtype = 0; // Reservation Type:Reserved
-    uint8 rrela = 2; // Reservation Release Action:Reserved
+    uint64 crkey = 0; // Current Reservation Key
     uint32 nsid = 0;
     int32 status = 0;
 
     CM_RETURN_IFERR(cm_nvme_get_nsid(fd, (int32*)(&nsid)));
 
-    __le64 payload[1] = { cpu_to_le64(crkey) };
-    uint32 cdw10 = (rrela & 0x7) | (iekey ? 1 << 3 : 0) | (rtype << 8);
+    __le64 payload[2] = { cpu_to_le64(crkey), cpu_to_le64(nrkey) };
+    uint32 cdw10 = (rrega & 0x7) | (iekey ? 1 << 3 : 0) | (cptpl << 30);
 
     struct nvme_passthru_cmd cmd = {
-        .opcode         = nvme_cmd_resv_release,
+        .opcode         = nvme_cmd_resv_register,
         .nsid           = nsid,
         .cdw10          = cdw10,
         .addr           = (uint64)(uintptr_t) (payload),
