@@ -108,11 +108,11 @@ export P_LIB_PATH=$binarylib_dir/kernel/platform
 
 cp -r $P_LIB_PATH/Huawei_Secure_C/comm/lib     $CBB_LIBRARYS/huawei_security/lib
 cp -r $LIB_PATH/openssl/comm/lib                  $CBB_LIBRARYS/openssl/lib
-cp -r $LIB_PATH/zlib1.2.11/comm/lib                  $CBB_LIBRARYS/zlib/lib
+cp -r $LIB_PATH/zlib1.2.12/comm/lib                  $CBB_LIBRARYS/zlib/lib
 
 cp -r $P_LIB_PATH/Huawei_Secure_C/comm/include    $CBB_LIBRARYS/huawei_security/include
 cp -r $LIB_PATH/openssl/comm/include              $CBB_LIBRARYS/openssl/include
-cp -r $LIB_PATH/zlib1.2.11/comm/include              $CBB_LIBRARYS/zlib/include
+cp -r $LIB_PATH/zlib1.2.12/comm/include              $CBB_LIBRARYS/zlib/include
 
 cd $PACKAGE
 if [ "$build_tool"x == "cmake"x ];then
