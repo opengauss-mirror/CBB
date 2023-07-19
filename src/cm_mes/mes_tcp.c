@@ -183,6 +183,7 @@ static int mes_process_event(mes_channel_t *channel)
 static void mes_tcp_try_connect(mes_channel_t *channel)
 {
     int32 ret;
+    cs_pipe_t send_pipe;
     char peer_url[MES_URL_BUFFER_SIZE];
     char *remote_host = MES_HOST_NAME(MES_INSTANCE_ID(channel->id));
     mes_message_head_t head = { 0 };
@@ -194,17 +195,14 @@ static void mes_tcp_try_connect(mes_channel_t *channel)
         return;
     }
 
-    cm_rwlock_wlock(&channel->send_lock);
-    if (cs_connect(peer_url, &channel->send_pipe, NULL) != CM_SUCCESS) {
-        cm_rwlock_unlock(&channel->send_lock);
+    if (cs_connect(peer_url, &send_pipe, NULL) != CM_SUCCESS) {
         /* Deleted spamming LOG_RUN_ERR: can't establish an connection to 'peer_url'. */
         return;
     }
 
     if (g_ssl_enable) {
-        if (cs_ssl_connect(MES_GLOBAL_INST_MSG.ssl_connector_fd, &channel->send_pipe) != CM_SUCCESS) {
-            cs_disconnect(&channel->send_pipe);
-            cm_rwlock_unlock(&channel->send_lock);
+        if (cs_ssl_connect(MES_GLOBAL_INST_MSG.ssl_connector_fd, &send_pipe) != CM_SUCCESS) {
+            cs_disconnect(&send_pipe);
             return;
         }
     }
@@ -214,15 +212,17 @@ static void mes_tcp_try_connect(mes_channel_t *channel)
     head.src_sid = MES_CHANNEL_ID(channel->id); // use sid represent channel id.
     head.size = (uint16)sizeof(mes_message_head_t);
 
-    if (cs_send_bytes(&channel->send_pipe, (char *)&head, sizeof(mes_message_head_t)) != CM_SUCCESS) {
-        cs_disconnect(&channel->send_pipe);
-        cm_rwlock_unlock(&channel->send_lock);
+    if (cs_send_bytes(&send_pipe, (char *)&head, sizeof(mes_message_head_t)) != CM_SUCCESS) {
+        cs_disconnect(&send_pipe);
         LOG_RUN_ERR("cs_send_bytes failed.");
         return;
     }
 
+    cm_rwlock_wlock(&channel->send_lock);
+    channel->send_pipe = send_pipe;
     channel->send_pipe_active = CM_TRUE;
     cm_rwlock_unlock(&channel->send_lock);
+
     LOG_RUN_INF("[mes] connect to channel peer %s, success.", peer_url);
     return;
 }
@@ -687,14 +687,7 @@ int mes_tcp_send_data(const void *msg_data)
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
 
-    while (!cm_rwlock_trywlock(&channel->send_lock)) {
-        if (!channel->send_pipe_active) {
-            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
-            return ERR_MES_SENDPIPE_NO_REDAY;
-        }
-        cm_sleep(1);
-    }
-
+    cm_rwlock_wlock(&channel->send_lock);
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
@@ -726,14 +719,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
 
-    while (!cm_rwlock_trywlock(&channel->send_lock)) {
-        if (!channel->send_pipe_active) {
-            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
-            return ERR_MES_SENDPIPE_NO_REDAY;
-        }
-        cm_sleep(1);
-    }
-
+    cm_rwlock_wlock(&channel->send_lock);
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
