@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -29,7 +29,6 @@
 #include "cm_defs.h"
 #ifdef WIN32
 #else
-#include <scsi/scsi_ioctl.h>
 #include <scsi/sg.h>
 #endif
 
@@ -98,6 +97,7 @@ typedef struct st_scsi_sense_hdr {
 } scsi_sense_hdr_t;
 
 #ifdef WIN32
+status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generation);
 #else
 
 // scsi2 reserve(6)/release(6)
@@ -113,7 +113,7 @@ status_t cm_scsi3_clear(int32 fd, int64 rk);
 status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark);
 // scsi3 vaai compare and write
 // return : GS_TIMEDOUT/CM_SUCCESS/CM_ERROR/CM_SCSI_ERR_MISCOMPARE
-int32 cm_scsi3_caw(int32 fd, int64 block_addr, char *buff, int32 buff_len);
+int32 cm_scsi3_caw(int32 fd, uint64 block_addr, char *buff, int32 buff_len);
 
 // scsi3 read(10)/write(10)
 status_t cm_scsi3_read(int32 fd, int32 block_addr, uint16 block_count, char *buff, int32 buff_len);

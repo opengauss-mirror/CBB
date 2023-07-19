@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_date_to_text.c
- *    Implementation of date 2 text
+ *
  *
  * IDENTIFICATION
  *    src/cm_time/cm_date_to_text.c
@@ -150,7 +150,7 @@ errno_t cm_fmt_century(const append_date_text_para_t *para, append_date_text_res
 
 errno_t cm_fmt_day_of_week(const append_date_text_para_t *para, append_date_text_res_t *res)
 {
-    PRTS_RETURN_IFERR(snprintf_s(res->item_str, FORMAT_ITEM_BUFFER_SIZE, FORMAT_ITEM_BUFFER_SIZE - 1, "%u",
+    PRTS_RETURN_IFERR(snprintf_s(res->item_str, FORMAT_ITEM_BUFFER_SIZE, FORMAT_ITEM_BUFFER_SIZE - 1, "%d",
         para->detail_ex->day_of_week + 1));
     return CM_SUCCESS;
 }
@@ -207,7 +207,7 @@ errno_t cm_fmt_week_of_year(const append_date_text_para_t *para, append_date_tex
 
 errno_t cm_fmt_week_of_month(const append_date_text_para_t *para, append_date_text_res_t *res)
 {
-    PRTS_RETURN_IFERR(snprintf_s(res->item_str, FORMAT_ITEM_BUFFER_SIZE, FORMAT_ITEM_BUFFER_SIZE - 1, "%u",
+    PRTS_RETURN_IFERR(snprintf_s(res->item_str, FORMAT_ITEM_BUFFER_SIZE, FORMAT_ITEM_BUFFER_SIZE - 1, "%d",
         (para->detail->day / DAYS_PER_WEEK) + 1));
     return CM_SUCCESS;
 }

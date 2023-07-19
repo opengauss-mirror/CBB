@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -24,6 +24,8 @@
 #include "mes_msg_pool.h"
 #include "mes_func.h"
 #include "mes_type.h"
+
+#define RECV_MSG_POOL_FC_THRESHOLD 10
 
 static mes_buf_chunk_t *mes_get_buffer_chunk(uint32 len)
 {
@@ -79,7 +81,7 @@ int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_
     queue->count = buf_count;
 
     // alloc memery
-    buf_item_size = sizeof(mes_buffer_item_t) + buf_size;
+    buf_item_size = (uint64)(sizeof(mes_buffer_item_t) + buf_size);
     mem_size = (uint64)buf_count * buf_item_size;
     queue->addr = malloc(mem_size); // reserve MEX_XNET_PAGE_SIZE for register addr 4096 align.
     if (queue->addr == NULL) {
@@ -126,17 +128,18 @@ static void mes_set_buffer_queue_count(mes_buf_chunk_t *chunk, uint32 queue_num,
     return;
 }
 
-int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queue_num, const mes_buffer_attr_t *buf_attr)
+int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queue_num,
+    const mes_buffer_attr_t *buf_attr)
 {
     errno_t ret;
     uint64 queues_size;
 
     if (queue_num == 0 || queue_num > MES_MAX_BUFFER_QUEUE_NUM) {
-        LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %u].", queue_num, MES_MAX_BUFFPOOL_NUM);
+        LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].", queue_num, MES_MAX_BUFFPOOL_NUM);
         return ERR_MES_PARAM_INVAIL;
     }
 
-    queues_size = queue_num * sizeof(mes_buf_queue_t);
+    queues_size = (uint64)(queue_num * sizeof(mes_buf_queue_t));
     chunk->queues = (mes_buf_queue_t *)malloc(queues_size);
     if (chunk->queues == NULL) {
         LOG_RUN_ERR("[mes]:allocate memory queue_num %u failed", queue_num);
@@ -151,13 +154,14 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
 
     chunk->chunk_no = (uint8)chunk_no;
     chunk->buf_size = buf_attr->size;
-    chunk->queue_num = queue_num;
+    chunk->queue_num = (uint8)queue_num;
     chunk->current_no = 0;
 
     mes_set_buffer_queue_count(chunk, queue_num, buf_attr->count);
 
     for (uint32 i = 0; i < queue_num; i++) {
-        ret = mes_create_buffer_queue(&chunk->queues[i], chunk_no, i, buf_attr->size, chunk->queues[i].count);
+        ret = mes_create_buffer_queue(&chunk->queues[i], (uint8)chunk_no, (uint8)i, buf_attr->size,
+            chunk->queues[i].count);
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes]: create buf queue failed.");
             mes_destory_buffer_chunk(chunk);
@@ -200,7 +204,7 @@ int mes_init_message_pool(void)
 
     if ((MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count == 0) ||
         (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count > MES_MAX_BUFFPOOL_NUM)) {
-        LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %u].",
+        LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].",
             MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count, MES_MAX_BUFFPOOL_NUM);
         return ERR_MES_PARAM_INVAIL;
     }
@@ -266,7 +270,50 @@ char *mes_alloc_buf_item(uint32 len)
             cm_spin_unlock(&queue->lock);
             find_times++;
             if ((find_times % chunk->queue_num) == 0) {
-                LOG_RUN_WAR("[mes]: There is no buffer, sleep and try again.");
+                LOG_RUN_WAR_INHIBIT(LOG_INHIBIT_LEVEL5, "[mes]: There is no buffer, sleep and try again.");
+                cm_sleep(1);
+            }
+        }
+    } while (buf_node == NULL);
+
+    return buf_node->data;
+}
+
+char *mes_alloc_buf_item_fc(uint32 len)
+{
+    mes_buf_chunk_t *chunk = NULL;
+    mes_buf_queue_t *queue = NULL;
+    mes_buffer_item_t *buf_node = NULL;
+    uint32 find_times = 0;
+
+    chunk = mes_get_buffer_chunk(len);
+    if (chunk == NULL) {
+        LOG_RUN_ERR("[mes]: Get buffer failed.");
+        return NULL;
+    }
+
+    uint32_t count = MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.buf_attr[chunk->chunk_no].count / chunk->queue_num;
+
+    do {
+        queue = mes_get_buffer_queue(chunk);
+        cm_spin_lock(&queue->lock, NULL);
+        if (count / queue->count <= RECV_MSG_POOL_FC_THRESHOLD) {
+            buf_node = queue->first;
+            queue->count--;
+            if (queue->count == 0) {
+                queue->first = NULL;
+                queue->last = NULL;
+            } else {
+                queue->first = buf_node->next;
+            }
+            buf_node->next = NULL;
+            cm_spin_unlock(&queue->lock);
+            break;
+        } else {
+            cm_spin_unlock(&queue->lock);
+            find_times++;
+            if ((find_times % chunk->queue_num) == 0) {
+                LOG_RUN_WAR_INHIBIT(LOG_INHIBIT_LEVEL5, "[mes]: There is no buffer, sleep and try again.");
                 cm_sleep(1);
             }
         }

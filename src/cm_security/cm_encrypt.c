@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_encrypt.c
- *    DCF API
+ *
  *
  * IDENTIFICATION
  *    src/cm_security/cm_encrypt.c
@@ -28,6 +28,7 @@
 #include "openssl/x509.h"
 #include "openssl/hmac.h"
 #include "openssl/rand.h"
+#include "cm_utils.h"
 #ifdef WIN32
 #include <wincrypt.h>
 #endif
@@ -37,22 +38,22 @@ extern "C" {
 #endif
 
 /* returns base64 encoded string length, include null term */
-uint32 cm_base64_encode_len(uint32 len)
+uint32 cm_base64_encode_len(uint32 src_len)
 {
     uint32 ret;
 
-    switch (len % 3) {
+    switch (src_len % 3) {
         case 1:
-            len += 2;
+            src_len += 2;
             break;
         case 2:
-            len += 1;
+            src_len += 1;
             break;
         default:
             break;
     }
 
-    ret = (len / 3) * 4 + 1;
+    ret = (src_len / 3) * 4 + 1;
 
     return ret;
 }
@@ -205,15 +206,15 @@ static uint32 cm_base64_decode_inside(uchar *dest, uint32 buf_len, const char *s
                     char_temp = (uchar)(temp_src << 2);
                     break;
                 case 1:
-                    *dest++ = (char)(char_temp | (temp_src >> 4));
+                    *dest++ = (uchar)(char_temp | (temp_src >> 4));
                     char_temp = (uchar)(temp_src << 4);
                     break;
                 case 2:
-                    *dest++ = (char)(char_temp | (temp_src >> 2));
+                    *dest++ = (uchar)(char_temp | (temp_src >> 2));
                     char_temp = (uchar)(temp_src << 6);
                     break;
                 case 3:
-                    *dest++ = (char)(char_temp | temp_src);
+                    *dest++ = (uchar)(char_temp | temp_src);
                     break;
                 default:
                     break;
@@ -264,6 +265,12 @@ status_t cm_rand(uchar *buf, uint32 len)
     return CM_SUCCESS;
 }
 
+uint32 cm_random(uint32 range)
+{
+    int64 seed;
+    (void)cm_rand((uchar *)&seed, sizeof(int64));
+    return cm_rand_int32(&seed, range);
+}
 #ifdef __cplusplus
 }
 #endif

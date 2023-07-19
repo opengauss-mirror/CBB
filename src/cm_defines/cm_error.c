@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -66,7 +66,8 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_OPEN_FILE]                = "Failed to open the file %s, the error code was %d",
     [ERR_READ_FILE]                = "Failed to read data from the file, the error code was %d",
     [ERR_WRITE_FILE]               = "Failed to write the file, the error code was %d",
-    [ERR_WRITE_FILE_PART_FINISH]   = "Write size %d, expected size %d, mostly because file size is larger than disk, please delete the incomplete file",
+    [ERR_WRITE_FILE_PART_FINISH]   = "Write size %d, expected size %d, mostly because file size is larger than disk, "
+                                     "please delete the incomplete file",
     [ERR_SEEK_FILE]                = "Failed to seek file, offset:%llu, origin:%d, error code %d",
     [ERR_CREATE_DIR]               = "Failed to create the path %s, error code %d",
     [ERR_RENAME_FILE]              = "Failed to rename the file %s to %s, error code %d",
@@ -86,6 +87,7 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_MEM_OUT_OF_MEMORY]        = "Failed to allocate %llu bytes from buddy memory pool",
     [ERR_CREATE_EVENT]             = "Failed to initialize event notification, error code %d",
     [ERR_UNLOCK_FILE]              = "Failed to unlock file, error code %d",
+    [ERR_NOT_EXIST_FILE]           = "The file %s of %s does not exist",
     /* internal errors or common errors: 100 - 199 */
     [ERR_TEXT_FORMAT_ERROR]        = "Invalid format of %s",
     [ERR_BUFFER_OVERFLOW]          = "Current text buffer is %d, longer than the maximum %d",
@@ -97,6 +99,14 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_VALUE_ERROR]              = "Value error: %s",
     [ERR_INVALID_VALUE]            = "Invalid %s: %u",
     [ERR_MALLOC_BYTES_MEMORY]      = "Can't malloc %d bytes",
+    [ERR_PASSWORD_IS_TOO_SIMPLE]   = "Password is too simple, password should contain at least "
+            "three of the following character types:\n"
+            "A. at least one lowercase letter\n"
+            "B. at least one uppercase letter\n"
+            "C. at least one digit\n"
+            "D. at least one special character: `~!@#$%%^&*()-_=+\\|[{}]:\'\",<.>/? and space",
+    [ERR_PASSWORD_FORMAT_ERROR]    = "The password was invalid: %s",
+    [ERR_INVALID_PARAM] = "Invalid parameter: %s",
     /* Error msg for access interface of SCSI */
     [ERR_SCSI_LOCK_OCCUPIED] = "The lock is already occupied",
     [ERR_SCSI_REG_CONFLICT] = "Register conflict, rk %llu",
@@ -104,7 +114,8 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_PARSE_CFG_STR]            = "Failed to parse dcf_config, the cfg_str is %s",
     // network errors 300~399
     [ERR_PACKET_READ]              = "Receive packet has no more data to read, packet size: %u, offset: %u, read: %u",
-    [ERR_PACKET_SEND]              = "Send packet has no more space to put data, buff size: %u, head size: %u, put size: %u",
+    [ERR_PACKET_SEND]              = "Send packet has no more space to put data, buff size: %u, head size: %u, "
+                                     "put size: %u",
     [ERR_INIT_NETWORK_ENV]         = "Init network env failed, %s",
     [ERR_TCP_INVALID_IPADDRESS]    = "Invalid IP address: %s",
     [ERR_IPADDRESS_NUM_EXCEED]     = "Number of IP address exceeds the maximum(%u)",
@@ -143,6 +154,8 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     /* storage errors: 500 - 599 */
     [ERR_STG_MEM_POOL_FULL      ] = "STG mem pool is full"
 };
+
+static cm_error_handler g_error_handler = NULL;
 
 void cm_register_error(uint16 errnum, const char *errmsg)
 {
@@ -200,32 +213,70 @@ void cm_get_error(int32 *code, const char **message)
     *message = g_tls_error.message;
 }
 
-
-static status_t cm_set_srv_error(const char *file, uint32 line, cm_errno_t code, const char *format, va_list args)
+void cm_init_error_handler(cm_error_handler handler)
+{
+    g_error_handler = handler;
+}
+ 
+status_t cm_set_log_error(const char *file, uint32 line, cm_errno_t code, const char *format, va_list args)
 {
     char log_msg[CM_MESSAGE_BUFFER_SIZE] = {0};
-
     errno_t err = vsnprintf_s(log_msg, CM_MESSAGE_BUFFER_SIZE, CM_MESSAGE_BUFFER_SIZE - 1, format, args);
     if (SECUREC_UNLIKELY(err == -1)) {
         LOG_RUN_ERR("Secure C lib has thrown an error %d while setting error, %s:%u", err, file, line);
+        return CM_ERROR;
     }
-
+    LOG_DEBUG_ERR("%05d : %s [%s:%u]", (int32)code, log_msg, file, line);
     if (g_tls_error.code == 0) {
-        /* override srv error when err superposed disable */
-        g_tls_error.code = code;
+        g_tls_error.code = (int32)code;
         MEMS_RETURN_IFERR(memcpy_sp(g_tls_error.message, CM_MESSAGE_BUFFER_SIZE, log_msg, CM_MESSAGE_BUFFER_SIZE));
     }
-
     return CM_SUCCESS;
+}
+
+static inline uint32 cm_append_prefix(char *buff, uint32 len, cm_errno_t code)
+{
+    const uint32 prefix_sz = 13;
+    const char *prefix_fmt = "\r\nERR-%05d, ";
+    if (len <= prefix_sz) { return 0; }
+    int32 prts_cnt = snprintf_s(buff, len, prefix_sz, prefix_fmt, code);
+    if (prts_cnt == -1) { return 0; }
+    if ((uint32)prts_cnt != prefix_sz) { return 0; }
+    return prefix_sz;
+}
+
+static void cm_set_error_default(cm_errno_t code, const char *format, va_list args)
+{
+    if (g_tls_error.code == 0) {
+        g_tls_error.code = (int32)code;
+        PRTS_RETVOID_IFERR(vsnprintf_s(g_tls_error.message, CM_MESSAGE_BUFFER_SIZE,
+            CM_MESSAGE_BUFFER_SIZE - 1, format, args));
+        return;
+    }
+
+    size_t used = strlen(g_tls_error.message);
+    uint32 remain = CM_MESSAGE_BUFFER_SIZE - (uint32)used;
+    char *msg_buf = g_tls_error.message + used;
+
+    uint32 prefix_sz = cm_append_prefix(msg_buf, remain, code);
+    if (prefix_sz == 0) { return; } // size not enough
+    
+    msg_buf += prefix_sz;
+    remain -= prefix_sz;
+    PRTS_RETVOID_IFERR(vsnprintf_s(msg_buf, remain, remain - 1, format, args));
+    return;
 }
 
 void cm_set_error(const char *file, uint32 line, cm_errno_t code, const char *format, ...)
 {
     va_list args;
-
     va_start(args, format);
 
-    (void)cm_set_srv_error(file, line, code, format, args);
+    if (g_error_handler == NULL) {
+        cm_set_error_default(code, format, args);
+    } else {
+        (void)g_error_handler(file, line, code, format, args);
+    }
 
     va_end(args);
 }

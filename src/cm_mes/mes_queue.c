@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -25,11 +25,14 @@
 #include "mes_queue.h"
 #include "mes_func.h"
 #include "cm_memory.h"
+#include "mes_cb.h"
+
+#define MSG_QUEUE_THRESHOLD 100
 
 static int mes_alloc_msgitems_by_freelist(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
 {
     if (pool->free_list.count < MSG_ITEM_BATCH_SIZE) {
-        LOG_RUN_ERR("pool free_list count not enough, current count:%d.", pool->free_list.count);
+        LOG_RUN_ERR("pool free_list count not enough, current count:%u.", pool->free_list.count);
         return ERR_MES_FREELIST_CNT_ERR;
     }
 
@@ -208,14 +211,16 @@ void mes_put_msgitem(mes_msgqueue_t *queue, mes_msgitem_t *msgitem)
 void mes_init_msg_queue(void)
 {
     uint32 loop;
-
+    uint32 queueIdx;
     for (loop = 0; loop < CM_MES_MAX_TASK_NUM; loop++) {
         mes_init_msgqueue(&MES_GLOBAL_INST_MSG.mq_ctx.tasks[loop].queue);
         MES_GLOBAL_INST_MSG.mq_ctx.tasks[loop].choice = 0;
     }
 
     for (loop = 0; loop < MES_TASK_GROUP_ALL; loop++) {
-        mes_init_msgqueue(&MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[loop].queue);
+        for (queueIdx = 0; queueIdx < MES_GROUP_QUEUE_NUM; queueIdx++) {
+            mes_init_msgqueue(&MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[loop].queue[queueIdx]);
+        }
     }
 
     mes_init_msgqueue(&MES_GLOBAL_INST_MSG.mq_ctx.local_queue);
@@ -227,10 +232,14 @@ mes_msgqueue_t *mes_get_command_task_queue(const mes_message_head_t *head)
 {
     mes_msgqueue_t *queue;
     mes_task_group_id_t group_id;
+    uint32 queue_id;
+    uint32 queue_num;
 
     group_id = MES_GLOBAL_INST_MSG.mq_ctx.command_attr[head->cmd].group_id;
-
-    queue = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[group_id].queue;
+    mes_task_group_t* group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[group_id];
+    queue_num = group->task_num > MES_GROUP_QUEUE_NUM ? MES_GROUP_QUEUE_NUM : group->task_num;
+    queue_id = (group->push_cursor++) % queue_num;
+    queue = &group->queue[queue_id];
 
     return queue;
 }
@@ -244,6 +253,25 @@ void mes_put_msgitem_enqueue(mes_msgitem_t *msgitem)
     mes_put_msgitem(queue, msgitem);
 
     return;
+}
+
+int mes_put_inter_msg_in_queue(mes_message_t *msg, mes_msgqueue_t *queue)
+{
+    mes_msgitem_t *msgitem;
+
+    msgitem = mes_alloc_msgitem(&MES_GLOBAL_INST_MSG.mq_ctx.local_queue);
+    if (msgitem == NULL) {
+        LOG_RUN_ERR("mes_alloc_msgitem failed.");
+        return ERR_MES_ALLOC_MSGITEM_FAIL;
+    }
+
+    mes_local_stat(msg->head->cmd);
+    msgitem->msg.head = msg->head;
+    msgitem->msg.buffer = msg->buffer;
+
+    mes_put_msgitem(queue, msgitem);
+
+    return CM_SUCCESS;
 }
 
 int mes_put_inter_msg(mes_message_t *msg)
@@ -298,16 +326,16 @@ static mes_msgitem_t *mes_get_msgitem(mes_msgqueue_t *queue)
     return ret;
 }
 
-static mes_msgitem_t *mes_get_task_msg(mes_task_group_t *group)
+static mes_msgitem_t *mes_get_task_msg(mes_task_group_t *group, uint32 queue_id)
 {
-    mes_msgqueue_t *msg_queue = &group->queue;
+    mes_msgqueue_t *msg_queue = &group->queue[queue_id];
     mes_msgitem_t *msgitem = mes_get_msgitem(msg_queue);
     if (msgitem == NULL) {
         return msgitem;
     }
 
-    if (group->queue.count > 100) {
-        LOG_RUN_INF("[mes]: group %u queue length num %u.", group->group_id, group->queue.count);
+    if (msg_queue->count > MSG_QUEUE_THRESHOLD) {
+        LOG_RUN_INF("[mes]: group %u queue %u length num %u.", group->group_id, queue_id, msg_queue->count);
     }
 
     return msgitem;
@@ -335,9 +363,18 @@ void mes_task_proc(thread_t *thread)
     uint32 index = *(uint32 *)thread->argument;
     mes_msgitem_t *msgitem;
     mes_task_group_t *group;
+    uint32 loop;
+    uint32 queue_id = 0;
+    uint32 queue_num;
 
-    sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_task_proc_%u", index);
+    PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_task_proc_%u", index));
     cm_set_thread_name(thread_name);
+
+    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    if (cb_thread_init != NULL) {
+        cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
+        LOG_DEBUG_INF("[mes]: status_notify thread init callback: cb_thread_init done");
+    }
 
     mes_msgqueue_t finished_msgitem_queue;
     mes_init_msgqueue(&finished_msgitem_queue);
@@ -348,14 +385,25 @@ void mes_task_proc(thread_t *thread)
         return;
     }
 
+    queue_num = group->task_num > MES_GROUP_QUEUE_NUM ? MES_GROUP_QUEUE_NUM : group->task_num;
+
     while (!thread->closed) {
         uint64 start_stat_time = 0;
         mes_get_consume_time_start(&start_stat_time);
-        msgitem = mes_get_task_msg(group);
+        queue_id = (group->pop_cursor) % queue_num;
+        msgitem = mes_get_task_msg(group, queue_id);
+
+        for (loop = 0; msgitem == NULL && loop < queue_num; ++loop) {
+            queue_id = (queue_id + 1) % queue_num;
+            msgitem = mes_get_task_msg(group, queue_id);
+        }
+
         if (msgitem == NULL) {
             cm_sleep(1);
             continue;
         }
+
+        group->pop_cursor = queue_id + 1;
 
         mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_GET_QUEUE, start_stat_time);
         mes_get_consume_time_start(&start_stat_time);

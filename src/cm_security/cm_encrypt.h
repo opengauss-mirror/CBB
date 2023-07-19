@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_encrypt.h
- *    DCF API
+ *
  *
  * IDENTIFICATION
  *    src/cm_security/cm_encrypt.h
@@ -41,6 +41,7 @@ status_t cm_base64_encode(uchar *src, uint32 src_len, char *cipher, uint32 *ciph
 uint32 cm_base64_decode(const char *src, uint32 src_len, uchar *dest_data, uint32 buff_len);
 
 status_t cm_rand(uchar *buf, uint32 len);
+uint32 cm_random(uint32 range);
 
 #ifdef __cplusplus
 }

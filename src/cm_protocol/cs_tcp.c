@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -229,8 +229,13 @@ static int32 cs_tcp_poll(struct pollfd *fds, uint32 nfds, int32 timeout)
 status_t cs_create_socket(int ai_family, socket_t *sock)
 {
     CM_RETURN_IFERR(cs_tcp_init());
-
-    *sock = (socket_t)socket(ai_family, SOCK_STREAM, 0);
+    int32 flag;
+#ifdef WIN32
+    flag = SOCK_STREAM;
+#else
+    flag = SOCK_STREAM | SOCK_CLOEXEC;
+#endif
+    *sock = (socket_t)socket(ai_family, flag, 0);
     if (*sock == CS_INVALID_SOCKET) {
         CM_THROW_ERROR(ERR_CREATE_SOCKET, errno);
         return CM_ERROR;
@@ -296,7 +301,7 @@ static status_t cs_tcp_connect_wait(const tcp_link_t *link, int32 error_no, time
 {
     int32 ret = -1;
     int32 opt_val;
-    int32 opt_len = sizeof(opt_val);
+    int32 opt_len = (int32)sizeof(opt_val);
     if (NEED_RECHECK_TCP(error_no)) {
         do {
             ret = cs_tcp_poll_check(link, CS_WAIT_FOR_WRITE, end_time);
@@ -343,14 +348,14 @@ status_t cs_tcp_connect(const char *host, uint16 port, tcp_link_t *link, const c
 
     if (bind_host != NULL && bind_host[0] != '\0') {
         if (cm_ipport_to_sockaddr(bind_host, 0, &link->local) != CM_SUCCESS) {
-            cs_close_socket(link->sock);
+            (void)cs_close_socket(link->sock);
             link->sock = CS_INVALID_SOCKET;
             link->closed = CM_TRUE;
             return CM_ERROR;
         }
 
         if (bind(link->sock, SOCKADDR(&link->local), link->local.salen) != 0) {
-            cs_close_socket(link->sock);
+            (void)cs_close_socket(link->sock);
             link->sock = CS_INVALID_SOCKET;
             link->closed = CM_TRUE;
             CM_THROW_ERROR(ERR_SOCKET_BIND, bind_host, (uint32)0, cm_get_os_error());
@@ -361,10 +366,10 @@ status_t cs_tcp_connect(const char *host, uint16 port, tcp_link_t *link, const c
     cs_set_buffer_size(link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
     cs_set_conn_timeout(link->sock, sock_attr->connect_timeout);
     if (cs_tcp_connect_core(link, sock_attr) != CM_SUCCESS) {
-        cs_close_socket(link->sock);
+        (void)cs_close_socket(link->sock);
         link->sock = CS_INVALID_SOCKET;
         link->closed = CM_TRUE;
-        CM_THROW_ERROR(ERR_ESTABLISH_TCP_CONNECTION, host, (uint32)port, cm_get_os_error());
+        CM_THROW_ERROR_INHIBIT(LOG_INHIBIT_LEVEL4, ERR_ESTABLISH_TCP_CONNECTION, host, (uint32)port, cm_get_os_error());
         return CM_ERROR;
     }
     cs_reset_conn_timeout(link->sock);
@@ -389,15 +394,20 @@ bool32 cs_tcp_try_connect(const char *host, uint16 port)
     if (cm_ipport_to_sockaddr(host, port, &sock_addr) != CM_SUCCESS) {
         return CM_FALSE;
     }
-
-    sock = (socket_t)socket(SOCKADDR_FAMILY(&sock_addr), SOCK_STREAM, 0);
+    int32 flag;
+#ifdef WIN32
+    flag = SOCK_STREAM;
+#else
+    flag = SOCK_STREAM | SOCK_CLOEXEC;
+#endif
+    sock = (socket_t)socket(SOCKADDR_FAMILY(&sock_addr), flag, 0);
     if (sock == CS_INVALID_SOCKET) {
         CM_THROW_ERROR(ERR_CREATE_SOCKET, errno);
         return CM_FALSE;
     }
 
     result = (0 == connect(sock, SOCKADDR(&sock_addr), sock_addr.salen));
-    cs_close_socket(sock);
+    (void)cs_close_socket(sock);
 
     return result;
 }
@@ -535,7 +545,6 @@ status_t cs_tcp_send_timed(tcp_link_t *link, const char *buf, uint32 size, uint3
 status_t cs_tcp_recv(const tcp_link_t *link, char *buf, uint32 size, int32 *recv_size, uint32 *wait_event)
 {
     int32 rsize = 0;
-    int code;
     if (size == 0) {
         *recv_size = 0;
         return CM_SUCCESS;
@@ -550,7 +559,7 @@ status_t cs_tcp_recv(const tcp_link_t *link, char *buf, uint32 size, int32 *recv
             CM_THROW_ERROR(ERR_PEER_CLOSED, "tcp");
             return CM_ERROR;
         }
-        code = cm_get_sock_error();
+        int code = cm_get_sock_error();
 #ifdef WIN32
         if (code == WSAEWOULDBLOCK) {
             continue;
@@ -576,11 +585,9 @@ status_t cs_tcp_recv_timed(tcp_link_t *link, char *buf, uint32 size, uint32 time
     bool32 ready = CM_FALSE;
 
     remain_size = size;
-    offset = 0;
-
-    CM_RETURN_IFERR(cs_tcp_recv(link, buf + offset, remain_size, &recv_size, NULL));
+    CM_RETURN_IFERR(cs_tcp_recv(link, buf, remain_size, &recv_size, NULL));
     remain_size -= recv_size;
-    offset += recv_size;
+    offset = (uint32)recv_size;
 
     while (remain_size > 0) {
         CM_RETURN_IFERR(cs_tcp_wait(link, CS_WAIT_FOR_READ, CM_POLL_WAIT, &ready));

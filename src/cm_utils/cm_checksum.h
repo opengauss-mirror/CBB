@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -64,9 +64,9 @@ static inline bool32 cm_crc32c_sse42_available(void)
     uint32 arr[4] = { 0, 0, 0, 0 };
 
 #if defined(CM_HAVE__GET_CPUID)
-    __get_cpuid(1, &arr[0], &arr[1], &arr[2], &arr[3]);
+    (void)__get_cpuid(1, &arr[0], &arr[1], &arr[2], &arr[3]);
 #elif defined(CM_HAVE__CPUID)
-    __cpuid(arr, 1);
+    (void)__cpuid(arr, 1);
 #else
     return CM_FALSE;
 #endif

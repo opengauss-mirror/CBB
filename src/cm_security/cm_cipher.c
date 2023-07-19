@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_cipher.c
- *    cm cipher process
+ *
  *
  * IDENTIFICATION
  *    src/cm_security/cm_cipher.c
@@ -97,12 +97,13 @@ static status_t evp_encrypt(EVP_CIPHER_CTX *ctx, uchar *buffer, uint32 buffer_le
     uint32 plain_len, cipher_t *cipher)
 {
     uint32 enc_num = 0;
-    if (!EVP_EncryptUpdate(ctx, cipher->cipher_text, (int32 *)&enc_num, plain_text, plain_len - buffer_len)) {
+    if (!EVP_EncryptUpdate(ctx, cipher->cipher_text, (int32 *)&enc_num, plain_text, (int32)(plain_len - buffer_len))) {
         LOG_DEBUG_ERR("EVP_EncryptUpdate for plain text failed");
         return CM_ERROR;
     }
     cipher->cipher_len = enc_num;
-    if (!EVP_EncryptUpdate(ctx, cipher->cipher_text + cipher->cipher_len, (int32 *)&enc_num, buffer, block_size)) {
+    if (!EVP_EncryptUpdate(ctx, cipher->cipher_text + cipher->cipher_len, (int32 *)&enc_num, buffer,
+        (int32)block_size)) {
         LOG_DEBUG_ERR("EVP_EncryptUpdate for padding text failed");
         return CM_ERROR;
     }
@@ -201,7 +202,7 @@ static status_t CRYPT_decrypt(uint32 alg_id, const uchar *key, uint32 key_len, c
     (void)EVP_CIPHER_CTX_set_padding(ctx, CM_FALSE);
 
     uint32 dec_num = 0;
-    if (!EVP_DecryptUpdate(ctx, plain_text, (int32 *)&dec_num, cipher->cipher_text, cipher->cipher_len)) {
+    if (!EVP_DecryptUpdate(ctx, plain_text, (int32 *)&dec_num, cipher->cipher_text, (int32)cipher->cipher_len)) {
         LOG_DEBUG_ERR("EVP_DecryptUpdate failed");
         EVP_CIPHER_CTX_free(ctx);
         return CM_ERROR;
@@ -287,11 +288,13 @@ status_t cm_decrypt_pwd(cipher_t *cipher, uchar *plain_text, uint32 *plain_len)
 
     /* decrypt the cipher */
     if (CRYPT_decrypt(NID_aes_256_cbc, key, RANDOM_LEN, cipher, plain_text, plain_len) != CM_SUCCESS) {
+        (void)memset_s(plain_text, *plain_len, 0, *plain_len);
         LOG_DEBUG_ERR("CRYPT_decrypt failed");
         return CM_ERROR;
     }
     errno_t errcode = memset_s(key, RANDOM_LEN, 0, RANDOM_LEN);
     if (errcode != EOK) {
+        (void)memset_s(plain_text, *plain_len, 0, *plain_len);
         return CM_ERROR;
     }
     return CM_SUCCESS;

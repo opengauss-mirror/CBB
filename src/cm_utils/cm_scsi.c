@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -32,12 +32,20 @@
 #endif
 
 #ifdef WIN32
-
+ // read register keys
+status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generation)
+{
+    return CM_SUCCESS;
+}
 #else
+
+#define CM_SCSI_NUM_2 (2)
+
 uint64 ntohll(uint64 val)
 {
     if (!IS_BIG_ENDIAN) {
-        return (((uint64)ntohl((int32)((val << 32) >> 32))) << 32) | (uint32)ntohl((int32)(val >> 32));
+        return (((uint64)ntohl((uint32)((val << UINT32_BITS) >> UINT32_BITS))) << UINT32_BITS) |
+            (uint32)ntohl((uint32)(val >> UINT32_BITS));
     } else {
         return val;
     }
@@ -46,7 +54,8 @@ uint64 ntohll(uint64 val)
 uint64 htonll(uint64 val)
 {
     if (!IS_BIG_ENDIAN) {
-        return (((uint64)htonl((int32)((val << 32) >> 32))) << 32) | (uint32)htonl((int32)(val >> 32));
+        return (((uint64)htonl((uint32)((val << UINT32_BITS) >> UINT32_BITS))) << UINT32_BITS) |
+             (uint32)htonl((uint32)(val >> UINT32_BITS));
     } else {
         return val;
     }
@@ -64,7 +73,7 @@ void cm_set_sense_data(struct sg_io_hdr *p_hdr, uchar *data, uint32 length)
 {
     if (p_hdr) {
         p_hdr->sbp = data;
-        p_hdr->mx_sb_len = length;
+        p_hdr->mx_sb_len = (uchar)length;
     }
 }
 
@@ -223,17 +232,21 @@ status_t cm_scsi2_release(int32 fd)
     return CM_SUCCESS;
 }
 
-static int32 cm_scsi3_init_hdr(sg_io_hdr_t *hdr_out)
+// scsi3 register/reserve/release/clear/preempt
+int32 cm_scsi3_register(int32 fd, int64 sark)
 {
-    sg_io_hdr_t hdr;
+    uchar cdb[10] = { 0 };
     int32 scope = 0;
     uint32 type = 0;
-    uint16 param_len = 24;
     int32 servact = 0x00;
-    uchar cdb[10] = { 0 };
-    errno_t errcode;
+    uint16 param_len = 24;
+    int64 rk = 0;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
     uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    int32 status = 0;
+    uint64 tmp = 0;
+    sg_io_hdr_t hdr;
+    errno_t errcode = EOK;
 
     errcode = memset_sp(&hdr, sizeof(sg_io_hdr_t), 0, sizeof(sg_io_hdr_t));
     securec_check_ret(errcode);
@@ -254,25 +267,10 @@ static int32 cm_scsi3_init_hdr(sg_io_hdr_t *hdr_out)
     hdr.cmdp = cdb;
     hdr.cmd_len = 10;
     hdr.timeout = CM_SCSI_TIMEOUT * 1000;
-
-    *hdr_out = hdr;
-    return CM_SUCCESS;
-}
-
-// scsi3 register/reserve/release/clear/preempt
-int32 cm_scsi3_register(int32 fd, int64 sark)
-{
-    int64 rk = 0;
-    int32 status;
-    uint64 tmp;
-    sg_io_hdr_t hdr;
-    errno_t errcode;
-
-    CM_RETURN_IFERR(cm_scsi3_init_hdr(&hdr));
     // set reservation key, service action reservation key
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &rk, sizeof(int64));
     securec_check_ret(errcode);
-    tmp = htonll(sark);
+    tmp = (int64)htonll(sark);
     errcode = memcpy_sp(hdr.dxferp + 8, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
 
@@ -297,14 +295,39 @@ int32 cm_scsi3_register(int32 fd, int64 sark)
 
 int32 cm_scsi3_unregister(int32 fd, int64 rk)
 {
+    uchar cdb[10] = { 0 };
+    int32 scope = 0;
+    uint32 type = 0;
+    int32 servact = 0x00;
+    uint16 param_len = 24;
     int64 sark = 0;
-    int32 status;
-    int64 tmp;
+    uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    int32 status = 0;
+    int64 tmp = 0;
     sg_io_hdr_t hdr;
-    errno_t errcode;
+    errno_t errcode = EOK;
 
-    CM_RETURN_IFERR(cm_scsi3_init_hdr(&hdr));
-    tmp = htonll(rk);
+    errcode = memset_sp(&hdr, sizeof(sg_io_hdr_t), 0, sizeof(sg_io_hdr_t));
+    securec_check_ret(errcode);
+    hdr.interface_id = 'S';
+    hdr.flags = SG_FLAG_LUN_INHIBIT;
+
+    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
+
+    cdb[0] = 0x5F;
+    cdb[1] = (uchar)(servact & 0x1f);
+    cdb[2] = (((scope & 0xf) << 4) | (type & 0xf));
+    param_len = htons(param_len);
+    errcode = memcpy_sp(cdb + 7, sizeof(param_len), &param_len, sizeof(param_len));
+    securec_check_ret(errcode);
+
+    hdr.dxfer_direction = SG_DXFER_TO_DEV;
+    hdr.cmdp = cdb;
+    hdr.cmd_len = 10;
+    hdr.timeout = CM_SCSI_TIMEOUT * 1000;
+    tmp = (int64)htonll(rk);
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
     errcode = memcpy_sp(hdr.dxferp + 8, sizeof(int64), &sark, sizeof(int64));
@@ -331,13 +354,38 @@ int32 cm_scsi3_unregister(int32 fd, int64 rk)
 
 status_t cm_scsi3_reserve(int32 fd, int64 rk)
 {
-    int32 status;
-    int64 tmp;
+    uchar cdb[10] = { 0 };
+    int32 scope = 0;
+    uint32 type = 0x06;
+    int32 servact = 0x01;
+    uint16 param_len = 24;
+    uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    int32 status = 0;
+    int64 tmp = 0;
     sg_io_hdr_t hdr;
-    errno_t errcode;
+    errno_t errcode = EOK;
 
-    CM_RETURN_IFERR(cm_scsi3_init_hdr(&hdr));
-    tmp = htonll(rk);
+    errcode = memset_sp(&hdr, sizeof(sg_io_hdr_t), 0, sizeof(sg_io_hdr_t));
+    securec_check_ret(errcode);
+    hdr.interface_id = 'S';
+    hdr.flags = SG_FLAG_LUN_INHIBIT;
+
+    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
+
+    cdb[0] = 0x5F;
+    cdb[1] = (uchar)(servact & 0x1f);
+    cdb[2] = (((scope & 0xf) << 4) | (type & 0xf));
+    param_len = htons(param_len);
+    errcode = memcpy_sp(cdb + 7, sizeof(param_len), &param_len, sizeof(param_len));
+    securec_check_ret(errcode);
+
+    hdr.dxfer_direction = SG_DXFER_TO_DEV;
+    hdr.cmdp = cdb;
+    hdr.cmd_len = 10;
+    hdr.timeout = CM_SCSI_TIMEOUT * 1000;
+    tmp = (int64)htonll(rk);
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
 
@@ -361,13 +409,38 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
 
 status_t cm_scsi3_release(int32 fd, int64 rk)
 {
-    int32 status;
-    int64 tmp;
+    uchar cdb[10] = { 0 };
+    int32 scope = 0;
+    uint32 type = 0x06;
+    int32 servact = 0x02;
+    uint16 param_len = 24;
+    uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    int32 status = 0;
+    int64 tmp = 0;
     sg_io_hdr_t hdr;
-    errno_t errcode;
+    errno_t errcode = EOK;
 
-    CM_RETURN_IFERR(cm_scsi3_init_hdr(&hdr));
-    tmp = htonll(rk);
+    errcode = memset_sp(&hdr, sizeof(sg_io_hdr_t), 0, sizeof(sg_io_hdr_t));
+    securec_check_ret(errcode);
+    hdr.interface_id = 'S';
+    hdr.flags = SG_FLAG_LUN_INHIBIT;
+
+    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
+
+    cdb[0] = 0x5F;
+    cdb[1] = (uchar)(servact & 0x1f);
+    cdb[2] = (((scope & 0xf) << 4) | (type & 0xf));
+    param_len = htons(param_len);
+    errcode = memcpy_sp(cdb + 7, sizeof(param_len), &param_len, sizeof(param_len));
+    securec_check_ret(errcode);
+
+    hdr.dxfer_direction = SG_DXFER_TO_DEV;
+    hdr.cmdp = cdb;
+    hdr.cmd_len = 10;
+    hdr.timeout = CM_SCSI_TIMEOUT * 1000;
+    tmp = (int64)htonll(rk);
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
 
@@ -387,13 +460,38 @@ status_t cm_scsi3_release(int32 fd, int64 rk)
 
 status_t cm_scsi3_clear(int32 fd, int64 rk)
 {
-    int32 status;
-    int64 tmp;
+    uchar cdb[10] = { 0 };
+    int32 scope = 0;
+    uint32 type = 0;
+    int32 servact = 0x03;
+    uint16 param_len = 24;
+    uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    int32 status = 0;
+    int64 tmp = 0;
     sg_io_hdr_t hdr;
-    errno_t errcode;
+    errno_t errcode = EOK;
 
-    CM_RETURN_IFERR(cm_scsi3_init_hdr(&hdr));
-    tmp = htonll(rk);
+    errcode = memset_sp(&hdr, sizeof(sg_io_hdr_t), 0, sizeof(sg_io_hdr_t));
+    securec_check_ret(errcode);
+    hdr.interface_id = 'S';
+    hdr.flags = SG_FLAG_LUN_INHIBIT;
+
+    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
+
+    cdb[0] = 0x5F;
+    cdb[1] = (uchar)(servact & 0x1f);
+    cdb[2] = (((scope & 0xf) << 4) | (type & 0xf));
+    param_len = htons(param_len);
+    errcode = memcpy_sp(cdb + 7, sizeof(param_len), &param_len, sizeof(param_len));
+    securec_check_ret(errcode);
+
+    hdr.dxfer_direction = SG_DXFER_TO_DEV;
+    hdr.cmdp = cdb;
+    hdr.cmd_len = 10;
+    hdr.timeout = CM_SCSI_TIMEOUT * 1000;
+    tmp = (int64)htonll(rk);
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
 
@@ -414,9 +512,9 @@ status_t cm_scsi3_clear(int32 fd, int64 rk)
 status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
 {
     uchar cdb[10] = {0};
-    int32 scope = 0;
+    uint32 scope = 0;
     uint32 type = 0x06;
-    int32 servact = 0x04;
+    uint32 servact = 0x04;
     uint16 param_len = 24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = {0};
     uchar data_buffer[CM_SCSI_XFER_DATA] = {0};
@@ -444,10 +542,10 @@ status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
     hdr.cmdp = cdb;
     hdr.cmd_len = 10;
     hdr.timeout = CM_SCSI_TIMEOUT * 1000;
-    tmp = htonll(rk);
+    tmp = (int64)htonll((uint64)rk);
     errcode = memcpy_sp(hdr.dxferp, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
-    tmp = htonll(sark);
+    tmp = (int64)htonll((uint64)sark);
     errcode = memcpy_sp(hdr.dxferp + 8, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
 
@@ -466,7 +564,7 @@ status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
 }
 
 // scsi3 vaai compare and write, just support 1 block now
-int32 cm_scsi3_caw(int32 fd, int64 block_addr, char *buff, int32 buff_len)
+int32 cm_scsi3_caw(int32 fd, uint64 block_addr, char *buff, int32 buff_len)
 {
     uchar cdb[16] = {0};
     uint32 blocks = 1;
@@ -482,11 +580,11 @@ int32 cm_scsi3_caw(int32 fd, int64 block_addr, char *buff, int32 buff_len)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, buff, xfer_len);
+    cm_set_xfer_data(&hdr, buff, (uint32)xfer_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x89;
-    tmp = htonll(block_addr);
+    tmp = (int64)htonll((uint64)block_addr);
     errcode = memcpy_sp(cdb + 2, sizeof(int64), &tmp, sizeof(int64));
     securec_check_ret(errcode);
     cdb[13] = (unsigned char)(blocks & 0xff);
@@ -566,7 +664,7 @@ status_t cm_scsi3_read(int32 fd, int32 block_addr, uint16 block_count, char *buf
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, buff, xfer_len);
+    cm_set_xfer_data(&hdr, buff, (uint32)xfer_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     if (block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
@@ -575,7 +673,7 @@ status_t cm_scsi3_read(int32 fd, int32 block_addr, uint16 block_count, char *buf
     }
 
     cdb[0] = 0x28;
-    uitmp = htonl(block_addr);
+    uitmp = htonl((uint32)block_addr);
     errcode = memcpy_sp(cdb + 2, sizeof(uint32), &uitmp, sizeof(uint32));
     securec_check_ret(errcode);
     stmp = htons(block_count);
@@ -617,7 +715,7 @@ status_t cm_scsi3_write(int32 fd, int32 block_addr, uint16 block_count, char *bu
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, buff, xfer_len);
+    cm_set_xfer_data(&hdr, buff, (uint32)xfer_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     if (block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
@@ -626,7 +724,7 @@ status_t cm_scsi3_write(int32 fd, int32 block_addr, uint16 block_count, char *bu
     }
 
     cdb[0] = 0x2a;
-    uitmp = htonl(block_addr);
+    uitmp = htonl((uint32)block_addr);
     errcode = memcpy_sp(cdb + 2, CM_MAX_CDB_LEN, &uitmp, sizeof(uint32));
     securec_check_ret(errcode);
     stmp = htons(block_count);
@@ -822,9 +920,10 @@ status_t cm_scsi3_get_lun(int32 fd, lun_info_t *lun_info)
 
     // get lun id
     p_tmp = data_buffer + 20;
+    int32 ret;
     for (i = 0; i < 9 / 2; i++) {
-        errcode = sprintf_s((char *)&hex_str[i * 2], CM_MAX_LUNID_LEN, "%02x", p_tmp[i]);
-        securec_check_ret(errcode);
+        ret = sprintf_s((char *)&hex_str[i * CM_SCSI_NUM_2], CM_MAX_LUNID_LEN, "%02x", p_tmp[i]);
+        PRTS_RETURN_IFERR(ret);
     }
 
     status = cm_hex2int64(hex_str, strlen(hex_str), &lunid);
@@ -832,7 +931,7 @@ status_t cm_scsi3_get_lun(int32 fd, lun_info_t *lun_info)
         LOG_DEBUG_ERR("SCSI convert lun id failed, status %d, hex str %s.", status, hex_str);
         return CM_ERROR;
     }
-    lun_info->lun_id = lunid;
+    lun_info->lun_id = (int32)lunid;
 
     // get lun wwn
     page_len = data_buffer[7];
@@ -843,8 +942,8 @@ status_t cm_scsi3_get_lun(int32 fd, lun_info_t *lun_info)
 
     p_tmp = data_buffer + 8;
     for (i = 0; i < page_len; i++) {
-        errcode = sprintf_s(&lun_info->lun_wwn[i * 2], CM_MAX_WWN_LEN, "%02x", p_tmp[i]);
-        securec_check_ret(errcode);
+        ret = sprintf_s(&lun_info->lun_wwn[i * 2], (size_t)CM_MAX_WWN_LEN - i * 2, "%02x", p_tmp[i]);
+        PRTS_RETURN_IFERR(ret);
     }
 
     return CM_SUCCESS;
@@ -890,7 +989,7 @@ status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *gen
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5E;
-    cdb[1] = servact;
+    cdb[1] = (uchar)servact;
     utmp = htons(resp_len);
     errcode = memcpy_sp(cdb + 7, sizeof(resp_len), &utmp, sizeof(resp_len));
     securec_check_ret(errcode);
@@ -912,12 +1011,12 @@ status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *gen
     }
 
     *generation = ntohl(*(uint32 *)data_buffer);
-    add_len = ntohl(*(int32 *)(data_buffer + 4));
+    add_len = (int32)ntohl(*(uint32 *)(data_buffer + 4));
     p_tmp = data_buffer + 8;
     count = add_len / 8;
-    LOG_DEBUG_INF("SCSI read keys count %d, generations %d.", count, *generation);
+    LOG_DEBUG_INF("SCSI read keys count %d, generations %u.", count, *generation);
     for (i = 0; i < count; i++, p_tmp += 8) {
-        rk = ntohll(*(int64 *)p_tmp);
+        rk = (int64)ntohll(*(uint64 *)p_tmp);
 
         if (unique_keys_count >= *key_count) {
             LOG_DEBUG_ERR("SCSI read buff not engouth, rk %lld, key_count %d.", rk, *key_count);
@@ -941,7 +1040,7 @@ status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *gen
 status_t cm_scsi3_rres(int32 fd, int64 *rk, uint32 *generation)
 {
     uchar cdb[10] = {0};
-    int32 servact = 0x01;
+    uint32 servact = 0x01;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = {0};
     uchar data_buffer[CM_SCSI_XFER_DATA] = {0};
     uint16 resp_len = CM_SCSI_XFER_DATA;
@@ -983,11 +1082,11 @@ status_t cm_scsi3_rres(int32 fd, int64 *rk, uint32 *generation)
     }
 
     *generation = ntohl(*(uint32 *)data_buffer);
-    add_len = ntohl(*(int32 *)(data_buffer + 4));
+    add_len = (int32)ntohl(*(uint32 *)(data_buffer + 4));
     count = add_len / 8;
-    LOG_DEBUG_INF("SCSI read reservation count %d, generations %d.", count, *generation);
+    LOG_DEBUG_INF("SCSI read reservation count %d, generations %u.", count, *generation);
     if (count > 0) {
-        *rk = ntohll(*(int64 *)(data_buffer + 8));
+        *rk = (int64)ntohll(*(uint64 *)(data_buffer + 8));
         LOG_DEBUG_INF("SCSI read reservation key %lld.", *rk);
     }
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -41,7 +41,6 @@
 extern "C" {
 #endif
 
-uint32 cm_random(uint32 range);
 static inline status_t realpath_file(const char *filename, char *realfile, uint32 real_path_len)
 {
 #ifdef WIN32
@@ -80,6 +79,8 @@ status_t cm_rm_file_watch(int32 i_fd, int32 *wd);
 status_t cm_watch_file_event(int32 i_fd, int32 e_fd, int32 *wd);
 void cm_dump_mem(void *dump_addr, uint32 dump_len);
 void cm_usleep(uint32 us);
+status_t cm_verify_password_str(const char *name, const char *passwd, uint32 pwd_min_len);
+uint32 cm_rand_int32(int64 *seed, uint32 range);
 #ifdef __cplusplus
 }
 #endif

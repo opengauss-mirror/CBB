@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_timer.h
- *    update system timer timely
+ *
  *
  * IDENTIFICATION
  *    src/cm_time/cm_timer.h
@@ -43,6 +43,7 @@ typedef struct st_gs_timer {
     volatile int32 tz;              // time zone (h)
     volatile int64 host_tz_offset;  // host timezone offset (us)
     thread_t thread;
+    bool32 init;
 } gs_timer_t;
 
 

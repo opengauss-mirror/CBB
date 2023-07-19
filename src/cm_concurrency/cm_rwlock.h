@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -65,7 +65,10 @@ typedef pthread_rwlock_t rwlock_t;
 
 static inline status_t cm_rwlock_init(rwlock_t *rwlock)
 {
-    return pthread_rwlock_init(rwlock, NULL);
+    if (pthread_rwlock_init(rwlock, NULL) == 0) {
+        return CM_SUCCESS;
+    }
+    return CM_ERROR;
 }
 
 static inline void cm_rwlock_rlock(rwlock_t *rwlock)

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -82,7 +82,7 @@ extern "C" {
  * greater than CM_MAX_NUM_EXPN, an error will be returned. If the exponent
  * is less than CM_MIN_NUM_EXPN, a zero will be returned. */
 #define CM_MAX_NUM_EXPN (int32)127
-#define CM_MIN_NUM_EXPN ((int32) - 127)
+#define CM_MIN_NUM_EXPN ((int32)-127)
 
 /** The maximal precision of a native datatype. The precision means the
 ** number of significant digits in a number */
@@ -100,6 +100,8 @@ extern "C" {
 #define CM_MIN_UINT16 0
 #define CM_MAX_INT32  (int32) INT_MAX
 #define CM_MIN_INT32  (int32) INT_MIN
+#define CM_MAX_UINT32 (uint32) UINT_MAX
+#define CM_MIN_UINT32 0
 #define CM_MAX_INT64  LLONG_MAX
 #define CM_MIN_INT64  LLONG_MIN
 #define CM_MAX_UINT64 ULLONG_MAX
@@ -194,7 +196,7 @@ typedef enum en_num_flag {
 #define CM_TYPE_MASK_INTEGER \
     (CM_TYPE_MASK_UNSIGNED_INTEGER | CM_TYPE_MASK_SIGNED_INTEGER)
 #define CM_IS_INTEGER_TYPE(type)                                                                                       \
-    ((type) > CM_TYPE_BASE && (type) < CM_TYPE__DO_NOT_USE && (CM_TYPE_MASK(type) & CM_TYPE_MASK_INTEGER) > 0)
+    ((type) > CM_TYPE_BASE && (type) < CM_TYPE_DO_NOT_USE && (CM_TYPE_MASK(type) & CM_TYPE_MASK_INTEGER) > 0)
 
 extern const char *g_num_errinfos[];
 
@@ -209,6 +211,55 @@ extern const char *g_num_errinfos[];
             LEX_THROW_ERROR(ERR_LEX_INVALID_NUMBER, cm_get_num_errinfo(err_no)); \
             return CM_ERROR;                                                     \
         }                                                                        \
+    } while (0)
+
+// check if overflow for converting to uint8
+// note: when convert int8 to uint8, type should be set to int16 or int32 or int64
+#define TO_UINT8_OVERFLOW_CHECK(u8, type)                                             \
+    do {                                                                              \
+        if ((type)(u8) < (type)CM_MIN_UINT8 || (type)(u8) > (type)CM_MAX_UINT8) {     \
+            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "UNSIGNED CHAR");                       \
+            return CM_ERROR;                                                          \
+        }                                                                             \
+    } while (0)
+
+// check if overflow for converting to uint16
+#define TO_UINT16_OVERFLOW_CHECK(u16, type)                                               \
+    do {                                                                                  \
+        if ((type)(u16) < (type)CM_MIN_UINT16 || (type)(u16) > (type)CM_MAX_UINT16) {     \
+            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "UNSIGNED SHORT INTEGER");                  \
+            return CM_ERROR;                                                              \
+        }                                                                                 \
+    } while (0)
+
+// check if overflow for converting int64/double to int32
+#define TO_INT32_OVERFLOW_CHECK(i32)                         \
+    do {                                                     \
+        if ((i32) > CM_MAX_INT32 || (i32) < CM_MIN_INT32) {  \
+            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "INTEGER");    \
+            return CM_ERROR;                                 \
+        }                                                    \
+    } while (0)
+
+// check if overflow for converting int32/int64/double to uint32
+// note: 1)when convert int32 to uint32, type should be set to int64
+//       2)uint64, please use UINT64_TO_UINT32_OVERFLOW_CHECK
+#define TO_UINT32_OVERFLOW_CHECK(u32, type)                                                             \
+    do {                                                                                                \
+        if (SECUREC_UNLIKELY((type)(u32) < (type)CM_MIN_UINT32 || (type)(u32) > (type)CM_MAX_UINT32)) { \
+            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "UNSIGNED INTEGER");                                      \
+            return CM_ERROR;                                                                            \
+        }                                                                                               \
+    } while (0)
+
+// check if overflow for converting uint64 to uint32
+// note: uint64 never less than GS_MIN_UINT32
+#define UINT64_TO_UINT32_OVERFLOW_CHECK(u32)                            \
+    do {                                                                \
+        if (SECUREC_UNLIKELY((uint64)(u32) > (uint64)CM_MAX_UINT32)) {  \
+            CM_THROW_ERROR(ERR_TYPE_OVERFLOW, "UNSIGNED INTEGER");      \
+            return CM_ERROR;                                            \
+        }                                                               \
     } while (0)
 
 static inline const char *cm_get_num_errinfo(uint32 err_no)

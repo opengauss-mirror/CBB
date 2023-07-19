@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -91,7 +91,7 @@ static status_t try_extend_free_list(cm_hash_pool_t *pool)
         LOG_DEBUG_ERR("too many objects, pool name: %s, max size:%u", HASH_NAME, HASH_MAX_SIZE);
         return CM_ERROR;
     }
-    uint32 size = (ENTRY_SIZE + HASH_ITEM_SIZE) * HASH_MEM_EXTENT_SIZE;
+    uint32 size = (uint32)((ENTRY_SIZE + HASH_ITEM_SIZE) * HASH_MEM_EXTENT_SIZE);
     extent = (cm_hash_item_t *)malloc(size);
     if (extent == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)size, pool->profile.name);
@@ -157,7 +157,7 @@ status_t cm_hash_pool_create(cm_hash_profile_t *profile, cm_hash_pool_t *pool)
     MEMS_RETURN_IFERR(memset_sp(pool, sizeof(cm_hash_pool_t), 0, sizeof(cm_hash_pool_t)));
     MEMS_RETURN_IFERR(memcpy_sp(&pool->profile, sizeof(cm_hash_profile_t), (void *)profile, sizeof(cm_hash_profile_t)));
 
-    uint32 mem_size = profile->bucket_num * sizeof(cm_hash_bucket_t);
+    uint32 mem_size = (uint32)(profile->bucket_num * sizeof(cm_hash_bucket_t));
     pool->buckets = (cm_hash_bucket_t *)malloc(mem_size);
     if (pool->buckets == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, mem_size, profile->name);
@@ -170,7 +170,7 @@ status_t cm_hash_pool_create(cm_hash_profile_t *profile, cm_hash_pool_t *pool)
         return CM_ERROR;
     }
 
-    mem_size = CM_ALIGN_CEIL(HASH_MAX_SIZE, HASH_MEM_EXTENT_SIZE) * sizeof(char *);
+    mem_size = (uint32)(CM_ALIGN_CEIL(HASH_MAX_SIZE, HASH_MEM_EXTENT_SIZE) * sizeof(char *));
     pool->pages = (char **)malloc(mem_size);
     if (pool->pages == NULL) {
         CM_FREE_PTR(pool->buckets);

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * cm_var_chan.c
- *    Implement of var channel which support store variable data
+ *
  *
  * IDENTIFICATION
  *    src/cm_utils/cm_var_chan.c
@@ -24,7 +24,7 @@
 
 #include "cm_var_chan.h"
 #include "cm_error.h"
-#include "cm_defs.h"
+#include "cm_num.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,8 +97,8 @@ var_chan_t *cm_var_chan_new(uint64 total)
     }
 
     // alloc mem which is multiple of SIZE_K(128)
-    uint32 page_count = (uint64)total / SIZE_K(128);
-    uint32 remain = (uint64)total % SIZE_K(128);
+    uint32 page_count = (uint32)((uint64)total / SIZE_K(128));
+    uint32 remain = (uint32)((uint64)total % SIZE_K(128));
     chan->buf_ctrl.buf_count = (remain == 0 ? page_count : page_count + 1);
 
     for (i = 0; i < chan->buf_ctrl.buf_count; i++) {
@@ -179,7 +179,7 @@ status_t cm_var_chan_send_timeout(var_chan_t *chan, const void *elem, uint32 len
         }
         chan->ori_chan.end += len;
         chan->ori_chan.count++;
-        chan->buf_ctrl.available -= (len + sizeof(uint32));
+        chan->buf_ctrl.available -= (uint32)(len + sizeof(uint32));
     }
     cm_spin_unlock(&chan->ori_chan.lock);
 
@@ -251,7 +251,7 @@ status_t cm_var_chan_recv_timeout(var_chan_t *chan, void *elem, uint32 *len, uin
         }
         chan->ori_chan.begin += *len;
         chan->ori_chan.count--;
-        chan->buf_ctrl.available += (sizeof(uint32) + *len);
+        chan->buf_ctrl.available += (uint32)(sizeof(uint32) + *len);
     }
     cm_spin_unlock(&chan->ori_chan.lock);
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -101,7 +101,7 @@ static inline bool32 cm_is_equal_ip(const char *client_ip, const char *local_ip)
 status_t cm_ipport_to_sockaddr(const char *host, int port, sock_addr_t *sock_addr);
 status_t cm_ip_to_sockaddr(const char *host, sock_addr_t *sock_addr);
 bool32 cm_check_ip_valid(const char *ip);
-
+status_t cm_split_mes_urls(char nodes[][CM_MAX_IP_LEN], uint16 ports[], char *urls);
 
 #ifdef __cplusplus
 }

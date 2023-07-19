@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -83,19 +83,24 @@ static void timer_proc(thread_t *thread)
     }
 }
 
-status_t cm_start_timer(gs_timer_t *input_timer)
+status_t cm_start_timer(gs_timer_t *timer)
 {
-    cm_now_detail((date_detail_t *)&input_timer->detail);
-    input_timer->now = cm_encode_date((const date_detail_t *)&input_timer->detail);
-    input_timer->today = (date_t)(input_timer->now / (int64)DAY_USECS) * (int64)DAY_USECS;
-    input_timer->systime = 0;
+    if (timer->init) {
+        return CM_SUCCESS;
+    }
+    cm_now_detail((date_detail_t *)&timer->detail);
+    timer->now = cm_encode_date((const date_detail_t *)&timer->detail);
+    timer->today = (date_t)(timer->now / (int64)DAY_USECS) * (int64)DAY_USECS;
+    timer->systime = 0;
     int16 tz_min = (int16)cm_get_time_zone();
-    input_timer->tz = tz_min / (int32)SECONDS_PER_MIN;
-    input_timer->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
-    return cm_create_thread(timer_proc, 0, input_timer, &input_timer->thread);
+    timer->tz = tz_min / (int32)SECONDS_PER_MIN;
+    timer->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
+    timer->init = CM_TRUE;
+    return cm_create_thread(timer_proc, 0, timer, &timer->thread);
 }
 
 void cm_close_timer(gs_timer_t *timer)
 {
     cm_close_thread(&timer->thread);
+    timer->init = CM_FALSE;
 }

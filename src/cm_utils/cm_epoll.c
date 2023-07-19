@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -275,7 +275,6 @@ static int epoll_ctl_add(epfd_entry_t *entry, int fd, struct epoll_event *event)
     biqueue_node_t *node = NULL;
     uint32 idx;
     fd_entry_t *fd_entry = NULL;
-
 
     idx = cm_hash_uint32(fd, EPOLL_HASHMAP_BUCKETS);
     entry_bucket = &entry->hash_map_fd2id[idx];

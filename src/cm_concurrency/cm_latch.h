@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -104,7 +104,7 @@ static inline void cm_latch_ix2x(latch_t *latch, uint32 sid, latch_statis_t *sta
 
         cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->ix_spin : NULL);
         if (latch->shared_count == 0) {
-            latch->sid = sid;
+            latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
             cm_spin_unlock(&latch->lock);
             cm_latch_stat_inc(stat, count);
@@ -139,7 +139,7 @@ static inline bool32 cm_latch_timed_ix2x(latch_t *latch, uint32 sid, uint32 wait
 
         cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->ix_spin : NULL);
         if (latch->shared_count == 0) {
-            latch->sid = sid;
+            latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
             cm_spin_unlock(&latch->lock);
             cm_latch_stat_inc(stat, count);
@@ -158,7 +158,7 @@ static inline void cm_latch_x(latch_t *latch, uint32 sid, latch_statis_t *stat)
         cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->x_spin : NULL);
 
         if (latch->stat == LATCH_STATUS_IDLE) {
-            latch->sid = sid;
+            latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
             cm_spin_unlock(&latch->lock);
             cm_latch_stat_inc(stat, count);
@@ -194,7 +194,7 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
         cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->x_spin : NULL);
 
         if (latch->stat == LATCH_STATUS_IDLE) {
-            latch->sid = sid;
+            latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
             cm_spin_unlock(&latch->lock);
             cm_latch_stat_inc(stat, count);
@@ -241,7 +241,7 @@ static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch
         if (latch->stat == LATCH_STATUS_IDLE) {
             latch->stat = LATCH_STATUS_S;
             latch->shared_count = 1;
-            latch->sid = sid;
+            latch->sid = (uint16)sid;
             cm_spin_unlock(&latch->lock);
             cm_latch_stat_inc(stat, count);
             return;

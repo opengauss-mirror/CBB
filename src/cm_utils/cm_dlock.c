@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -27,6 +27,7 @@
 #include "cm_log.h"
 #include "cm_date.h"
 #include "cm_utils.h"
+#include "ddes_perctrl_api.h"
 #include "cm_dlock.h"
 
 static status_t cm_open_scsi_dev(const dlock_t *lock, const char *scsi_dev, int32 *fd)
@@ -137,7 +138,7 @@ void cm_init_dlock_header(dlock_t *lock, uint64 lock_addr, int64 inst_id)
         LOCKW_LOCK_MAGICNUM(*lock) = (int64)DISK_LOCK_HEADER_MAGIC;
         // tail magic num
         int64 *tail_magic = (int64 *)(lock->lockw + CM_DEF_BLOCK_SIZE - sizeof(int64));
-        *tail_magic = DISK_LOCK_HEADER_MAGIC;
+        *tail_magic = (int64)DISK_LOCK_HEADER_MAGIC;
         LOCKW_INST_ID(*lock) = inst_id + 1;
         LOCKW_LOCK_VERSION(*lock) = DISK_LOCK_VERSION;
         lock->lock_addr = lock_addr;
@@ -166,13 +167,13 @@ int32 cm_disk_lock_s(dlock_t *lock, const char *scsi_dev)
 
     CM_RETURN_IFERR(cm_open_scsi_dev(lock, scsi_dev, &fd));
 
-    ret = cm_disk_lock(lock, fd);
+    ret = cm_disk_lock(lock, fd, scsi_dev);
     if (CM_SUCCESS != ret) {
-        close(fd);
+        (void)close(fd);
         return ret;
     }
 
-    close(fd);
+    (void)close(fd);
 #endif
     return CM_SUCCESS;
 }
@@ -187,13 +188,13 @@ status_t cm_disk_timed_lock_s(dlock_t *lock, const char *scsi_dev, uint64 wait_u
 
     CM_RETURN_IFERR(cm_open_scsi_dev(lock, scsi_dev, &fd));
 
-    status = cm_disk_timed_lock(lock, fd, wait_usecs, lock_interval, dlock_retry_count);
+    status = cm_disk_timed_lock(lock, fd, wait_usecs, lock_interval, dlock_retry_count, scsi_dev);
     if (CM_SUCCESS != status) {
-        close(fd);
+        (void)close(fd);
         return status;
     }
 
-    close(fd);
+    (void)close(fd);
     LOG_DEBUG_INF("end lock timeouts");
 #endif
     return CM_SUCCESS;
@@ -208,13 +209,13 @@ int32 cm_disk_lockf_s(dlock_t *lock, const char *scsi_dev)
 
     CM_RETURN_IFERR(cm_open_scsi_dev(lock, scsi_dev, &fd));
 
-    ret = cm_disk_lockf(lock, fd);
+    ret = cm_disk_lockf(lock, fd, scsi_dev);
     if (ret != CM_SUCCESS) {
-        close(fd);
+        (void)close(fd);
         return ret;
     }
 
-    close(fd);
+    (void)close(fd);
 #endif
     return CM_SUCCESS;
 }
@@ -228,13 +229,13 @@ status_t cm_disk_unlock_s(dlock_t *lock, const char *scsi_dev)
 
     CM_RETURN_IFERR(cm_open_scsi_dev(lock, scsi_dev, &fd));
 
-    status = cm_disk_unlock(lock, fd);
+    status = cm_disk_unlock(lock, fd, scsi_dev);
     if (CM_SUCCESS != status) {
-        close(fd);
+        (void)close(fd);
         return status;
     }
 
-    close(fd);
+    (void)close(fd);
 #endif
     return CM_SUCCESS;
 }
@@ -252,16 +253,15 @@ int32 cm_preempt_dlock_s(dlock_t *lock, const char *scsi_dev)
 #ifdef WIN32
 #else
     int32 ret;
-    int32 fd = 0;
 
-    CM_RETURN_IFERR(cm_open_scsi_dev(lock, scsi_dev, &fd));
+    if (lock == NULL || scsi_dev == NULL) {
+        return CM_ERROR;
+    }
 
-    ret = cm_preempt_dlock(lock, fd);
+    ret = cm_preempt_dlock(lock, scsi_dev);
     if (CM_SUCCESS != ret) {
-        close(fd);
         return ret;
     }
-    close(fd);
 #endif
     return CM_SUCCESS;
 }
@@ -277,11 +277,11 @@ status_t cm_erase_dlock_s(dlock_t *lock, const char *scsi_dev)
 
     status = cm_erase_dlock(lock, fd);
     if (CM_SUCCESS != status) {
-        close(fd);
+        (void)close(fd);
         return status;
     }
 
-    close(fd);
+    (void)close(fd);
 #endif
     return CM_SUCCESS;
 }
@@ -298,34 +298,33 @@ status_t cm_get_dlock_info_s(dlock_t *lock, const char *scsi_dev)
     status = cm_get_dlock_info(lock, fd);
     if (CM_SUCCESS != status) {
         LOG_DEBUG_ERR("Get lock info from dev %s failed.", scsi_dev);
-        close(fd);
+        (void)close(fd);
         return status;
     }
 
-    close(fd);
+    (void)close(fd);
 #endif
     return CM_SUCCESS;
 }
 
-int32 cm_disk_lock(dlock_t *lock, int32 fd)
+int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
 {
-    int32 buff_len = 2 * CM_DEF_BLOCK_SIZE;
-    status_t status;
-
     if (lock == NULL || fd < 0) {
         return CM_ERROR;
     }
 
 #ifdef WIN32
 #else
+    int32 buff_len = 2 * CM_DEF_BLOCK_SIZE;
+    status_t status;
     LOG_DEBUG_INF("begin lock.");
     time_t t = time(NULL);
     LOCKW_LOCK_TIME(*lock) = t;
     LOCKW_LOCK_CREATE_TIME(*lock) = t;
-    int32 ret = cm_scsi3_caw(fd, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
+    int32 ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE != ret) {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     } else {
@@ -343,13 +342,13 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd)
     // if the owner of the lock on the disk is the current instance, we can lock succ
     LOCKR_INST_ID(*lock) = LOCKW_INST_ID(*lock);
     LOCKW_LOCK_CREATE_TIME(*lock) = LOCKR_LOCK_CREATE_TIME(*lock);
-    ret = cm_scsi3_caw(fd, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
+    ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE == ret) {
             // the lock is hold by another instance
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     }
@@ -358,7 +357,8 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd)
     return CM_SUCCESS;
 }
 
-status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lock_interval, uint32 dlock_retry_count)
+status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lock_interval, uint32 dlock_retry_count,
+    const char *scsi_dev)
 {
 #ifdef WIN32
     return CM_SUCCESS;
@@ -375,12 +375,12 @@ status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lo
     }
 
     if (lock_interval > 0) {
-        disk_lock_interval = lock_interval;
+        disk_lock_interval = (uint32)lock_interval;
     }
 
     (void)cm_gettimeofday(&tv_begin);
     for (;;) {
-        ret = cm_disk_lock(lock, fd);
+        ret = cm_disk_lock(lock, fd, scsi_dev);
         if (ret == CM_SUCCESS) {
             LOG_DEBUG_INF("Lock with time succ.");
             return CM_SUCCESS;
@@ -409,7 +409,7 @@ status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lo
 #endif
 }
 
-int32 cm_disk_lockf(dlock_t *lock, int32 fd)
+int32 cm_disk_lockf(dlock_t *lock, int32 fd, const char *scsi_dev)
 {
 #ifdef WIN32
 #else
@@ -426,7 +426,7 @@ int32 cm_disk_lockf(dlock_t *lock, int32 fd)
         return CM_ERROR;
     }
 
-    ret = cm_disk_lock(lock, fd);
+    ret = cm_disk_lock(lock, fd, scsi_dev);
     if (CM_SUCCESS != ret) {
         return ret;
     }
@@ -434,7 +434,7 @@ int32 cm_disk_lockf(dlock_t *lock, int32 fd)
     return CM_SUCCESS;
 }
 
-status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body)
+status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body, const char *scsi_dev)
 {
 #ifdef WIN32
 #else
@@ -478,22 +478,22 @@ status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body)
         errcode = memset_sp(lock->lockw, DISK_LOCK_HEADER_LEN, 0, DISK_LOCK_HEADER_LEN);
         securec_check_ret(errcode);
     }
-    ret = cm_scsi3_caw(fd, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
+    ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
-        LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, ret %d.", lock->lock_addr, ret);
+        LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, ret %d, errno %d.", lock->lock_addr, ret, errno);
         return CM_ERROR;
     }
 #endif
     return CM_SUCCESS;
 }
 
-status_t cm_disk_unlock(dlock_t *lock, int32 fd)
+status_t cm_disk_unlock(dlock_t *lock, int32 fd, const char *scsi_dev)
 {
 #ifdef WIN32
 #else
     status_t status;
 
-    status = cm_disk_unlock_interal(lock, fd, CM_TRUE);
+    status = cm_disk_unlock_interal(lock, fd, CM_TRUE, scsi_dev);
     if (CM_SUCCESS != status) {
         return status;
     }
@@ -507,7 +507,7 @@ status_t cm_disk_unlock_ex(dlock_t *lock, int32 fd)
 #else
     status_t status;
 
-    status = cm_disk_unlock_interal(lock, fd, CM_FALSE);
+    status = cm_disk_unlock_interal(lock, fd, CM_FALSE, NULL);
     if (CM_SUCCESS != status) {
         return status;
     }
@@ -555,7 +555,7 @@ status_t cm_erase_dlock(dlock_t *lock, int32 fd)
     return CM_SUCCESS;
 }
 
-int32 cm_preempt_dlock(dlock_t *lock, int32 fd)
+int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev)
 {
 #ifdef WIN32
 #else
@@ -569,12 +569,12 @@ int32 cm_preempt_dlock(dlock_t *lock, int32 fd)
     time_t t = time(NULL);
     LOCKW_LOCK_TIME(*lock) = t;
     LOCKW_LOCK_CREATE_TIME(*lock) = t;
-    ret = cm_scsi3_caw(fd, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
+    ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE == ret) {
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
             return CM_ERROR;
         }
     }

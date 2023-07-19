@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -22,7 +22,6 @@
  * -------------------------------------------------------------------------
  */
 #include "cm_hash.h"
-#include <math.h>
 
 #define CM_HASH_SEED_UNIT_SIZE 4
 
@@ -127,27 +126,27 @@ static uint32 cm_hash_little_endian(const uint8 *bytes, uint32 length, uint32 ra
     return (range == INFINITE_HASH_RANGE) ? value : (value % range);
 }
 
-uint32 cm_hash_bytes(const uint8 *bytes, uint32 length, uint32 range)
+uint32 cm_hash_bytes(const uint8 *bytes, uint32 size, uint32 range)
 {
     if (IS_BIG_ENDIAN) {
-        return cm_hash_big_endian(bytes, length, range);
+        return cm_hash_big_endian(bytes, size, range);
     } else {
-        return cm_hash_little_endian(bytes, length, range);
+        return cm_hash_little_endian(bytes, size, range);
     }
 }
 
-#define F_KEY ((hmap)->hash_funcs.f_key)
-#define F_HASH ((hmap)->hash_funcs.f_hash)
-#define F_EQUAL ((hmap)->hash_funcs.f_equal)
+#define F_KEY(hfuncs, node) ((hfuncs)->f_key(node))
+#define F_HASH(hfuncs, key) ((hfuncs)->f_hash(key))
+#define F_EQUAL(hfuncs, key1, key2) ((hfuncs)->f_equal((key1), (key2)))
 
-hash_node_t *cm_hmap_find(hash_map_t *hmap, void *key)
+hash_node_t *cm_hmap_find(hash_map_t *hmap, hash_funcs_t *hfuncs, void *key)
 {
-    uint32 hval = F_HASH(key);
+    uint32 hval = F_HASH(hfuncs, key);
     uint32 bucket = hval % hmap->bucket_num;
     hash_node_t *curr = hmap->buckets[bucket];
     while (curr) {
-        void *rkey = F_KEY(curr);
-        if (F_EQUAL(key, rkey)) {
+        void *lkey = F_KEY(hfuncs, curr);
+        if (F_EQUAL(hfuncs, lkey, key)) {
             return curr;
         }
         curr = curr->next;
@@ -155,13 +154,14 @@ hash_node_t *cm_hmap_find(hash_map_t *hmap, void *key)
     return NULL;
 }
 
-bool32 cm_hmap_insert(hash_map_t *hmap, hash_node_t *node)
+bool32 cm_hmap_insert(hash_map_t *hmap, hash_funcs_t *hfuncs, hash_node_t *node)
 {
-    void *key = F_KEY(node);
-    uint32 hval = F_HASH(key);
+    void *key = F_KEY(hfuncs, node);
+    uint32 hval = F_HASH(hfuncs, key);
     uint32 bucket = hval % hmap->bucket_num;
     hash_node_t *first = hmap->buckets[bucket];
 
+    node->next = NULL;
     if (!first) {
         hmap->buckets[bucket] = node;
         return CM_TRUE;
@@ -170,27 +170,26 @@ bool32 cm_hmap_insert(hash_map_t *hmap, hash_node_t *node)
     hash_node_t *curr = first;
     hash_node_t *last;
     while (curr) {
-        void *rkey = F_KEY(curr);
-        if (F_EQUAL(key, rkey)) {
+        void *rkey = F_KEY(hfuncs, curr);
+        if (F_EQUAL(hfuncs, key, rkey)) {
             return CM_FALSE;
         }
         last = curr;
         curr = curr->next;
     }
-    node->next = NULL;
     last->next = node;
     return CM_TRUE;
 }
 
-hash_node_t *cm_hmap_delete(hash_map_t *hmap, void *key)
+hash_node_t *cm_hmap_delete(hash_map_t *hmap, hash_funcs_t *hfuncs, void *key)
 {
-    uint32 hval = F_HASH(key);
-    uint32 bucket = hval % hmap->bucket_num;
-    hash_node_t *curr = hmap->buckets[bucket];
+    uint32 hval = F_HASH(hfuncs, key);
+    uint32 bucket_idx = hval % hmap->bucket_num;
+    hash_node_t *curr = hmap->buckets[bucket_idx];
     hash_node_t *prev = NULL;
     while (curr) {
-        void *rkey = F_KEY(curr);
-        if (F_EQUAL(key, rkey)) {
+        void *rkey = F_KEY(hfuncs, curr);
+        if (F_EQUAL(hfuncs, key, rkey)) {
             break;
         }
         prev = curr;
@@ -200,58 +199,48 @@ hash_node_t *cm_hmap_delete(hash_map_t *hmap, void *key)
         return NULL;
     }
     if (prev == NULL) {
-        hmap->buckets[bucket] = curr->next;
+        hmap->buckets[bucket_idx] = curr->next;
     } else {
         prev->next = curr->next;
     }
     return curr;
 }
 
-status_t cm_hmap_fetch(hash_map_t *hmap, hash_node_t **cur_node, hash_node_t **iter_node, bool32 *is_first_fetch)
+void cm_hmap_begin(hash_map_t *hmap, hash_node_t **beg)
 {
-    hash_node_t *curr = NULL;
     uint32 bucket_idx = 0;
-
-    *cur_node = *iter_node;
-    *iter_node = NULL;
-    curr = *cur_node;
-
-    if (!(*is_first_fetch) && !curr) {
-        return CM_ERROR;
-    }
-    *is_first_fetch = CM_FALSE;
-
-    if (!curr) {
-        while (bucket_idx < hmap->bucket_num) {
-            curr = hmap->buckets[bucket_idx];
-            if (curr != NULL) {
-                *cur_node = curr;
-                break;
-            }
-            bucket_idx++;
+    
+    *beg = NULL;
+    while (bucket_idx < hmap->bucket_num) {
+        if (hmap->buckets[bucket_idx] != NULL) {
+            *beg = hmap->buckets[bucket_idx];
+            return;
         }
-        if (!curr) {
-            return CM_ERROR;
-        }
+        bucket_idx++;
+    }
+    return;
+}
+
+void cm_hmap_next(hash_map_t *hmap, hash_funcs_t *hfuncs, hash_node_t **curr)
+{
+    if (!*curr) { return; }
+    if ((*curr)->next) {
+        *curr = (*curr)->next;
+        return;
     }
 
-    if (curr->next) {
-        *iter_node = curr->next;
-        return CM_SUCCESS;
-    }
-
-    void *key = F_KEY(curr);
-    uint32 hval = F_HASH(key);
+    uint32 bucket_idx;
+    void *key = F_KEY(hfuncs, *curr);
+    uint32 hval = F_HASH(hfuncs, key);
+    
     bucket_idx = hval % hmap->bucket_num + 1;
     while (bucket_idx < hmap->bucket_num) {
-        curr = hmap->buckets[bucket_idx];
-        if (curr == NULL) {
-            bucket_idx++;
-            continue;
+        if (hmap->buckets[bucket_idx] != NULL) {
+            *curr = hmap->buckets[bucket_idx];
+            return;
         }
-        *iter_node = curr;
-        return CM_SUCCESS;
+        bucket_idx++;
     }
-
-    return CM_SUCCESS;
+    *curr = NULL;
+    return;
 }

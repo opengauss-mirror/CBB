@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
  *
- * openGauss is licensed under Mulan PSL v2.
+ * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
@@ -109,6 +109,51 @@ status_t cm_chan_send_timeout(chan_t *chan, const void *elem, uint32 timeout_ms)
                 break;
             }
         }
+
+        // ring
+        if (chan->end >= chan->buf_end) {
+            chan->end = chan->buf;
+        }
+
+        // send
+        if (chan->size != 0) {
+            errcode = memcpy_sp(chan->end, (size_t)(chan->buf_end - chan->end), elem, (size_t)chan->size);
+            if (errcode != EOK) {
+                cm_spin_unlock(&chan->lock);
+                CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+                return CM_ERROR;
+            }
+        }
+        chan->end += chan->size;
+        chan->count++;
+    }
+    cm_spin_unlock(&chan->lock);
+
+    cm_event_notify(&chan->event_send);
+
+    return CM_SUCCESS;
+}
+
+status_t cm_chan_try_send(chan_t *chan, const void *elem)
+{
+    errno_t errcode;
+    if (chan == NULL || elem == NULL) {
+        return CM_ERROR;
+    }
+
+    cm_spin_lock(&chan->lock, NULL);
+    {
+        if (chan->buf == NULL || chan->is_closed) {
+            cm_spin_unlock(&chan->lock);
+            return CM_ERROR;
+        }
+
+        // chan is full
+        if (chan->count == chan->capacity) {
+            cm_spin_unlock(&chan->lock);
+            return CM_ERROR;
+        }
+        
 
         // ring
         if (chan->end >= chan->buf_end) {
