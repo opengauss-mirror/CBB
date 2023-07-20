@@ -255,6 +255,24 @@ struct nvme_reservation_status {
     } regctl_ds[];
 };
 
+struct nvme_reservation_status_ext {
+	__le32	gen;
+	uint8	rtype;
+	uint8	regctl[2];
+	uint8	resv5[2];
+	uint8	ptpls;
+	uint8	resv10[14];
+	uint8	resv24[40];
+	struct {
+		__le16	cntlid;
+		uint8	rcsts;
+		uint8	resv3[5];
+		__le64	rkey;
+		uint8	hostid[16];
+		uint8	resv32[32];
+	} regctl_eds[];
+};
+
 /* I/O commands */
 enum nvme_opcode {
     nvme_cmd_flush      = 0x00,
