@@ -135,6 +135,10 @@ int32 cm_nvme_register(int32 fd, int64 nrkey)
         if (status == CM_NVME_SC_RESERVATION_CONFLICT) {
             LOG_DEBUG_INF("NVMe register get reservation confict return, nrkey %lld.", nrkey);
             return CM_SCSI_ERR_CONFLICT;
+        } else if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe register command failed, nrkey %lld.error:%s(%d)",
+                nrkey, strerror(errno), errno);
+            return CM_ERROR;
         } else {
             LOG_DEBUG_ERR("Sending NVMe register command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
             return CM_ERROR;
@@ -172,8 +176,13 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
         if (status == CM_NVME_SC_RESERVATION_CONFLICT) {
             LOG_DEBUG_INF("NVMe unregister get reservation confict return, crkey %lld.", crkey);
             return CM_SCSI_ERR_CONFLICT;
+        } else if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe unregister command failed, crkey %lld.error:%s(%d)",
+                crkey, strerror(errno), errno);
+            return CM_ERROR;
         } else {
-            LOG_DEBUG_ERR("Sending NVMe unregister command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+            LOG_DEBUG_ERR("Sending NVMe unregister command failed, %s(%#x).",
+                cm_nvme_status_to_string(status), status);
             return CM_ERROR;
         }
     }
@@ -207,8 +216,12 @@ int32 cm_nvme_reserve(int32 fd, int64 nrkey)
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
         if (status == CM_NVME_SC_RESERVATION_CONFLICT) {
-            LOG_DEBUG_INF("NVMe reserve get reservation confict return, crkey %lld.", crkey);
+            LOG_DEBUG_INF("NVMe reserve get reservation confict return, nrkey %lld.", nrkey);
             return CM_SCSI_ERR_CONFLICT;
+        } else if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe reserve command failed, crkey %lld.error:%s(%d)",
+                crkey, strerror(errno), errno);
+            return CM_ERROR;
         } else {
             LOG_DEBUG_ERR("Sending NVMe reserve command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
             return CM_ERROR;
@@ -242,7 +255,13 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
 
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe release command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe release command failed, crkey %lld.error:%s(%d)",
+                crkey, strerror(errno), errno);
+            return CM_ERROR;
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe release command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        }
         return CM_ERROR;
     }
 
@@ -274,8 +293,13 @@ int32 cm_nvme_clear(int32 fd, int64 crkey)
 
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe clear command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
-        return CM_ERROR;
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe clear command failed, crkey %lld.error:%s(%d)", crkey, strerror(errno), errno);
+            return CM_ERROR;
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe clear command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+            return CM_ERROR;
+        }
     }
 
     return CM_SUCCESS;
@@ -305,14 +329,20 @@ int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe preempt command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
-        return CM_ERROR;
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe preempt command failed, crkey %lld, nrkey %lld .error:%s(%d)",
+                crkey, nrkey, strerror(errno), errno);
+            return CM_ERROR;
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe preempt command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+            return CM_ERROR;
+        }
     }
 
     return CM_SUCCESS;
 }
 
-int32 cm_nvme_resv_report(int fd, uint32 nsid, uint32 numd, __u32 cdw11, void *data)
+int32 cm_nvme_resv_report(int fd, uint32 nsid, uint32 numd, uint32 cdw11, void *data)
 {
     struct nvme_passthru_cmd cmd = {
         .opcode     = nvme_cmd_resv_report,
@@ -327,7 +357,6 @@ int32 cm_nvme_resv_report(int fd, uint32 nsid, uint32 numd, __u32 cdw11, void *d
     return cm_nvme_submit_io_passthru(fd, &cmd);
 }
 
-
 int32 cm_nvme_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generation)
 {
     uint32 nsid = 0;
@@ -337,6 +366,7 @@ int32 cm_nvme_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generat
     int i = 0;
     int regctl = 0;
     int entries = 0;
+    uint32 cdw11 = 1;
     uint32 unique_keys_count = 0;
 
     struct nvme_reservation_status* res_status;
@@ -352,22 +382,29 @@ int32 cm_nvme_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generat
 
     securec_check_ret(memset_sp(res_status, size, 0, size));
 
-    status = cm_nvme_resv_report(fd, nsid, *key_count, 1, res_status);
+    status = cm_nvme_resv_report(fd, nsid, *key_count, cdw11, res_status);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe read keys command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe read keys command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe read keys command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        }
         free(res_status);
         return CM_ERROR;
     }
 
     *generation = le32_to_cpu(res_status->gen);
     regctl = (res_status->regctl[0]) | ((res_status->regctl[1]) << 8);
-    entries = (size - 24) / 24;
+    entries = (size - 64) / 64;
     if (entries < regctl) {
         regctl = entries;
     }
 
+    struct nvme_reservation_status_ext *ext_status =
+        (struct nvme_reservation_status_ext *)res_status;
+            
     for (i = 0; i < regctl; i++) {
-        reg_key = le64_to_cpu(res_status->regctl_ds[i].rkey);
+        reg_key = le64_to_cpu(ext_status->regctl_eds[i].rkey);
 
         if (unique_keys_count >= *key_count) {
             LOG_DEBUG_ERR("NVMe read buff not engouth, rk %lld, key_count %d.", reg_key, *key_count);
@@ -389,14 +426,17 @@ int32 cm_nvme_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *generat
 
     return CM_SUCCESS;
 }
+
 int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
 {
     uint32 nsid = 0;
     int32 status = 0;
     uint32 size = 0;
+    uint32 cdw11 = 1;
     int regctl;
 
     struct nvme_reservation_status* res_status;
+    struct nvme_reservation_status_ext *ext_status = NULL;
 
     CM_RETURN_IFERR(cm_nvme_get_nsid(fd, (int32*)(&nsid)));
 
@@ -409,9 +449,13 @@ int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
 
     securec_check_ret(memset_sp(res_status, size, 0, size));
 
-    status = cm_nvme_resv_report(fd, nsid, PAGE_SIZE, 1, res_status);
+    status = cm_nvme_resv_report(fd, nsid, PAGE_SIZE, cdw11, res_status);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe read keys command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe read res command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe read res command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        }
         free(res_status);
         return CM_ERROR;
     }
@@ -419,8 +463,9 @@ int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
     *generation = le32_to_cpu(res_status->gen);
     regctl = res_status->regctl[0] | (res_status->regctl[1] << 8);
 
+    ext_status = (struct nvme_reservation_status_ext *)res_status;
     if (regctl > 0) {
-        *crkey = le64_to_cpu(res_status->regctl_ds[0].rkey);
+        *crkey = le64_to_cpu(ext_status->regctl_eds[0].rkey);
         LOG_DEBUG_INF("NVMe read reservation key %lld.", *crkey);
     }
 
@@ -447,7 +492,11 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe read command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe read command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        }
         return CM_ERROR;
     }
 
@@ -472,7 +521,11 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe write command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe write command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        }
         return CM_ERROR;
     }
 
@@ -497,7 +550,12 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, %s(%#x).",
+                cm_nvme_status_to_string(status), status);
+        }
         return CM_ERROR;
     }
 
@@ -505,7 +563,12 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     data = buff + (buff_len / 2);
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
-        LOG_DEBUG_ERR("Sending NVMe write command in caw failed, %s(%#x).", cm_nvme_status_to_string(status), status);
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe write command in caw failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe write command in caw failed, %s(%#x).",
+                cm_nvme_status_to_string(status), status);
+        }
         return CM_ERROR;
     }
 
