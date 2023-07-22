@@ -183,7 +183,7 @@ static int mes_process_event(mes_channel_t *channel)
 static void mes_tcp_try_connect(mes_channel_t *channel)
 {
     int32 ret;
-    cs_pipe_t send_pipe;
+    cs_pipe_t send_pipe = channel->send_pipe;
     char peer_url[MES_URL_BUFFER_SIZE];
     char *remote_host = MES_HOST_NAME(MES_INSTANCE_ID(channel->id));
     mes_message_head_t head = { 0 };
