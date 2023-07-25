@@ -289,6 +289,7 @@ extern "C" {
 #define CM_MAX_NUMBER_LEN       (uint32)128
 #define CM_DEFAULT_DIGIT_RADIX  10
 #define CM_DEFAULT_NULL_VALUE         (uint32)0xFFFFFFFF
+#define UNSIGNED_LLONG_MAX "18446744073709551615"
      
 /* simple mathematical calculation */
 #define MIN(A, B)        ((B) < (A) ? (B) : (A))
