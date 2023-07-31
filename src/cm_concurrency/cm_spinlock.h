@@ -57,12 +57,25 @@ typedef volatile uint32 ip_spinlock_t;
         }                         \
     }
 
+#define SPIN_STAT_ADD(stat, item, value) \
+    {                                    \
+        if ((stat) != NULL) {            \
+            ((stat)->item) += (value);   \
+        }                                \
+    }
+
 typedef struct st_spin_statis {
     uint64 spins;
     uint64 wait_usecs;
+    uint64 ss_wait_usecs;
     uint64 fails;
 } spin_statis_t;
 
+// instance-level, statistics
+typedef struct st_spin_statis_instance {
+    uint64 wait_times;
+    uint64 ss_wait_usecs;
+} spin_statis_instance_t;
 
 #if defined(__arm__) || defined(__aarch64__)
 #define fas_cpu_pause()          \
@@ -136,7 +149,7 @@ static inline void cm_spin_sleep_ex(uint32 tick)
 
 #endif
 
-static inline void cm_spin_lock(spinlock_t *lock, spin_statis_t *stat)
+static inline void cm_spin_lock_with_stat(spinlock_t *lock, spin_statis_t *stat, spin_statis_instance_t *stat_instance)
 {
     uint32 spin_times = 0;
     uint32 sleep_times = 0;
@@ -156,6 +169,7 @@ static inline void cm_spin_lock(spinlock_t *lock, spin_statis_t *stat)
             if (SECUREC_UNLIKELY(spin_times == GS_SPIN_COUNT)) {
                 cm_spin_sleep_and_stat(stat);
                 spin_times = 0;
+                SPIN_STAT_INC(stat_instance, wait_times);
             }
         }
 
@@ -172,6 +186,8 @@ static inline void cm_spin_lock(spinlock_t *lock, spin_statis_t *stat)
 #endif
     }
 }
+
+#define cm_spin_lock(lock, stat)    cm_spin_lock_with_stat(lock, stat, NULL)
 
 static inline void cm_spin_lock_ex(spinlock_t *lock, spin_statis_t *stat, uint32 spin_count)
 {
