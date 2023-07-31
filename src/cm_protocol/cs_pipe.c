@@ -23,6 +23,7 @@
  */
 
 #include "cs_pipe.h"
+#include "cm_ip.h"
 #include "cm_num.h"
 #include "cm_profile_stat.h"
 
@@ -599,6 +600,21 @@ status_t cs_call_timed(cs_pipe_t *pipe, cs_packet_t *req, cs_packet_t *ack)
     return cs_read(pipe, ack, CM_TRUE);
 }
 
+
+#define LOOPBACK_ADDRESS "127.0.0.1"
+void cm_get_remote_host(cs_pipe_t *pipe, char *os_host)
+{
+    if (pipe->type == CS_TYPE_TCP || pipe->type == CS_TYPE_SSL) {
+        (void)cm_inet_ntop((struct sockaddr *)&pipe->link.tcp.remote.addr, os_host, (int)CM_HOST_NAME_BUFFER_SIZE);
+    } else if (pipe->type == CS_TYPE_DOMAIN_SCOKET) {
+        errno_t errcode = strncpy_s(os_host, CM_HOST_NAME_BUFFER_SIZE, LOOPBACK_ADDRESS, strlen(LOOPBACK_ADDRESS));
+        if (errcode != EOK) {
+            CM_THROW_ERROR(ERR_SYSTEM_CALL, (errcode));
+            return;
+        }
+    }
+    return;
+}
 #ifdef __cplusplus
 }
 #endif

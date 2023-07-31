@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
+ * Copyright (c) 2023 Huawei Technologies Co.,Ltd.
  *
  * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -13,43 +13,36 @@
  * See the Mulan PSL v2 for more details.
  * -------------------------------------------------------------------------
  *
- * cm_signal.h
+ * cm_system.h
  *
  *
  * IDENTIFICATION
- *    src/cm_concurrency/cm_signal.h
+ *    src/cm_utils/cm_system.h
  *
  * -------------------------------------------------------------------------
  */
-#ifndef __CM_SIGNAL_H__
-#define __CM_SIGNAL_H__
+#ifndef __CM_SYSTEM_H__
+#define __CM_SYSTEM_H__
 
-#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "cm_defs.h"
 #include "cm_error.h"
+#include "cs_pipe.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef WIN32
-
-#define SIGQUIT 3
-#define SIGUSR1 30
-#define SIGCHLD 20
-#define SIGRTMIN 34
-#define SIGRTMAX 64
-#endif
-
-#define SIG_BACKTRACE ((SIGRTMIN) + 8)
-
-typedef void (*signal_proc)(int32);
-
-#ifndef WIN32
-status_t cm_regist_signal_ex(int32 signo, void (*handle)(int, siginfo_t *, void *));
-status_t cm_regist_signal_restart(int32 signo, void (*handle)(int, siginfo_t *, void *));
-#endif
-
-status_t cm_regist_signal(int32 signo, signal_proc func);
+uint64 cm_sys_pid(void);
+char *cm_sys_program_name(void);
+char *cm_sys_user_name(void);
+char *cm_sys_host_name(void);
+char *cm_sys_platform_name(void);
+int64 cm_sys_ticks(void);
+int64 cm_sys_process_start_time(uint64 pid);
+bool32 cm_sys_process_alived(uint64 pid, int64 start_time);
 
 #ifdef __cplusplus
 }
