@@ -101,14 +101,16 @@ extern "C" {
 #define CM_INFINITE_TIMEOUT        (uint32)0xFFFFFFFF
 #define CM_MAX_THREAD_NAME_LEN     (128)
 
-#define CM_MAX_SESSIONS               (uint32)16320
+#define CM_MAX_SESSIONS             (uint32)16320
 #define CM_MAX_DBWR_PROCESS             (uint32)36
 #define CM_MAX_INSTANCES            (uint32)64
 #define CM_MIN_PORT                (uint32)1024
 
 /* mes */
 #define CM_MAX_MES_ROOMS_BASE           (uint32)(CM_MAX_SESSIONS)
-#define CM_MAX_MES_ROOMS                (uint32)(CM_MAX_SESSIONS + CM_MAX_DBWR_PROCESS)
+#define CM_MAX_MES_ROOMS                (uint32)16384 /* must be a multiple of room freelist num */
+#define CM_MAX_ROOM_FREELIST_NUM        (uint32)512
+#define CM_MES_ROOMS_PER_FREELIST       (uint32)(CM_MAX_MES_ROOMS / CM_MAX_ROOM_FREELIST_NUM)
 #define CM_MAX_MES_MSG_CMD              (uint8)255
 
 /* DAAC */

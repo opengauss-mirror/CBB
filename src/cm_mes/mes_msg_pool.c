@@ -23,7 +23,6 @@
  */
 #include "mes_msg_pool.h"
 #include "mes_func.h"
-#include "mes_type.h"
 
 #define RECV_MSG_POOL_FC_THRESHOLD 10
 

@@ -37,7 +37,7 @@
 #include "cm_log.h"
 #include "cm_file.h"
 #include "mes_msg_pool.h"
-#include "mes.h"
+#include "mes_interface.h"
 #include "mes_metadata.h"
 #include "mes_rpc_ulog4c.h"
 #include "mes_rpc_openssl_dl.h"
@@ -368,7 +368,7 @@ int mes_start_rdma_rpc_lsnr(void)
 static void mes_rdma_rpc_default_proc_func(OckRpcServerContext handle, OckRpcMessage msg)
 {
     mes_message_head_t* head = (mes_message_head_t*)msg.data;
-    uint32_t channel_id = MES_SESSION_TO_CHANNEL_ID(head->src_sid);
+    uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][channel_id];
     mes_msgqueue_t *my_queue = &channel->msg_queue;
 
@@ -466,17 +466,17 @@ static void mes_rdma_rpc_connection_cmd_func(OckRpcServerContext handle, OckRpcM
     }
 
     mes_message_head_t* head = (mes_message_head_t*)msg.data;
-    if (head->cmd != MES_CONNECT_CMD || head->src_inst >= MES_GLOBAL_INST_MSG.profile.inst_cnt) {
+    if (head->cmd != MES_CMD_CONNECT || head->src_inst >= MES_GLOBAL_INST_MSG.profile.inst_cnt) {
         LOG_RUN_ERR("CONNECT_CMD message error, cmd(%d), inst_id(%d), channel_id(%d).", head->cmd,
-            head->src_inst, head->src_sid);
+            head->src_inst, head->caller_tid);
         OckRpcServerCleanupCtx(handle);
         return;
     }
 
-    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d)\n", head->src_inst, head->src_sid);
+    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d)\n", head->src_inst, head->caller_tid);
 
     mes_channel_t *channel =
-        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
+        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
     cm_rwlock_wlock(&channel->recv_lock);
     channel->recv_pipe_active = CM_TRUE;
     cm_rwlock_unlock(&channel->recv_lock);
@@ -600,9 +600,9 @@ static int mes_rdma_send_connect_cmd(uint32 inst_id, uint32_t channelId)
 {
     // send ack message to server, set recv_pipe_acitive = true
     mes_message_head_t head = { 0 };
-    head.cmd = MES_CONNECT_CMD;
+    head.cmd = MES_CMD_CONNECT;
     head.src_inst = (uint8)MES_GLOBAL_INST_MSG.profile.inst_id;
-    head.src_sid = (uint16)channelId; // use sid represent channel id.
+    head.caller_tid = (uint16)channelId; // use caller_tid to represent channel id
     head.size = sizeof(mes_message_head_t);
     OckRpcMessage request = {.data = (void*)&head, .len = sizeof(mes_message_head_t)};
     int ret = OckRpcClientCall(MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channelId].rdma_client.client_handle,
@@ -760,7 +760,7 @@ int mes_rdma_rpc_send_data(const void* msg_data)
 {
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
-    uint32_t channel_id = MES_SESSION_TO_CHANNEL_ID(head->src_sid);
+    uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
 
     cm_rwlock_wlock(&channel->send_lock);
@@ -777,11 +777,11 @@ int mes_rdma_rpc_send_data(const void* msg_data)
     if (ret != OCK_RPC_OK) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR("OckRpcClientCall failed, cmd(%d), inst_id(%d), dst_id(%d), size(%d),\
-            headsize(%lu), ip(%s), port(%d), rsn(%llu), src_sid(%d), dest_sid(%d)",
+            headsize(%lu), ip(%s), port(%d), ruid->rid(%llu), ruid->rsn(%llu)",
             head->cmd, head->src_inst, head->dst_inst, head->size, sizeof(mes_message_head_t),
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].ip,
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].port,
-            head->rsn, head->src_sid, head->dst_sid);
+            (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid));
         mes_rdma_rpc_disconnect(head->dst_inst, channel_id);
        
         return CM_ERROR;
@@ -816,7 +816,7 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)((void*)buff_list->buffers[0].buf);
 
-    uint32_t channel_id = MES_SESSION_TO_CHANNEL_ID(head->src_sid);
+    uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
 
     cm_rwlock_wlock(&channel->send_lock);
@@ -834,11 +834,11 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
     if (ret != OCK_RPC_OK) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR("OckRpcClientBuffListCall failed, cmd(%d), inst_id(%d), dst_id(%d), size(%d), headsize(%lu),\
-            ip(%s), port(%d), rsn(%llu), src_sid(%d), dest_sid(%d)",
+            ip(%s), port(%d), ruid->rid(%llu), ruid->rsn(%llu)",
             head->cmd, head->src_inst, head->dst_inst, head->size, sizeof(mes_message_head_t),
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].ip,
             MES_GLOBAL_INST_MSG.profile.inst_net_addr[head->dst_inst].port,
-            head->rsn, head->src_sid, head->dst_sid);
+            (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid));
         mes_rdma_rpc_disconnect(head->dst_inst, channel_id);
         
         return CM_ERROR;
