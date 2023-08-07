@@ -50,6 +50,24 @@ status_t cm_regist_signal_ex(int32 signo, void (*handle)(int, siginfo_t *, void 
 
     return CM_SUCCESS;
 }
+
+status_t cm_regist_signal_restart(int32 signo, void (*handle)(int, siginfo_t *, void *))
+{
+    struct sigaction act;
+    MEMS_RETURN_IFERR(memset_sp(&act, sizeof(struct sigaction), 0, sizeof(struct sigaction)));
+    if (sigemptyset(&act.sa_mask) != 0) {
+        return CM_ERROR;
+    }
+
+    act.sa_flags = (int)(SA_SIGINFO | SA_RESTART);
+    act.sa_sigaction = handle;
+    if (sigaction(signo, &act, NULL) < 0) {
+        LOG_RUN_ERR("resiger signal %d failed, os errno %d", signo, cm_get_os_error());
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
 #endif
 
 status_t cm_regist_signal(int32 signo, signal_proc func)

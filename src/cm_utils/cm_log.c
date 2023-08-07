@@ -66,6 +66,9 @@ static log_file_handle_t g_logger[LOG_COUNT] = {
         .file_inode = 0 },
     [LOG_PROFILE] = {
         .file_handle = CM_INVALID_FD,
+        .file_inode = 0 },
+    [LOG_BLACKBOX] = {
+        .file_handle = CM_INVALID_FD,
         .file_inode = 0 }
 };
 
@@ -709,7 +712,7 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     // It is possible to fail because of the open file.
     if (log_file_handle->file_handle != CM_INVALID_FD && buf != NULL) {
         // Replace the string terminator '\0' with newline character '\n'.
-        if (log_file_handle->log_type != LOG_MEC) {
+        if (log_file_handle->log_type != LOG_MEC || log_file_handle->log_type != LOG_BLACKBOX) {
             buf[size] = '\n';
             size++;
         }
@@ -1361,6 +1364,20 @@ void cm_write_mec_log(const char *format, ...)
     va_end(args);
 }
 
+void cm_write_blackbox_log(const char *format, ...)
+{
+    char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
+    text_t buf_text;
+    log_file_handle_t *log_file_handle = &g_logger[LOG_BLACKBOX];
+
+    va_list args;
+    va_start(args, format);
+    buf_text.str = buf;
+    buf_text.len = (uint32)strlen(buf);
+    cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
+    va_end(args);
+}
+
 static uint64 g_tracekey = (uint64)-1;
 
 void set_trace_key(uint64 tracekey)
@@ -1411,6 +1428,97 @@ void cm_write_trace_log(uint64 tracekey, const char *format, ...)
     buf_text.len = (uint32)strlen(buf);
     cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
     va_end(args);
+}
+#define BLACKBOX_PRINT_LINE_LEN 16
+#define BLACKBOX_PRINT_SPACE_LEN 4
+#define BLACKBOX_MAX_PRINT_SIZE (SIZE_M(8))
+void cm_dump_mem_core_in_blackbox(uchar *dump_loc, uchar *last_data, uint32 *repeat_time)
+{
+    uchar row_data[BLACKBOX_PRINT_LINE_LEN] = {0};
+    bool8 is_same = CM_TRUE;
+    uchar *dump_start = dump_loc;
+    uint32 index;
+    for (index = 0; index < BLACKBOX_PRINT_LINE_LEN; dump_loc++, index++) {
+        row_data[index] = *dump_loc;
+        if (is_same && last_data[index] != row_data[index]) {
+            is_same = CM_FALSE;
+        }
+    }
+    if (is_same) {
+        (*repeat_time)++;
+        return;
+    }
+    if (*repeat_time > 0) {
+        LOG_BLACKBOX_INF("\r\n        Repeat %u times", *repeat_time);
+        *repeat_time = 0;
+    }
+    LOG_BLACKBOX_INF("\r\n %p: ", dump_start);
+    for (index = 0; index < BLACKBOX_PRINT_LINE_LEN; index++) {
+        LOG_BLACKBOX_INF("%02x ", row_data[index]);
+        if ((index + 1) % BLACKBOX_PRINT_SPACE_LEN == 0) {
+            LOG_BLACKBOX_INF(" ");
+        }
+    }
+    LOG_BLACKBOX_INF("[");
+    for (index = 0; index < BLACKBOX_PRINT_LINE_LEN; index++) {
+        if (isprint(row_data[index])) {
+            LOG_BLACKBOX_INF("%c", row_data[index]);
+        } else {
+            LOG_BLACKBOX_INF("%s", ".");
+        }
+    }
+    LOG_BLACKBOX_INF("]");
+    (void)memcpy_s(last_data, BLACKBOX_PRINT_LINE_LEN, row_data, BLACKBOX_PRINT_LINE_LEN);
+}
+
+void cm_dump_mem_in_blackbox(void *dump_addr, uint32 dump_len)
+{
+    uint32 index;
+    uint32 row_index = 0;
+    uchar *dump_loc;
+    uchar row_data[BLACKBOX_PRINT_LINE_LEN] = {0};
+    uchar last_data[BLACKBOX_PRINT_LINE_LEN] = {0xf};
+    uint32 repeat_time = 0;
+    uint32 row_cnt;
+    uint32 col_left;
+    if ((dump_addr == NULL) || (dump_len == 0) || (dump_len > BLACKBOX_MAX_PRINT_SIZE)) {
+        LOG_BLACKBOX_INF("[DUMP] dump memory fail, dump_addr or dump_len is equal zero\r\n");
+        return;
+    }
+    dump_loc = (uchar *)dump_addr;
+    row_cnt = dump_len / BLACKBOX_PRINT_LINE_LEN;
+    col_left = dump_len % BLACKBOX_PRINT_LINE_LEN;
+    for (index = 0; index < row_cnt; index++) {
+        cm_dump_mem_core_in_blackbox(dump_loc, last_data, &repeat_time);
+        dump_loc += BLACKBOX_PRINT_LINE_LEN;
+    }
+    if (repeat_time > 0) {
+        LOG_BLACKBOX_INF("\r\n        Repeat %u times", repeat_time);
+    }
+    if (col_left == 0) {
+        return;
+    }
+    LOG_BLACKBOX_INF("\r\n %p:", dump_loc);
+    for (index = 0; index < BLACKBOX_PRINT_LINE_LEN; dump_loc++, index++, row_index++) {
+        if (index >= col_left) {
+            row_data[row_index] = 0;
+        } else {
+            row_data[row_index] = *dump_loc;
+        }
+        LOG_BLACKBOX_INF("%02x ", row_data[row_index]);
+        if ((index + 1) % BLACKBOX_PRINT_SPACE_LEN == 0) {
+            LOG_BLACKBOX_INF(" ");
+        }
+    }
+    LOG_BLACKBOX_INF("[");
+    for (row_index = 0; row_index < BLACKBOX_PRINT_LINE_LEN; row_index++) {
+        if (isprint(row_data[row_index])) {
+            LOG_BLACKBOX_INF("%c", row_data[row_index]);
+        } else {
+            LOG_BLACKBOX_INF("%s", ".");
+        }
+    }
+    LOG_BLACKBOX_INF("]");
 }
 
 #ifdef __cplusplus

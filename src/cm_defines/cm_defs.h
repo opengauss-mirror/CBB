@@ -60,6 +60,7 @@ extern "C" {
 #define CM_MAX_INT64_STRLEN           (uint32)(20)
 #define CM_MAX_INT32_STRLEN           (uint32)(11)
 #define CM_MAX_INT16_STRLEN           (uint32)(6)
+#define CM_MAX_REAL_INPUT_STRLEN      (uint32)(1024)
 
 /* invalid id */
 #define CM_INVALID_INT8     ((int8)(-1))
@@ -155,6 +156,10 @@ extern "C" {
 #define CM_BIT_SET(bits, mask)   ((bits) |= (mask))
 #define CM_BIT_RESET(bits, mask) ((bits) &= ~(mask))
 
+#define CM_MIN_BLACK_BOX_DEPTH (uint32)4
+#define CM_MAX_BLACK_BOX_DEPTH (uint32)40
+#define CM_DEFAULT_BLACK_BOX_DEPTH (uint32)30
+#define CM_INIT_BLACK_BOX_DEPTH (uint32)2
 
 /* The format effector when a data type is printed */
 #define PRINT_FMT_INTEGER "%d"
@@ -290,6 +295,8 @@ extern "C" {
 #define CM_DEFAULT_DIGIT_RADIX  10
 #define CM_DEFAULT_NULL_VALUE         (uint32)0xFFFFFFFF
 #define UNSIGNED_LLONG_MAX "18446744073709551615"
+#define SIGNED_LLONG_MAX "9223372036854775807"
+#define SIGNED_LLONG_MIN "-9223372036854775808"
      
 /* simple mathematical calculation */
 #define MIN(A, B)        ((B) < (A) ? (B) : (A))
@@ -357,7 +364,6 @@ static inline void cm_sleep(uint32 ms)
 #define CM_MAX_PATH_LEN                 (uint32)(CM_FULL_PATH_BUFFER_SIZE - CM_MAX_NAME_LEN)
 #define CM_MAX_LOG_HOME_LEN             \
     (uint32)(CM_MAX_PATH_LEN - 20) // reserve 20 characters for the stitching path(e. g./run,/audit)
-
 #define CM_SINGLE_QUOTE_LEN             (uint32)2
 #define CM_NAME_BUFFER_SIZE             (uint32)CM_ALIGN4(CM_MAX_NAME_LEN + 1)
 

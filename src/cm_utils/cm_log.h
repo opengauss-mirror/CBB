@@ -49,6 +49,7 @@ typedef enum en_log_type {
     LOG_MEC,
     LOG_TRACE,
     LOG_PROFILE,
+    LOG_BLACKBOX,
     LOG_COUNT // LOG COUNT
 } log_type_t;
 
@@ -147,6 +148,7 @@ void cm_log_uninit(void);
 void cm_log_set_path_permissions(uint16 val);
 void cm_log_set_file_permissions(uint16 val);
 void cm_log_open_file(log_file_handle_t *log_file_handle);
+void cm_dump_mem_in_blackbox(void *dump_addr, uint32 dump_len);
 
 void cm_write_audit_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 void cm_write_alarm_log(uint32 warn_id, const char *format, ...) CM_CHECK_FMT(2, 3);
@@ -159,7 +161,14 @@ void cm_close_logfile(void);
 status_t cm_set_log_module_name(const char *module_name, int32 len);
 void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, const char *code_file_name,
     uint32 code_line_num, const char *module_name, bool32 need_rec_filelog, const char *format, va_list args);
+void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 
+#define LOG_BLACKBOX_INF(format, ...)                                 \
+    do {                                                          \
+        if (LOG_ON) {                                             \
+            cm_write_blackbox_log(format, ##__VA_ARGS__);              \
+        }                                                         \
+    } while (0)
 
 #define LOG_DEBUG_INF(format, ...)                                                                               \
     do {                                                                                                         \
