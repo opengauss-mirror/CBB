@@ -687,7 +687,14 @@ int mes_tcp_send_data(const void *msg_data)
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
 
-    cm_rwlock_wlock(&channel->send_lock);
+    while (!cm_rwlock_trywlock(&channel->send_lock)) {
+        if (!channel->send_pipe_active) {
+            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
+            return ERR_MES_SENDPIPE_NO_REDAY;
+        }
+        cm_sleep(1);
+    }
+
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
@@ -719,7 +726,14 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
 
-    cm_rwlock_wlock(&channel->send_lock);
+    while (!cm_rwlock_trywlock(&channel->send_lock)) {
+        if (!channel->send_pipe_active) {
+            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
+            return ERR_MES_SENDPIPE_NO_REDAY;
+        }
+        cm_sleep(1);
+    }
+
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);

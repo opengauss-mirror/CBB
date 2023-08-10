@@ -473,9 +473,8 @@ int mes_set_param(const char *param_name, const char *param_value);
 int mes_chk_ssl_cert_expire(void);
 
 /*
- * @brief get g_cbb_mes address
- *
- * @return g_cbb_mes address
+ * @brief get global variable address
+ * @return global variable address
 */
 void* mes_get_global_inst();
 
@@ -484,6 +483,12 @@ void* mes_get_global_inst();
  * @return
 */
 void mes_msg_end_wait(unsigned long long rsn, unsigned int sid);
+
+/*
+ * @brief get mes_max_watting_rooms
+ * @return max_watting_rooms
+ */
+unsigned int mes_get_max_watting_rooms(void);
 
 #ifdef __cplusplus
 }

@@ -192,6 +192,10 @@ status_t mes_chk_md_param(const char *param_name, const char *param_value, cbb_p
     *param_type = (cbb_param_t)param_name_id;
     ret = g_parameters[param_name_id].get_param((cbb_param_t)param_name_id, param_value, out_value);
     if (ret != CM_SUCCESS) {
+        if (cm_str_equal(param_name, "SSL_PWD_PLAINTEXT") || cm_str_equal(param_name, "SSL_PWD_CIPHERTEXT")) {
+            LOG_RUN_ERR("[mes] get param failed. param_name:%s, param_value:***", param_name);
+            return ret;
+        }
         LOG_RUN_ERR("[mes] get param failed. param_name:%s, param_value:%s", param_name, param_value);
     }
     return ret;

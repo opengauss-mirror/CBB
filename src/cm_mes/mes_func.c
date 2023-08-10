@@ -38,6 +38,12 @@ static mes_callback_t g_cbb_mes_callback;
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
 
+static mes_global_ptr_t g_mes_ptr = {
+    .g_cbb_mes_ptr = &g_cbb_mes,
+    .g_mes_stat_ptr = &g_mes_stat,
+    .g_mes_elapsed_stat = &g_mes_elapsed_stat
+};
+
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_SEND_DATA(data) g_cbb_mes_callback.send_func(data)
@@ -834,7 +840,10 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
     char plain[CM_PASSWD_MAX_LEN + 1] = { 0 };
 
     // verify ssl key password and KMC module
-    CM_RETURN_IFERR(mes_verify_ssl_key_pwd(ssl_cfg, plain, sizeof(plain) - 1));
+    if (mes_verify_ssl_key_pwd(ssl_cfg, plain, sizeof(plain) - 1) != CM_SUCCESS) {
+        MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
+        return CM_ERROR;
+    }
 
     // create acceptor fd
     MES_GLOBAL_INST_MSG.ssl_acceptor_fd = cs_ssl_create_acceptor_fd(ssl_cfg);
@@ -1779,7 +1788,7 @@ int mes_chk_ssl_cert_expire(void)
 
 void* mes_get_global_inst(void)
 {
-    return &g_cbb_mes;
+    return &g_mes_ptr;
 }
 
 void mes_msg_end_wait(unsigned long long rsn, unsigned int sid)
@@ -1793,4 +1802,9 @@ void mes_msg_end_wait(unsigned long long rsn, unsigned int sid)
         mes_mutex_unlock(&room->mutex);
     }
     cm_spin_unlock(&room->lock);
+}
+
+unsigned int mes_get_max_watting_rooms(void)
+{
+    return CM_MAX_MES_ROOMS;
 }

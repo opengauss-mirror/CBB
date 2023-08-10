@@ -80,4 +80,4 @@ set(PERSIST_SRC
         )
 
 ADD_EXECUTABLE(perctrl ${PERSIST_SRC})
-target_link_libraries(perctrl pthread dl rt -Wl,--whole-archive ${vpp_libsecurec} ${zlib} -Wl,--no-whole-archive)
+target_link_libraries(perctrl pthread dl rt -Wl,--whole-archive -Wl,-Bstatic ${vpp_libsecurec} ${zlib} -Wl,-Bdynamic -Wl,--no-whole-archive)
