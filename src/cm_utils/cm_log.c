@@ -712,7 +712,7 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     // It is possible to fail because of the open file.
     if (log_file_handle->file_handle != CM_INVALID_FD && buf != NULL) {
         // Replace the string terminator '\0' with newline character '\n'.
-        if (log_file_handle->log_type != LOG_MEC || log_file_handle->log_type != LOG_BLACKBOX) {
+        if (log_file_handle->log_type != LOG_MEC && log_file_handle->log_type != LOG_BLACKBOX) {
             buf[size] = '\n';
             size++;
         }

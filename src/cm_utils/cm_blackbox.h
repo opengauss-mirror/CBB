@@ -23,7 +23,7 @@
  */
 #ifndef __CM_BLACKBOX_H__
 #define __CM_BLACKBOX_H__
-
+#ifndef _WIN32
 #include "signal.h"
 #include "pthread.h"
 #include "cm_log.h"
@@ -60,7 +60,7 @@ typedef struct st_sig_info {
 } sig_info_t;
 
 typedef struct st_box_reg_info {
-#if (defined __X86_64__)
+#if (defined __x86_64__)
     int64 r8;
     int64 r9;
     int64 r10;
@@ -146,5 +146,6 @@ void cm_sig_backtrace_func(int32 sig_num, siginfo_t *sig_info, void *context);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
 #endif
