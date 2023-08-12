@@ -26,6 +26,7 @@
 
 #include "cm_types.h"
 #include "cm_spinlock.h"
+#include "cm_log.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -239,6 +240,19 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
     } while (1);
 }
 
+static inline void cm_latch_x2ix(latch_t *latch, uint32 sid, latch_statis_t *stat)
+{
+    cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->x_spin : NULL,
+        (LATCH_NEED_STAT(stat) ? &stat->spin_stat : NULL));
+    if (SECUREC_UNLIKELY(latch->sid != sid || latch->stat != LATCH_STATUS_X)) {
+        LOG_RUN_ERR("latch sid:%u != sid:%u or stat:%u not stat X", (uint32)latch->sid, sid, (uint32)latch->stat);
+        cm_spin_unlock(&latch->lock);
+        return;
+    }
+    latch->stat = LATCH_STATUS_X;
+    cm_spin_unlock(&latch->lock);
+}
+
 static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch_statis_t *stat)
 {
     uint32 count = 0;
@@ -264,7 +278,8 @@ static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch
             if (LATCH_NEED_STAT(stat)) {
                 stat->misses++;
             }
-            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
+            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S &&
+                !(latch->stat == LATCH_STATUS_IX && is_force)) {
                 count++;
                 if (count >= GS_SPIN_COUNT) {
                     SPIN_STAT_INC(stat, s_sleeps);
@@ -296,7 +311,8 @@ static inline bool32 cm_latch_timed_s(latch_t *latch, uint32 wait_ticks, bool32 
             return CM_TRUE;
         } else {
             cm_spin_unlock(&latch->lock);
-            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
+            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S &&
+                (latch->stat == LATCH_STATUS_IX && is_force)) {
                 if (ticks >= wait_ticks) {
                     return CM_FALSE;
                 }
@@ -330,6 +346,7 @@ static inline void cm_unlatch(latch_t *latch, latch_statis_t *stat)
     }
 
     if ((latch->stat == LATCH_STATUS_S || latch->stat == LATCH_STATUS_X) && (latch->shared_count == 0)) {
+        latch->sid = 0;
         latch->stat = LATCH_STATUS_IDLE;
     }
 
