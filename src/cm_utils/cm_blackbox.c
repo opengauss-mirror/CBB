@@ -101,7 +101,7 @@ void cm_print_sig_info(box_excp_item_t *excep_info, void *cpu_info)
 void cm_print_reg(box_reg_info_t *reg_info)
 {
     LOG_BLACKBOX_INF("Register Contents:\n");
-#if (defined __X86_64__)
+#if (defined __x86_64__)
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RAX    ", reg_info->rax);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RBX    ", reg_info->rbx);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RCX    ", reg_info->rcx);   
@@ -110,8 +110,8 @@ void cm_print_reg(box_reg_info_t *reg_info)
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RDI    ", reg_info->rdi);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RBP    ", reg_info->rbp);  
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RSP    ", reg_info->rsp);
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  R8    ", reg_info->r8);
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  R9    ", reg_info->r9);
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  R8     ", reg_info->r8);
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  R9     ", reg_info->r9);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  R10    ", reg_info->r10);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  R11    ", reg_info->r11);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  R12    ", reg_info->r12);
@@ -119,18 +119,18 @@ void cm_print_reg(box_reg_info_t *reg_info)
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  R14    ", reg_info->r14);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  R15    ", reg_info->r15);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  RIP    ", reg_info->rip);
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  EFLAGS    ", reg_info->eflags);
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  CS    ", reg_info->cs);
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  EFLAGS ", reg_info->eflags);
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  CS     ", reg_info->cs);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  ERR    ", reg_info->err); 
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  TRAPNO    ", reg_info->trapno);  
-    LOG_BLACKBOX_INF(REGFORMAT, "reg:  OM    ", reg_info->oldmask);
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  TRAPNO ", reg_info->trapno);  
+    LOG_BLACKBOX_INF(REGFORMAT, "reg:  OM     ", reg_info->oldmask);
     LOG_BLACKBOX_INF(REGFORMAT, "reg:  CR2    ", reg_info->cr2);            
 #elif (defined __aarch64__)
     for (uint32 i = 0; i < 31; i++) {
         LOG_BLACKBOX_INF(REGFORMAT, i, reg_info->reg[i]); 
     }
-    LOG_BLACKBOX_INF("sp      0x%016llx", reg_info->sp);
-    LOG_BLACKBOX_INF("pc      0x%016llx", reg_info->pc);
+    LOG_BLACKBOX_INF("sp      0x%016llx\n", reg_info->sp);
+    LOG_BLACKBOX_INF("pc      0x%016llx\n", reg_info->pc);
 #endif
 }
 
@@ -138,7 +138,7 @@ void cm_print_assembly(box_reg_info_t *reg_info)
 {
     unsigned char *pc = NULL;
     LOG_BLACKBOX_INF("\nAssembly instruction:");
-#if (defined __X86_64__)
+#if (defined __x86_64__)
     pc = (unsigned char*)reg_info->rip;
 #elif (defined __aarch64__)
     pc = (unsigned char*)reg_info->sp;
@@ -171,7 +171,7 @@ void cm_proc_get_register_info(box_reg_info_t *cpu_info, ucontext_t *uc)
     if (cpu_info == NULL || uc == NULL) {
         return;
     }
-#if (defined __X86_64__)
+#if (defined __x86_64__)
     cpu_info->rax = uc->uc_mcontext.gregs[REG_RAX];
     cpu_info->rbx = uc->uc_mcontext.gregs[REG_RBX];
     cpu_info->rcx = uc->uc_mcontext.gregs[REG_RCX];
@@ -346,6 +346,7 @@ void cm_print_call_link(box_reg_info_t *reg_info)
         LOG_BLACKBOX_INF("print stack failed, backtrace stack size %u is not correct\n", (uint32)size);
         return;
     }
+    LOG_BLACKBOX_INF("\nStack information when exception\n");
     for (uint32 i = start_size; i < (uint32)size; i++) {
         LOG_BLACKBOX_INF("  %s\n", call_stack[i].data);
     }
@@ -355,7 +356,7 @@ void cm_print_call_link(box_reg_info_t *reg_info)
     LOG_BLACKBOX_INF("\nDump each stack frame memory:\n");
     for (uint32 i = start_size; i < (uint32)size - 1; i++) {
         LOG_BLACKBOX_INF("Frame %u %s\n", i - CM_INIT_BLACK_BOX_DEPTH, call_stack[i].data);
-#if (defined __X86_64__)
+#if (defined __x86_64__)
         pc = (i == start_size) ? (void *)reg_info->rsp : cfa_addr[i];
 #elif (defined __aarch64__)
         pc = (i == start_size) ? (void *)reg_info->reg[29] : cfa_addr[i];
