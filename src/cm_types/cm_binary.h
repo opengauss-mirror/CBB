@@ -51,6 +51,75 @@ static inline void cm_rtrim0_binary(binary_t *bin)
     }
 }
 
+static inline void bitmap64_set(uint64 *bitmap, uint8 num)
+{
+    uint64 tmp;
+    CM_ASSERT(num < CM_MAX_INSTANCES);
+    tmp = (uint64)1 << num;
+    *bitmap |= tmp;
+}
+
+static inline void bitmap64_clear(uint64 *bitmap, uint8 num)
+{
+    uint64 tmp;
+    CM_ASSERT(num < CM_MAX_INSTANCES);
+    tmp = ~((uint64)1 << num);
+    *bitmap &= tmp;
+}
+
+static inline bool32 bitmap64_exist(const uint64 *bitmap, uint8 num)
+{
+    uint64 tmp;
+    CM_ASSERT(num < CM_MAX_INSTANCES);
+    tmp = (uint64)1 << num;
+    tmp = (*bitmap) & tmp;
+    return (tmp == 0) ? CM_FALSE : CM_TRUE;
+}
+
+static inline uint64 bitmap64_create(const uint8 *inst_id, uint8 inst_count)
+{
+    uint64 inst_map = 0;
+    for (uint8 i = 0; i < inst_count; i++) {
+        inst_map |= ((uint64)1 << inst_id[i]);
+    }
+    return inst_map;
+}
+
+static inline void bitmap64_minus(uint64 *bitmap1, uint64 bitmap2)
+{
+    uint64 bitmap = (*bitmap1) & (~bitmap2);
+    *bitmap1 = bitmap;
+}
+
+static inline void bitmap64_union(uint64 *bitmap1, uint64 bitmap2)
+{
+    uint64 bitmap = (*bitmap1) | bitmap2;
+    *bitmap1 = bitmap;
+}
+
+// if all bytes in bitmap2 are also in bitmap1, return true
+// bitmap1 = 1101, bitmap2 = 1001 return true
+// bitmap1 = 1101, bitmap2 = 1011 return false
+static inline bool32 bitmap64_include(uint64 bitmap1, uint64 bitmap2)
+{
+    uint64 bitmap = bitmap2 & (~bitmap1);
+    return bitmap == 0;
+}
+
+// if there is byte in bitmap2 is also in bitmap1, return true
+// bitmap1 = 1101, bitmap2 = 0010 return false
+// bitmap1 = 1101, bitmap2 = 0011 return true
+static inline bool32 bitmap64_exist_ex(uint64 bitmap1, uint64 bitmap2)
+{
+    return (bitmap1 & bitmap2) != 0;
+}
+
+static inline uint64 bitmap64_intersect(uint64 bitmap1, uint64 bitmap2)
+{
+    uint64 bitmap = bitmap1 & bitmap2;
+    return bitmap;
+}
+
 status_t cm_verify_hex_string(const text_t *text);
 status_t cm_bin2str(const binary_t *bin, bool32 hex_prefix, char *str, uint32 buf_len);
 status_t cm_bin2text(const binary_t *bin, bool32 hex_prefix, text_t *text);
