@@ -118,15 +118,17 @@ typedef struct st_mes_profile {
 } mes_profile_t;
 
 typedef struct st_mes_message_head {
-    unsigned char cmd; // command
+    unsigned int version;
+    unsigned int cmd; // command
     unsigned char flags;
     unsigned char src_inst; // from instance
     unsigned char dst_inst; // to instance
+    unsigned char unused1;
     unsigned short src_sid; // from session
     unsigned short dst_sid; // to session
     unsigned short size;
     unsigned short tickets;
-    unsigned int unused;
+    unsigned int unused2;
     unsigned long long rsn;
     unsigned int cluster_ver;
 } mes_message_head_t;
@@ -150,12 +152,15 @@ typedef struct st_mes_bufflist {
 
 #define MES_INIT_MESSAGE_HEAD(head, v_cmd, v_flags, v_src_inst, v_dst_inst, v_src_sid, v_dst_sid) \
     do {                                                                                          \
-        (head)->cmd = (uint8)(v_cmd);                                                               \
+        (head)->version = (uint32)0;                                                                \
+        (head)->cmd = (uint32)(v_cmd);                                                              \
         (head)->flags = (uint8)(v_flags);                                                           \
         (head)->src_inst = (uint8)(v_src_inst);                                                     \
         (head)->dst_inst = (uint8)(v_dst_inst);                                                     \
+        (head)->unused1 = (uint8)0;                                                                 \
         (head)->src_sid = (uint16)(v_src_sid);                                                      \
         (head)->dst_sid = (uint16)(v_dst_sid);                                                      \
+        (head)->unused2 = (uint32)0;                                                                \
     } while (0)
 
 #define MES_MESSAGE_BODY(msg) ((msg)->buffer + sizeof(mes_message_head_t))
