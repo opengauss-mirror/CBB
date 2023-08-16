@@ -51,32 +51,25 @@ static inline void cm_rtrim0_binary(binary_t *bin)
     }
 }
 
-static inline void bitmap64_set(uint64 *bitmap, uint8 num)
+static inline void cm_bitmap64_set(uint64 *bitmap, uint8 num)
 {
-    uint64 tmp;
     CM_ASSERT(num < CM_MAX_INSTANCES);
-    tmp = (uint64)1 << num;
-    *bitmap |= tmp;
+    *bitmap |= ((uint64)1 << num);
 }
 
-static inline void bitmap64_clear(uint64 *bitmap, uint8 num)
+static inline void cm_bitmap64_clear(uint64 *bitmap, uint8 num)
 {
-    uint64 tmp;
     CM_ASSERT(num < CM_MAX_INSTANCES);
-    tmp = ~((uint64)1 << num);
-    *bitmap &= tmp;
+    *bitmap &= (~((uint64)1 << num));
 }
 
-static inline bool32 bitmap64_exist(const uint64 *bitmap, uint8 num)
+static inline bool32 cm_bitmap64_exist(const uint64 *bitmap, uint8 num)
 {
-    uint64 tmp;
     CM_ASSERT(num < CM_MAX_INSTANCES);
-    tmp = (uint64)1 << num;
-    tmp = (*bitmap) & tmp;
-    return (tmp == 0) ? CM_FALSE : CM_TRUE;
+    return ((*bitmap) & ((uint64)1 << num)) != 0;
 }
 
-static inline uint64 bitmap64_create(const uint8 *inst_id, uint8 inst_count)
+static inline uint64 cm_bitmap64_create(const uint8 *inst_id, uint8 inst_count)
 {
     uint64 inst_map = 0;
     for (uint8 i = 0; i < inst_count; i++) {
@@ -85,39 +78,39 @@ static inline uint64 bitmap64_create(const uint8 *inst_id, uint8 inst_count)
     return inst_map;
 }
 
-static inline void bitmap64_minus(uint64 *bitmap1, uint64 bitmap2)
+static inline uint64 cm_cm_bitmap64_minus(uint64 bitmap1, uint64 bitmap2)
 {
-    uint64 bitmap = (*bitmap1) & (~bitmap2);
-    *bitmap1 = bitmap;
+    return bitmap1 & (~bitmap2);
 }
 
-static inline void bitmap64_union(uint64 *bitmap1, uint64 bitmap2)
+static inline uint64 cm_bitmap64_union(uint64 bitmap1, uint64 bitmap2)
 {
-    uint64 bitmap = (*bitmap1) | bitmap2;
-    *bitmap1 = bitmap;
+    return bitmap1 | bitmap2;
 }
 
-// if all bytes in bitmap2 are also in bitmap1, return true
-// bitmap1 = 1101, bitmap2 = 1001 return true
-// bitmap1 = 1101, bitmap2 = 1011 return false
-static inline bool32 bitmap64_include(uint64 bitmap1, uint64 bitmap2)
+/*
+ * if all bits in bitmap2 are also in bitmap1, return true
+ * bitmap1 = 1101, bitmap2 = 1001 return true
+ * bitmap1 = 1101, bitmap2 = 1011 return false
+ */
+static inline bool32 cm_bitmap64_include(uint64 bitmap1, uint64 bitmap2)
 {
-    uint64 bitmap = bitmap2 & (~bitmap1);
-    return bitmap == 0;
+    return (bitmap2 & (~bitmap1)) == 0;
 }
 
-// if there is byte in bitmap2 is also in bitmap1, return true
-// bitmap1 = 1101, bitmap2 = 0010 return false
-// bitmap1 = 1101, bitmap2 = 0011 return true
-static inline bool32 bitmap64_exist_ex(uint64 bitmap1, uint64 bitmap2)
+/*
+ * if there is bit in bitmap2 is also in bitmap1, return true
+ * bitmap1 = 1101, bitmap2 = 0010 return false
+ * bitmap1 = 1101, bitmap2 = 0011 return true
+*/
+static inline bool32 cm_bitmap64_exist_ex(uint64 bitmap1, uint64 bitmap2)
 {
     return (bitmap1 & bitmap2) != 0;
 }
 
-static inline uint64 bitmap64_intersect(uint64 bitmap1, uint64 bitmap2)
+static inline uint64 cm_bitmap64_intersect(uint64 bitmap1, uint64 bitmap2)
 {
-    uint64 bitmap = bitmap1 & bitmap2;
-    return bitmap;
+    return bitmap1 & bitmap2;
 }
 
 status_t cm_verify_hex_string(const text_t *text);
