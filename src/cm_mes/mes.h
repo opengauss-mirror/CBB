@@ -34,6 +34,7 @@ extern "C" {
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef int (*mes_send_data_func)(mes_message_head_t *msg);
 typedef int (*mes_send_data2_func)(mes_message_head_t *head, const void *body);
+typedef int (*mes_send_data3_func)(mes_message_head_t *head, unsigned int head_size, const void *body);
 typedef void (*mes_wait_acks_overtime_proc_func)(uint64 success_inst, char *recv_msg[MES_MAX_INSTANCES]);
 
 /*
@@ -273,6 +274,20 @@ void mes_broadcast4(unsigned int sid, uint64 inst_bits, mes_message_head_t *head
     uint64 *success_inst, mes_send_data2_func send_data);
 
 /*
+* @brief Broadcast Message
+* @param sid -  Session ID.
+* @param inst_bits -  inst_bits are used to control which instances need to be broadcast.
+* @param head - msg head info.
+* @param head_size - msg head size
+* @param body - msg body info.
+* @param success_inst - success_inst is used to indicate which instances have been successfully broadcast
+* @param send_data - send message data function
+* @return
+*/
+void mes_broadcast5(unsigned int sid, uint64 inst_bits, mes_message_head_t *head, unsigned int head_size,
+    const void *body, uint64 *success_inst, mes_send_data3_func send_data);
+
+/*
  * @brief Broadcast Message and wait for the replay
  * @param sid -  Session ID.
  * @param inst_bits -  inst_bits are used to control which instances need to be broadcast.
@@ -300,7 +315,7 @@ unsigned long long mes_get_current_rsn(unsigned int sid);
  * @param src_sid - source session id.
  * @return
  */
-void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned char cmd,
+void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned int cmd,
     unsigned short size, unsigned int src_sid);
 
 /*

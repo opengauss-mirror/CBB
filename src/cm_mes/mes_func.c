@@ -1494,6 +1494,39 @@ void mes_broadcast4(unsigned int sid, uint64 inst_bits, mes_message_head_t *head
     return;
 }
 
+void mes_broadcast5(unsigned int sid, uint64 inst_bits, mes_message_head_t *head, unsigned int head_size,
+    const void *body, uint64 *success_inst, mes_send_data3_func send_data)
+{
+    uint64 start_stat_time = 0;
+    uint32 i;
+    uint64 send_inst = 0;
+    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
+
+    room->req_count = 0;
+    room->ack_count = 0;
+    room->succ_insts = 0;
+    room->broadcast_flag = CM_TRUE;
+    mes_get_consume_time_start(&start_stat_time);
+    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        if (MES_IS_INST_SEND(inst_bits, i)) {
+            head->dst_inst = (uint8)i;
+            if (send_data(head, head_size, body) != CM_SUCCESS) {
+                continue;
+            }
+            (void)cm_atomic32_inc(&room->req_count);
+            MES_INST_SENT_SUCCESS(send_inst, i);
+            mes_send_stat(head->cmd);
+        }
+    }
+    room->broadcast_flag = CM_FALSE;
+
+    if (success_inst != NULL) {
+        *success_inst = send_inst;
+    }
+    mes_consume_with_time(head->cmd, MES_TIME_TEST_MULTICAST, start_stat_time);
+    return;
+}
+
 static inline int mes_broadcast2_send_data(mes_message_head_t *head, const void *body)
 {
     return mes_send_data2(head, body);
@@ -1647,7 +1680,7 @@ unsigned long long mes_get_current_rsn(unsigned int sid)
     return rsn;
 }
 
-void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned char cmd,
+void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned int cmd,
     unsigned short size, unsigned int src_sid)
 {
     ack_head->cmd = cmd;
