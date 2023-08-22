@@ -1683,6 +1683,7 @@ unsigned long long mes_get_current_rsn(unsigned int sid)
 void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned int cmd,
     unsigned short size, unsigned int src_sid)
 {
+    ack_head->version = 0;
     ack_head->cmd = cmd;
     ack_head->src_inst = req_head->dst_inst;
     ack_head->dst_inst = req_head->src_inst;
@@ -1692,6 +1693,8 @@ void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *a
     ack_head->size = size;
     ack_head->flags = 0;
     ack_head->cluster_ver = req_head->cluster_ver;
+    ack_head->unused1 = 0;
+    ack_head->unused2 = 0;
 }
 
 unsigned long long mes_get_rsn(unsigned int sid)
