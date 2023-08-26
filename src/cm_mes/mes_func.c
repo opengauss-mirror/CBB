@@ -996,6 +996,7 @@ void mes_set_msg_enqueue(unsigned int command, unsigned int is_enqueue)
 void mes_notify_msg_recv(mes_message_t *msg)
 {
     if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
+        mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes]: mes notify msg recv failed");
         return;
     }
@@ -1018,6 +1019,7 @@ void mes_notify_broadcast_msg_recv_with_errcode(mes_message_t *msg)
 {
     if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS ||
         msg->head->size < MES_MSG_HEAD_SIZE + sizeof(int32)) {
+        mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes]: mes notify broadcast-release msg failed");
         return;
     }
@@ -1050,6 +1052,7 @@ void mes_notify_broadcast_msg_recv_with_errcode(mes_message_t *msg)
 void mes_notify_broadcast_msg_recv_and_release(mes_message_t *msg)
 {
     if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
+        mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes]: mes notify broadcast-release msg failed");
         return;
     }
@@ -1080,6 +1083,7 @@ void mes_notify_broadcast_msg_recv_and_release(mes_message_t *msg)
 void mes_notify_broadcast_msg_recv_and_cahce(mes_message_t *msg)
 {
     if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
+        mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes]: mes notify broadcast-cache msg failed");
         return;
     }
