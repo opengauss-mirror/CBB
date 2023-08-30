@@ -160,6 +160,7 @@ typedef struct st_mes_bufflist {
         (head)->unused1 = (uint8)0;                                                                 \
         (head)->src_sid = (uint16)(v_src_sid);                                                      \
         (head)->dst_sid = (uint16)(v_dst_sid);                                                      \
+        (head)->tickets = (uint32)0;                                                                \
         (head)->unused2 = (uint32)0;                                                                \
     } while (0)
 
