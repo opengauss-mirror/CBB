@@ -1808,3 +1808,19 @@ unsigned int mes_get_max_watting_rooms(void)
 {
     return CM_MAX_MES_ROOMS;
 }
+
+void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time)
+{
+    unsigned long long cnt = 0;
+    unsigned long long time = 0;
+    for (int type = 0; type < CM_MAX_MES_MSG_CMD; ++type) {
+        cnt += g_mes_elapsed_stat.time_consume_stat[cmd].count[type];
+        time += g_mes_elapsed_stat.time_consume_stat[cmd].time[type];
+    }
+    if (event_cnt != NULL) {
+        *event_cnt = cnt;
+    }
+    if (event_time != NULL) {
+        *event_time = time;
+    }
+}

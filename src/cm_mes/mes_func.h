@@ -285,6 +285,7 @@ static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
     return;
 }
 
+void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus
 }
 #endif
