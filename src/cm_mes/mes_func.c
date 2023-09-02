@@ -1698,6 +1698,7 @@ void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *a
     ack_head->flags = 0;
     ack_head->cluster_ver = req_head->cluster_ver;
     ack_head->unused1 = 0;
+    ack_head->tickets = 0;
     ack_head->unused2 = 0;
 }
 
