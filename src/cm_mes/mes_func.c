@@ -1854,7 +1854,7 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
 {
     unsigned long long cnt = 0;
     unsigned long long time = 0;
-    for (int type = 0; type < CM_MAX_MES_MSG_CMD; ++type) {
+    for (int type = 0; type < MES_TIME_CEIL; ++type) {
         cnt += g_mes_elapsed_stat.time_consume_stat[cmd].count[type];
         time += g_mes_elapsed_stat.time_consume_stat[cmd].time[type];
     }
