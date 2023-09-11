@@ -83,7 +83,7 @@ status_t jtxt_iter_arr(bool32 *eof, jtxt_iter_t *jtxt, jtxt_val_t *jval);
 status_t jtxt_traverse(jtxt_iter_t *json, uint32 step);
 
 status_t json_create(json_t **json, const text_t *txt, cm_allocator_t *alloc);
-void json_destory(json_t *json);
+void json_destroy(json_t *json);
 void json_to_str(json_t *json, char *buf, int32 len);
 
 bool32 json_has_item(json_t *json, text_t *key);
