@@ -214,14 +214,14 @@ int mes_send_bufflist(mes_bufflist_t *buff_list);
 
 void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_t *msg);
 
-typedef struct st_mes_commond_stat {
+typedef struct st_mes_command_stat {
     uint32 cmd;
     int64 send_count;
     int64 recv_count;
     int64 local_count;
     atomic32_t occupy_buf;
     spinlock_t lock;
-} mes_commond_stat_t;
+} mes_command_stat_t;
 
 typedef struct st_mes_time_consume {
     uint32 cmd; // command
@@ -237,7 +237,7 @@ typedef struct st_mes_elapsed_stat {
 
 typedef struct st_mes_stat {
     bool32 mes_elapsed_switch;
-    mes_commond_stat_t mes_commond_stat[CM_MAX_MES_MSG_CMD];
+    mes_command_stat_t mes_command_stat[CM_MAX_MES_MSG_CMD];
 } mes_stat_t;
 
 extern mes_elapsed_stat_t g_mes_elapsed_stat;
