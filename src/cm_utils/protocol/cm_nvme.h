@@ -29,6 +29,7 @@
 #include <linux/types.h>
 
 #include "cm_types.h"
+#include "cm_utils/cm_scsi.h"
 
 #ifndef FORCE_CONVERT
 #ifdef __CHECKER__
@@ -256,21 +257,21 @@ struct nvme_reservation_status {
 };
 
 struct nvme_reservation_status_ext {
-	__le32	gen;
-	uint8	rtype;
-	uint8	regctl[2];
-	uint8	resv5[2];
-	uint8	ptpls;
-	uint8	resv10[14];
-	uint8	resv24[40];
-	struct {
-		__le16	cntlid;
-		uint8	rcsts;
-		uint8	resv3[5];
-		__le64	rkey;
-		uint8	hostid[16];
-		uint8	resv32[32];
-	} regctl_eds[];
+    __le32  gen;
+    uint8   rtype;
+    uint8   regctl[2];
+    uint8   resv5[2];
+    uint8   ptpls;
+    uint8   resv10[14];
+    uint8   resv24[40];
+    struct {
+        __le16  cntlid;
+        uint8   rcsts;
+        uint8   resv3[5];
+        __le64  rkey;
+        uint8   hostid[16];
+        uint8   resv32[32];
+    } regctl_eds[];
 };
 
 /* I/O commands */
@@ -321,11 +322,194 @@ enum nvme_admin_opcode {
     nvme_admin_get_lba_status   = 0x86,
 };
 
+struct nvme_lbaf {
+    __le16   ms;
+    uint8    ds;
+    uint8    rp;
+};
+
+struct nvme_id_ns {
+    __le64              nsze;
+    __le64              ncap;
+    __le64              nuse;
+    uint8               nsfeat;
+    uint8               nlbaf;
+    uint8               flbas;
+    uint8               mc;
+    uint8               dpc;
+    uint8               dps;
+    uint8               nmic;
+    uint8               rescap;
+    uint8               fpi;
+    uint8               dlfeat;
+    __le16              nawun;
+    __le16              nawupf;
+    __le16              nacwu;
+    __le16              nabsn;
+    __le16              nabo;
+    __le16              nabspf;
+    __le16              noiob;
+    uint8               nvmcap[16];
+    __le16              npwg;
+    __le16              npwa;
+    __le16              npdg;
+    __le16              npda;
+    __le16              nows;
+    uint8               rsvd74[18];
+    __le32              anagrpid;
+    uint8               rsvd96[3];
+    uint8               nsattr;
+    __le16              nvmsetid;
+    __le16              endgid;
+    uint8               nguid[16];
+    uint8               eui64[8];
+    struct nvme_lbaf    lbaf[16];
+    uint8               rsvd192[192];
+    uint8               vs[3712];
+};
+
+struct nvme_id_power_state {
+    __le16              max_power;  /* centiwatts */
+    uint8               rsvd2;
+    uint8               flags;
+    __le32              entry_lat;  /* microseconds */
+    __le32              exit_lat;   /* microseconds */
+    uint8               read_tput;
+    uint8               read_lat;
+    uint8               write_tput;
+    uint8               write_lat;
+    __le16              idle_power;
+    uint8               idle_scale;
+    uint8               rsvd19;
+    __le16              active_power;
+    uint8               active_work_scale;
+    uint8               rsvd23[9];
+};
+
+struct nvme_id_ctrl {
+    __le16                      vid;
+    __le16                      ssvid;
+    char                        sn[20];
+    char                        mn[40];
+    char                        fr[8];
+    uint8                       rab;
+    uint8                       ieee[3];
+    uint8                       cmic;
+    uint8                       mdts;
+    __le16                      cntlid;
+    __le32                      ver;
+    __le32                      rtd3r;
+    __le32                      rtd3e;
+    __le32                      oaes;
+    __le32                      ctratt;
+    __le16                      rrls;
+    uint8                       rsvd102[9];
+    uint8                       cntrltype;
+    char                        fguid[16];
+    __le16                      crdt1;
+    __le16                      crdt2;
+    __le16                      crdt3;
+    uint8                       rsvd134[122];
+    __le16                      oacs;
+    uint8                       acl;
+    uint8                       aerl;
+    uint8                       frmw;
+    uint8                       lpa;
+    uint8                       elpe;
+    uint8                       npss;
+    uint8                       avscc;
+    uint8                       apsta;
+    __le16                      wctemp;
+    __le16                      cctemp;
+    __le16                      mtfa;
+    __le32                      hmpre;
+    __le32                      hmmin;
+    uint8                       tnvmcap[16];
+    uint8                       unvmcap[16];
+    __le32                      rpmbs;
+    __le16                      edstt;
+    uint8                       dsto;
+    uint8                       fwug;
+    __le16                      kas;
+    __le16                      hctma;
+    __le16                      mntmt;
+    __le16                      mxtmt;
+    __le32                      sanicap;
+    __le32                      hmminds;
+    __le16                      hmmaxd;
+    __le16                      nsetidmax;
+    __le16                      endgidmax;
+    uint8                       anatt;
+    uint8                       anacap;
+    __le32                      anagrpmax;
+    __le32                      nanagrpid;
+    __le32                      pels;
+    uint8                       rsvd356[156];
+    uint8                       sqes;
+    uint8                       cqes;
+    __le16                      maxcmd;
+    __le32                      nn;
+    __le16                      oncs;
+    __le16                      fuses;
+    uint8                       fna;
+    uint8                       vwc;
+    __le16                      awun;
+    __le16                      awupf;
+    uint8                       nvscc;
+    uint8                       nwpc;
+    __le16                      acwu;
+    uint8                       rsvd534[2];
+    __le32                      sgls;
+    __le32                      mnan;
+    uint8                       rsvd544[224];
+    char                        subnqn[256];
+    uint8                       rsvd1024[768];
+    __le32                      ioccsz;
+    __le32                      iorcsz;
+    __le16                      icdoff;
+    uint8                       ctrattr;
+    uint8                       msdbd;
+    uint8                       rsvd1804[244];
+    struct nvme_id_power_state  psd[32];
+    uint8                       vs[1024];
+};
+
+enum {
+    /*
+     * Generic VENDOR VID:
+     */
+    CM_NVME_VENDOR_HUAWEI        = 0x19e5,
+    CM_NVME_VENDOR_HGST          = 0x0016,
+    CM_NVME_VENDOR_INTEL         = 0x0020,
+    CM_NVME_VENDOR_MICRON        = 0x0025,
+    CM_NVME_VENDOR_SAMSUNG       = 0x0043,
+    CM_NVME_VENDOR_TOSHIBA       = 0x004D,
+    CM_NVME_VENDOR_SANDISK       = 0x007D,
+    CM_NVME_VENDOR_KINGSTON      = 0x0108,
+    CM_NVME_VENDOR_SKHYNIX       = 0x0116,
+    CM_NVME_VENDOR_SEAGATE       = 0x0134,
+    CM_NVME_VENDOR_PHISON        = 0x02C0,
+    CM_NVME_VENDOR_SILICON       = 0x02D0,
+    CM_NVME_VENDOR_ATP           = 0x02E0,
+    CM_NVME_VENDOR_LITEON        = 0x0362,
+    CM_NVME_VENDOR_WESTERN       = 0x0416,
+    CM_NVME_VENDOR_TOSHIBAM      = 0x0451,
+    CM_NVME_VENDOR_MARVELL       = 0x0462,
+    CM_NVME_VENDOR_JMICRON       = 0x059B,
+    CM_NVME_VENDOR_KINGSTOND     = 0x0953,
+    CM_NVME_VENDOR_LENOVO        = 0x1000,
+    CM_NVME_VENDOR_SKHYNIXMEMORY = 0x144D,
+    CM_NVME_VENDOR_PHISONE       = 0x1C58,
+    CM_NVME_VENDOR_CORSAIR       = 0x1FD4,
+    CM_NVME_VENDOR_MAXIOTEK      = 0x6565,
+    CM_NVME_VENDOR_GOOGLE        = 0x8649,
+};
 
 #define nvme_admin_cmd nvme_passthru_cmd
 
 
 #define CM_NVME_TIMEOUT 60 // secs
+#define NVME_IDENTIFY_DATA_SIZE 4096
 
 #define NVME_IOCTL_ID        _IO('N', 0x40)
 #define NVME_IOCTL_ADMIN_CMD    _IOWR('N', 0x41, struct nvme_admin_cmd)
@@ -347,6 +531,10 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
 int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
 int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len);
 
+// nvme inquiry(get lun info)
+int32 cm_nvme_inql(int32 fd, inquiry_data_t *inquiry_data);
+
+const char* cm_nvme_vid_to_vendor(uint16 vid);
 const char* cm_nvme_status_to_string(uint32 status);
 
 

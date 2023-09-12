@@ -584,8 +584,30 @@ int32 exec_nvme_write(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_nvme_inql(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    LOG_DEBUG_INF("Exec exec_nvme_inql is not supported . Redirect to exec_scsi3_inql.\n");
-    return exec_scsi3_inql(req, ack);
+    int32 fd;
+    inquiry_data_t inquiry_data;
+    errno_t errcode = memset_sp(&inquiry_data, sizeof(inquiry_data), 0, sizeof(inquiry_data));
+    securec_check_ret(errcode);
+    text_t text;
+    char buff[MAX_PACKET_LEN] = {0};
+    text.str = buff;
+    char *iof_dev = NULL;
+    ddes_init_get(req);
+    CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
+    CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
+    status_t ret = cm_nvme_inql(fd, &inquiry_data);
+    LOG_DEBUG_INF("Exec nvme inql ret %d.\n", ret);
+    if (ret != CM_SUCCESS) {
+        (void)close(fd);
+        return ret;
+    }
+
+    (void)close(fd);
+    errcode = memcpy_sp(text.str, MAX_PACKET_LEN, (char *)&inquiry_data, sizeof(inquiry_data_t));
+    MEMS_RETURN_IFERR(errcode);
+    text.len = sizeof(inquiry_data_t);
+    CM_RETURN_IFERR(ddes_put_text(ack, &text));
+    return CM_SUCCESS;
 }
 
 int32 exec_nvme_rkeys(perctrl_packet_t *req, perctrl_packet_t *ack)
