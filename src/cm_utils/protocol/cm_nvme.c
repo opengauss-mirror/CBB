@@ -33,6 +33,12 @@
 #endif
 
 #define PAGE_SIZE 4096
+#define CM_MAX_VENDOR_LEN 64
+#define CM_MAX_WWN_LEN 64
+#define CM_MAX_PRODUCT_LEN 30
+#define CM_MAX_ARRAY_SN_LEN 64
+#define CM_MAX_LUNID_LEN 11
+#define CM_HW_ARRAY_SN_LEN 21
 
 #define CM_SCSI_ERR_CONFLICT (-2)
 
@@ -573,6 +579,134 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     }
 
     return CM_SUCCESS;
+}
+
+int32 cm_nvme_inql(int32 fd, inquiry_data_t *inquiry_data)
+{
+    int32 status = 0;
+    uint32 nsid = 0;
+    uint32 cdw10 = 1;
+    uint32 cdw11 = 0;
+    struct nvme_id_ctrl ctrl;
+    struct nvme_id_ns ns;
+    errno_t errcode;
+    int32 i;
+
+    CM_RETURN_IFERR(cm_nvme_get_nsid(fd, (int32*)(&nsid)));
+
+    securec_check_ret(memset_sp(&ctrl, sizeof(struct nvme_id_ctrl), 0, sizeof(struct nvme_id_ctrl)));
+    struct nvme_admin_cmd cmd = {
+        .opcode     = nvme_admin_identify,
+        .nsid       = nsid,
+        .addr       = (uint64)(uintptr_t) &ctrl,
+        .data_len   = NVME_IDENTIFY_DATA_SIZE,
+        .cdw10      = cdw10,
+        .cdw11      = cdw11,
+    };
+
+    status = cm_nvme_submit_admin_passthru(fd, &cmd);
+    if (status != CM_NVME_SC_SUCCESS) {
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe inql command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe inql command failed, %s(%#x).",
+                cm_nvme_status_to_string(status), status);
+        }
+        return CM_ERROR;
+    }
+
+    errcode = memcpy_s(inquiry_data->vendor_info.product, CM_MAX_PRODUCT_LEN, ctrl.mn, CM_MAX_PRODUCT_LEN);
+    securec_check_ret(errcode);
+    const char *vendorName = cm_nvme_vid_to_vendor(ctrl.vid);
+    errcode = memcpy_s(inquiry_data->vendor_info.vendor, CM_MAX_VENDOR_LEN, vendorName, strlen(vendorName));
+    securec_check_ret(errcode);
+
+    // get array_sn
+    errcode = memcpy_s(inquiry_data->array_info.array_sn, CM_MAX_ARRAY_SN_LEN, ctrl.sn, sizeof(ctrl.sn));
+    securec_check_ret(errcode);
+    inquiry_data->array_info.array_sn[CM_HW_ARRAY_SN_LEN - 1] = '\0';
+
+    // get lun wwn
+    cmd.cdw10 = 0;
+    cmd.addr = (uint64)(uintptr_t) &ns;
+
+    status = cm_nvme_submit_admin_passthru(fd, &cmd);
+    if (status != CM_NVME_SC_SUCCESS) {
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe inql command failed, error:%s(%d)", strerror(errno), errno);
+        } else {
+            LOG_DEBUG_ERR("Sending NVMe inql command failed, %s(%#x).",
+                cm_nvme_status_to_string(status), status);
+        }
+        return CM_ERROR;
+    }
+
+    for (i = 0; i < sizeof(ns.nguid); i++) {
+        errcode = sprintf_s(&inquiry_data->lun_info.lun_wwn[ i * 2 ], (size_t)CM_MAX_WWN_LEN - i * 2, 
+            "%02x", ns.nguid[i]);
+        PRTS_RETURN_IFERR(errcode);
+    }
+    inquiry_data->lun_info.lun_id = nsid;
+
+    return CM_SUCCESS;
+}
+
+const char* cm_nvme_vid_to_vendor(uint16 vid)
+{
+    switch (vid) {
+    case  CM_NVME_VENDOR_HUAWEI:
+        return "Huawei";
+    case  CM_NVME_VENDOR_HGST:
+        return "HGST";
+    case  CM_NVME_VENDOR_INTEL:
+        return "Intel";
+    case  CM_NVME_VENDOR_MICRON:
+        return "Micron";
+    case  CM_NVME_VENDOR_SAMSUNG:
+        return "Samsung";
+    case  CM_NVME_VENDOR_TOSHIBA:
+        return "Toshiba";
+    case  CM_NVME_VENDOR_SANDISK:
+        return "SanDisk";
+    case  CM_NVME_VENDOR_KINGSTON:
+        return "Kingston";
+    case  CM_NVME_VENDOR_SKHYNIX:
+        return "SKHynix";
+    case  CM_NVME_VENDOR_SEAGATE:
+        return "Seagate";
+    case  CM_NVME_VENDOR_PHISON:
+        return "Phison";
+    case  CM_NVME_VENDOR_SILICON:
+        return "Silicon";
+    case  CM_NVME_VENDOR_ATP:
+        return "ATP Elec";
+    case  CM_NVME_VENDOR_LITEON:
+        return "Lite-On";
+    case  CM_NVME_VENDOR_WESTERN:
+        return "Western";
+    case  CM_NVME_VENDOR_TOSHIBAM:
+        return "Toshiba-Mem";
+    case  CM_NVME_VENDOR_MARVELL:
+        return "Marvell";
+    case  CM_NVME_VENDOR_JMICRON:
+        return "JMicron";
+    case  CM_NVME_VENDOR_KINGSTOND:
+        return "Kingston-Digi";
+    case  CM_NVME_VENDOR_LENOVO:
+        return "Lenovo";
+    case  CM_NVME_VENDOR_SKHYNIXMEMORY:
+        return "SKHynix Mem";
+    case  CM_NVME_VENDOR_PHISONE:
+        return "Phison Elec";
+    case  CM_NVME_VENDOR_CORSAIR:
+        return "Corsair";
+    case  CM_NVME_VENDOR_MAXIOTEK:
+        return "Maxiotek";
+    case  CM_NVME_VENDOR_GOOGLE:
+        return "Google";
+    default:
+        return "Unknown";
+    }
 }
 
 const char* cm_nvme_status_to_string(uint32 status)
