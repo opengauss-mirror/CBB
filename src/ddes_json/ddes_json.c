@@ -419,7 +419,7 @@ status_t json_create(json_t **json, const text_t *txt, cm_allocator_t *alloc)
     return construct_obj(*json, txt);
 }
 
-void json_destory(json_t *json)
+void json_destroy(json_t *json)
 {
     // do nothing now
 }
