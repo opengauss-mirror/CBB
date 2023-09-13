@@ -329,12 +329,12 @@ static int mes_set_instance_info(uint32 inst_id, uint32 inst_cnt, const mes_addr
     int ret;
     if (inst_id >= CM_MAX_INSTANCES) {
         LOG_RUN_ERR("inst_id %u is invalid, exceed max instance num %u.", inst_id, CM_MAX_INSTANCES);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     if (inst_cnt > CM_MAX_INSTANCES) {
         LOG_RUN_ERR("instinst_count_id %u is invalid, exceed max instance num %u.", inst_cnt, CM_MAX_INSTANCES);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     MES_GLOBAL_INST_MSG.profile.inst_id = inst_id;
@@ -372,7 +372,7 @@ static int mes_set_group_task_num(mes_task_group_id_t group_id, uint32 task_num)
 
     if ((MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx + task_num) > MES_GLOBAL_INST_MSG.mq_ctx.task_num) {
         LOG_RUN_ERR("[mes]: group %u task num %u has excced total task num.", group_id, task_num);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     task_group->push_cursor = 0;
@@ -1118,7 +1118,7 @@ int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
     if ((inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) || (inst_id >= CM_MAX_INSTANCES)) {
         LOG_RUN_ERR("[mes]: connect inst_id %u failed, current inst_id %u.", inst_id,
             MES_GLOBAL_INST_MSG.profile.inst_id);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];

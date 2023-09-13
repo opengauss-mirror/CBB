@@ -70,7 +70,7 @@ int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_
 
     if (buf_count == 0) {
         LOG_RUN_ERR("[mes]: mes_pool_size should greater than 0.");
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     // init queue
@@ -136,7 +136,7 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
 
     if (queue_num == 0 || queue_num > MES_MAX_BUFFER_QUEUE_NUM) {
         LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].", queue_num, MES_MAX_BUFFPOOL_NUM);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     queues_size = (uint64)(queue_num * sizeof(mes_buf_queue_t));
@@ -206,7 +206,7 @@ int mes_init_message_pool(void)
         (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count > MES_MAX_BUFFPOOL_NUM)) {
         LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].",
             MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count, MES_MAX_BUFFPOOL_NUM);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count; i++) {
