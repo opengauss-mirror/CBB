@@ -326,9 +326,9 @@ static void mes_release_buf_stat(const char *msg_buf)
 {
     if (g_mes_stat.mes_elapsed_switch) {
         mes_message_head_t *head = (mes_message_head_t *)msg_buf;
-        cm_spin_lock(&(g_mes_stat.mes_commond_stat[head->cmd].lock), NULL);
-        cm_atomic32_dec(&(g_mes_stat.mes_commond_stat[head->cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_commond_stat[head->cmd].lock));
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[head->cmd].lock), NULL);
+        cm_atomic32_dec(&(g_mes_stat.mes_command_stat[head->cmd].occupy_buf));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[head->cmd].lock));
         mes_elapsed_stat(head->cmd, MES_TIME_PUT_BUF);
     }
     return;

@@ -191,12 +191,12 @@ static void mes_init_stat(const mes_profile_t *profile)
 {
     g_mes_stat.mes_elapsed_switch = profile->mes_elapsed_switch;
     for (uint32 i = 0; i < CM_MAX_MES_MSG_CMD; i++) {
-        g_mes_stat.mes_commond_stat[i].cmd = i;
-        g_mes_stat.mes_commond_stat[i].send_count = 0;
-        g_mes_stat.mes_commond_stat[i].recv_count = 0;
-        g_mes_stat.mes_commond_stat[i].local_count = 0;
-        g_mes_stat.mes_commond_stat[i].occupy_buf = 0;
-        GS_INIT_SPIN_LOCK(g_mes_stat.mes_commond_stat[i].lock);
+        g_mes_stat.mes_command_stat[i].cmd = i;
+        g_mes_stat.mes_command_stat[i].send_count = 0;
+        g_mes_stat.mes_command_stat[i].recv_count = 0;
+        g_mes_stat.mes_command_stat[i].local_count = 0;
+        g_mes_stat.mes_command_stat[i].occupy_buf = 0;
+        GS_INIT_SPIN_LOCK(g_mes_stat.mes_command_stat[i].lock);
     }
     mes_consume_time_init(profile);
     return;
@@ -205,9 +205,9 @@ static void mes_init_stat(const mes_profile_t *profile)
 static inline void mes_send_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_commond_stat[cmd].lock), NULL);
-        (void)cm_atomic_inc(&(g_mes_stat.mes_commond_stat[cmd].send_count));
-        cm_spin_unlock(&(g_mes_stat.mes_commond_stat[cmd].lock));
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
+        (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[cmd].send_count));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
     }
     return;
 }
@@ -215,10 +215,10 @@ static inline void mes_send_stat(uint32 cmd)
 void mes_local_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_commond_stat[cmd].lock), NULL);
-        (void)cm_atomic_inc(&(g_mes_stat.mes_commond_stat[cmd].local_count));
-        (void)cm_atomic32_inc(&(g_mes_stat.mes_commond_stat[cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_commond_stat[cmd].lock));
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
+        (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[cmd].local_count));
+        (void)cm_atomic32_inc(&(g_mes_stat.mes_command_stat[cmd].occupy_buf));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
     }
     return;
 }
@@ -226,10 +226,10 @@ void mes_local_stat(uint32 cmd)
 static inline void mes_recv_message_stat(const mes_message_t *msg)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_commond_stat[msg->head->cmd].lock), NULL);
-        (void)cm_atomic_inc(&(g_mes_stat.mes_commond_stat[msg->head->cmd].recv_count));
-        (void)cm_atomic32_inc(&(g_mes_stat.mes_commond_stat[msg->head->cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_commond_stat[msg->head->cmd].lock));
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[msg->head->cmd].lock), NULL);
+        (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[msg->head->cmd].recv_count));
+        (void)cm_atomic32_inc(&(g_mes_stat.mes_command_stat[msg->head->cmd].occupy_buf));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[msg->head->cmd].lock));
     }
     return;
 }
@@ -1746,17 +1746,17 @@ uint64 cm_get_time_usec(void)
 
 uint64 mes_get_stat_send_count(unsigned int cmd)
 {
-    return (uint64)g_mes_stat.mes_commond_stat[cmd].send_count;
+    return (uint64)g_mes_stat.mes_command_stat[cmd].send_count;
 }
 
 uint64 mes_get_stat_recv_count(unsigned int cmd)
 {
-    return (uint64)g_mes_stat.mes_commond_stat[cmd].recv_count;
+    return (uint64)g_mes_stat.mes_command_stat[cmd].recv_count;
 }
 
 volatile long mes_get_stat_occupy_buf(unsigned int cmd)
 {
-    return g_mes_stat.mes_commond_stat[cmd].occupy_buf;
+    return g_mes_stat.mes_command_stat[cmd].occupy_buf;
 }
 
 unsigned char mes_get_elapsed_switch(void)
