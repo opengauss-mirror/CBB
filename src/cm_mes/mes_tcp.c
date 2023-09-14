@@ -49,7 +49,7 @@ int mes_alloc_channels(void)
     // alloc channel
     if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
         LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     alloc_size = sizeof(mes_channel_t *) * CM_MAX_INSTANCES +
