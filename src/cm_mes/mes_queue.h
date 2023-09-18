@@ -26,6 +26,7 @@
 #define __MES_QUEUE_H__
 
 #include "mes_type.h"
+#include "mes_interface.h"
 #include "cm_defs.h"
 #include "cm_spinlock.h"
 #include "cm_error.h"

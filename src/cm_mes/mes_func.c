@@ -22,7 +22,6 @@
  * -------------------------------------------------------------------------
  */
 #include "mes_func.h"
-#include "mes.h"
 #include "cm_ip.h"
 #include "cm_memory.h"
 #include "cm_spinlock.h"
@@ -32,6 +31,7 @@
 #include "mes_rpc_ulog4c.h"
 #include "cm_defs.h"
 #include "mes_metadata.h"
+#include "mes_interface.h"
 
 mes_instance_t g_cbb_mes;
 static mes_callback_t g_cbb_mes_callback;
@@ -46,22 +46,22 @@ static mes_global_ptr_t g_mes_ptr = {
 
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
-#define MES_SEND_DATA(data) g_cbb_mes_callback.send_func(data)
 #define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
 #define MES_CONNETION_READY(inst_id) g_cbb_mes_callback.conn_ready_func(inst_id)
 #define MES_ALLOC_MSGITEM(queue) g_cbb_mes_callback.alloc_msgitem_func(queue)
+#define MES_ALLOC_ROOM_SLEEP_TIME 1000
 
 // for ssl
 bool32 g_ssl_enable = CM_FALSE;
 usr_cb_decrypt_pwd_t usr_cb_decrypt_pwd = NULL;
 
-static inline void mes_clean_recv_broadcast_msg(mes_waiting_room_t *room, uint64 success_inst)
+static inline void mes_clean_recv_broadcast_msg(mes_waiting_room_t *room)
 {
     uint32 i;
     mes_message_t msg;
     for (i = 0; i < CM_MAX_INSTANCES; i++) {
-        if (MES_IS_INST_SEND(success_inst, i) && room->broadcast_msg[i] != NULL) {
+        if (room->broadcast_msg[i] != NULL) {
             MES_MESSAGE_ATTACH(&msg, room->broadcast_msg[i]);
             mes_release_message_buf(&msg);
             room->broadcast_msg[i] = NULL;
@@ -101,7 +101,7 @@ static inline void mes_protect_when_timeout(mes_waiting_room_t *room)
     return;
 }
 
-static inline void mes_protect_when_brcast_timeout(mes_waiting_room_t *room, uint64 success_inst)
+static inline void mes_protect_when_brcast_timeout(mes_waiting_room_t *room)
 {
     return;
 }
@@ -155,20 +155,18 @@ static inline void mes_protect_when_timeout(mes_waiting_room_t *room)
     if (!pthread_mutex_trylock(&room->mutex)) { // trylock to avoid mutex has been unlocked.
         mes_free_buf_item((char *)room->msg_buf);
         LOG_RUN_ERR("[mes]%s: mutex has unlock, rsn=%llu, room rsn=%llu.", (char *)__func__,
-            ((mes_message_head_t *)room->msg_buf)->rsn, room->rsn);
+            (uint64)((ruid_t *)(&((mes_message_head_t *)room->msg_buf)->ruid))->rsn, room->rsn);
     }
     cm_spin_unlock(&room->lock);
 }
 
-static inline void mes_protect_when_brcast_timeout(mes_waiting_room_t *room, uint64 success_inst)
+static inline void mes_protect_when_brcast_timeout(mes_waiting_room_t *room)
 {
     cm_spin_lock(&room->lock, NULL);
     (void)cm_atomic_inc((atomic_t *)(&room->rsn));
     cm_spin_unlock(&room->lock);
     (void)pthread_mutex_trylock(&room->broadcast_mutex);
-    if (success_inst != 0) {
-        mes_clean_recv_broadcast_msg(room, success_inst);
-    }
+    mes_clean_recv_broadcast_msg(room);
 }
 
 #endif
@@ -244,14 +242,16 @@ static inline void mes_stop_lsnr(void)
     return;
 }
 
-static inline void mes_copy_recv_broadcast_msg(mes_waiting_room_t *room, uint64 success_inst,
-    char *recv_msg[MES_MAX_INSTANCES])
+static inline void mes_copy_recv_broadcast_msg(mes_waiting_room_t *room, mes_msg_list_t* responses)
 {
     uint32 i;
+    responses->count = 0;
     for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        if (MES_IS_INST_SEND(success_inst, i)) {
-            recv_msg[i] = room->broadcast_msg[i];
+        if (room->broadcast_msg[i] != NULL) {
+            mes_msg_t* msg = &responses->messages[responses->count];
+            MES_MSG_ATTACH(msg, room->broadcast_msg[i]);
             room->broadcast_msg[i] = NULL;
+            responses->count++;
         }
     }
 }
@@ -308,8 +308,8 @@ static void mes_clean_session_mutex(uint32 ceil)
     }
 
     for (uint32 i = 0; i < ceil; i++) {
-        mes_mutex_destroy(&MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[i].mutex);
-        mes_mutex_destroy(&MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[i].broadcast_mutex);
+        mes_mutex_destroy(&MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[i].mutex);
+        mes_mutex_destroy(&MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[i].broadcast_mutex);
     }
     MES_GLOBAL_INST_MSG.mes_ctx.creatWaitRoom = CM_FALSE;
 }
@@ -349,14 +349,14 @@ static int mes_set_instance_info(uint32 inst_id, uint32 inst_cnt, const mes_addr
     for (uint32 i = 0; i < inst_cnt; i++) {
         ret = mes_set_addr(i, inst_net_addr[i].ip, inst_net_addr[i].port);
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("mes_set_addr failed.");
+            LOG_RUN_ERR("[mes]mes_set_addr failed.");
             return ret;
         }
     }
     return CM_SUCCESS;
 }
 
-static int mes_set_group_task_num(mes_task_group_id_t group_id, uint32 task_num)
+static int mes_set_group_task_worker_num(mes_task_group_id_t group_id, uint32 task_num)
 {
     mes_task_group_t *task_group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[group_id];
 
@@ -383,12 +383,13 @@ static int mes_set_group_task_num(mes_task_group_id_t group_id, uint32 task_num)
     MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx += task_num;
     task_group->is_set = CM_TRUE;
 
-    LOG_RUN_INF("[mes]: set group %u start_task_idx %hhu task num %u.", group_id, task_group->start_task_idx, task_num);
+    LOG_RUN_INF("[mes]: set group %u start_task_idx %hhu task num %u.",
+        group_id, task_group->start_task_idx, task_num);
 
     return CM_SUCCESS;
 }
 
-static int mes_send_inter_msg(const void *msg_data)
+int mes_send_inter_msg(const void *msg_data)
 {
     int ret;
     mes_message_t msg;
@@ -526,11 +527,23 @@ static int mes_set_profile(mes_profile_t *profile)
 static int mes_init_session_room(void)
 {
     uint32 i;
+    uint32 freelist_idx;
     mes_waiting_room_t *room = NULL;
+    mes_room_freelist_t *wr_freelist = NULL;
     MES_GLOBAL_INST_MSG.mes_ctx.creatWaitRoom = CM_TRUE;
+    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
+
+    MEMS_RETURN_IFERR(memset_s(wrpool, sizeof(mes_waiting_room_pool_t), 0, sizeof(mes_waiting_room_pool_t)));
+
+    for (i = 0; i < CM_MAX_ROOM_FREELIST_NUM; i++) {
+        wr_freelist = &wrpool->room_freelists[i];
+        wr_freelist->list_id = i;
+        wr_freelist->lock = 0;
+        cm_bilist_init(&wr_freelist->list);
+    }
 
     for (i = 0; i < CM_MAX_MES_ROOMS; i++) {
-        room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[i];
+        room = &wrpool->waiting_rooms[i];
 
         if (mes_mutex_create(&room->mutex) != CM_SUCCESS) {
             mes_clean_session_mutex(i);
@@ -546,8 +559,11 @@ static int mes_init_session_room(void)
 
         GS_INIT_SPIN_LOCK(room->lock);
 
-        room->rsn = 0;
+        room->rsn = MES_FIRST_RUID;
         room->check_rsn = room->rsn;
+        room->room_index = (uint16)i;
+        freelist_idx = MES_ROOM_ID_TO_FREELIST_ID(i);
+        cm_bilist_add_tail(&room->node, (bilist_t *)&wrpool->room_freelists[freelist_idx].list);
     }
     return CM_SUCCESS;
 }
@@ -615,7 +631,7 @@ static int mes_init_group_task(void)
     }
 
     for (loop = 0; loop < MES_TASK_GROUP_ALL; loop++) {
-        ret = mes_set_group_task_num((mes_task_group_id_t)loop, MES_GLOBAL_INST_MSG.profile.task_group[loop]);
+        ret = mes_set_group_task_worker_num((mes_task_group_id_t)loop, MES_GLOBAL_INST_MSG.profile.task_group[loop]);
         if (ret != CM_SUCCESS) {
             return ret;
         }
@@ -683,6 +699,67 @@ static void mes_destroy_resource(void)
     return;
 }
 
+static inline mes_waiting_room_t* mes_ruid_get_room(unsigned long long ruid)
+{
+    unsigned long long rid = ((ruid_t *)(&ruid))->room_id;
+    return (rid >= CM_MAX_MES_ROOMS) ? NULL : &MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[rid];
+}
+
+static inline bool8 ruid_matches_room_rsn(unsigned long long *ruid, unsigned long long room_rsn)
+{
+    return ((ruid_t *)ruid)->rsn == room_rsn;
+}
+
+static inline unsigned long long mes_room_get_ruid(mes_waiting_room_t* room)
+{
+    ruid_t res;
+    res.room_id = room->room_index;
+    res.rsn = room->rsn;
+    return res.ruid;
+}
+
+void mes_notify_msg_recv(mes_message_t *msg)
+{
+    if (msg == NULL || msg->buffer == NULL || MES_RUID_IS_ILLEGAL(msg->head->ruid) ||
+        MES_RUID_IS_INVALID(msg->head->ruid)) {
+        LOG_RUN_ERR("[mes]: mes notify msg recv failed");
+        mes_release_message_buf(msg);
+        return;
+    }
+
+    mes_waiting_room_t *room = mes_ruid_get_room(msg->head->ruid);
+    while (room->room_status == STATUS_BCAST_SENDING) {
+        cm_usleep(1);
+    }
+
+    cm_spin_lock(&room->lock, NULL);
+    if (ruid_matches_room_rsn(&msg->head->ruid, room->rsn)) {
+        if (room->room_status == STATUS_PTP_SENT) {
+            room->msg_buf = msg->buffer;
+            room->check_rsn = ((ruid_t *)&(msg->head->ruid))->rsn;
+            mes_mutex_unlock(&room->mutex);
+        } else if (room->room_status == STATUS_BCAST_SENT) {
+            room->broadcast_msg[msg->head->src_inst] = msg->buffer;
+            (void)cm_atomic32_inc(&room->ack_count);
+            if (room->ack_count >= room->req_count) {
+                room->check_rsn = ((ruid_t *)&(msg->head->ruid))->rsn;
+                mes_mutex_unlock(&room->broadcast_mutex);
+            }
+        } else {
+            LOG_RUN_ERR("[mes]:mes notify msg recv cmd=%d, ruid=%llu(%llu-%llu) matched wrong rstatus:%d",
+                (int32)msg->head->cmd, (uint64)msg->head->ruid, (uint64)MES_RUID_GET_RID(msg->head->ruid),
+                (uint64)MES_RUID_GET_RSN(msg->head->ruid), (int32)room->room_status);
+            mes_release_message_buf(msg);
+        }
+        cm_spin_unlock(&room->lock);
+    } else {
+        cm_spin_unlock(&room->lock);
+        MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg", room);
+        mes_release_message_buf(msg);
+    }
+    return;
+}
+
 void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_t *msg)
 {
     uint64 start_time = 0;
@@ -690,22 +767,25 @@ void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_
     mes_msgitem_t *msgitem;
 
     mes_recv_message_stat(msg);
-    if (MES_GLOBAL_INST_MSG.is_enqueue[msg->head->cmd]) {
-        msgitem = MES_ALLOC_MSGITEM(my_queue);
-        if (msgitem == NULL) {
-            mes_release_message_buf(msg);
-            LOG_RUN_ERR("[mes]: alloc msgitem failed.");
-            return;
-        }
 
-        msgitem->msg.head = msg->head;
-        msgitem->msg.buffer = msg->buffer;
-        mes_put_msgitem_enqueue(msgitem);
-        mes_consume_with_time(msg->head->cmd, MES_TIME_PUT_QUEUE, start_time);
+    /* message is sychronous ack, need to push notification */
+    if (msg->head->cmd == MES_CMD_SYNCH_ACK) {
+        mes_notify_msg_recv(msg);
         return;
     }
-    MES_GLOBAL_INST_MSG.proc((MES_GLOBAL_INST_MSG.profile.work_thread_cnt + recv_idx), msg);
-    mes_consume_with_time(msg->head->cmd, MES_TIME_PROC_FUN, start_time);
+
+    msgitem = MES_ALLOC_MSGITEM(my_queue);
+    if (msgitem == NULL) {
+        mes_release_message_buf(msg);
+        LOG_RUN_ERR("[mes]: alloc msgitem failed.");
+        return;
+    }
+
+    msgitem->msg.head = msg->head;
+    msgitem->msg.buffer = msg->buffer;
+    mes_put_msgitem_enqueue(msgitem);
+    mes_consume_with_time(msg->head->cmd, MES_TIME_PUT_QUEUE, start_time);
+
     return;
 }
 
@@ -715,7 +795,7 @@ static int mes_start_work_thread(void)
         MES_GLOBAL_INST_MSG.mes_ctx.work_thread_idx[loop] = loop;
         if (cm_create_thread(mes_task_proc, 0, &MES_GLOBAL_INST_MSG.mes_ctx.work_thread_idx[loop],
             &MES_GLOBAL_INST_MSG.mq_ctx.tasks[loop].thread) != CM_SUCCESS) {
-            LOG_RUN_ERR("create work thread %u failed.", loop);
+            LOG_RUN_ERR("[mes]create work thread %u failed.", loop);
             return ERR_MES_WORK_THREAD_FAIL;
         }
     }
@@ -730,13 +810,13 @@ static int mes_start_listen_thread(void)
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         ret = mes_start_lsnr();
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("mes_init failed.");
+            LOG_RUN_ERR("[mes]mes_init failed.");
             return ret;
         }
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         ret = mes_start_rdma_rpc_lsnr();
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("mes start rdma rpc lsnr failed, ret: %d", ret);
+            LOG_RUN_ERR("[mes]mes start rdma rpc lsnr failed, ret: %d", ret);
             return ret;
         }
     }
@@ -934,7 +1014,7 @@ int mes_init(mes_profile_t *profile)
     int ret;
 
     if (profile == NULL) {
-        LOG_RUN_ERR("[mes]: profile is NULL,init failed.");
+        LOG_RUN_ERR("[mes]: profile is NULL, init failed.");
         return ERR_MES_PARAM_NULL;
     }
     mes_init_stat(profile);
@@ -987,127 +1067,423 @@ void mes_register_proc_func(mes_message_proc_t proc)
     return;
 }
 
-void mes_set_msg_enqueue(unsigned int command, unsigned int is_enqueue)
+static inline void mes_reinit_room(mes_waiting_room_t* room)
 {
-    MES_GLOBAL_INST_MSG.is_enqueue[command] = is_enqueue;
-    return;
+    cm_spin_lock(&room->lock, NULL);
+    (void)cm_atomic_inc((atomic_t *)(&room->rsn));
+    room->room_status = STATUS_FREE_ROOM;
+    room->ack_count = 0;
+    room->req_count = 0;
+    room->err_code = 0;
+    room->msg_buf = NULL;
+    cm_spin_unlock(&room->lock);
 }
 
-void mes_notify_msg_recv(mes_message_t *msg)
+static mes_waiting_room_t *mes_alloc_room(void)
 {
-    if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
-        mes_release_message_buf(msg);
-        LOG_RUN_ERR("[mes]: mes notify msg recv failed");
-        return;
-    }
-
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[msg->head->dst_sid];
-    cm_spin_lock(&room->lock, NULL);
-    if (room->rsn == msg->head->rsn) {
-        room->msg_buf = msg->buffer;
-        room->check_rsn = msg->head->rsn;
-        mes_mutex_unlock(&room->mutex);
-        cm_spin_unlock(&room->lock);
-    } else {
-        cm_spin_unlock(&room->lock);
-        MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
-        mes_release_message_buf(msg);
-    }
-}
-
-void mes_notify_broadcast_msg_recv_with_errcode(mes_message_t *msg)
-{
-    if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS ||
-        msg->head->size < MES_MSG_HEAD_SIZE + sizeof(int32)) {
-        mes_release_message_buf(msg);
-        LOG_RUN_ERR("[mes]: mes notify broadcast-release msg failed");
-        return;
-    }
-
-    int32 errcode = *(int32*)(msg->buffer + MES_MSG_HEAD_SIZE);
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[msg->head->dst_sid];
-
-    while (room->broadcast_flag) {
-        cm_usleep(1);
-    }
-
-    cm_spin_lock(&room->lock, NULL);
-    if (room->rsn == msg->head->rsn) {
-        if (errcode == CM_SUCCESS) {
-            MES_INST_SENT_SUCCESS(room->succ_insts, msg->head->src_inst);
+    mes_waiting_room_t *room = NULL;
+    uint32 free_idx;
+    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
+    mes_room_freelist_t* freelist = NULL;
+    while (CM_TRUE) {
+        free_idx = wrpool->next_freelist++ % CM_MAX_ROOM_FREELIST_NUM;
+        freelist = &wrpool->room_freelists[free_idx];
+        cm_spin_lock(&freelist->lock, NULL);
+        room = (mes_waiting_room_t *)cm_bilist_pop_first(&freelist->list);
+        cm_spin_unlock(&freelist->lock);
+        if (room != NULL) {
+            CM_ASSERT(room->room_status == STATUS_FREE_ROOM);
+            break;
+        } else {
+            LOG_DEBUG_WAR("freelist %u room leaked, check for unpaired messages!", free_idx);
+            cm_sleep(MES_ALLOC_ROOM_SLEEP_TIME);
         }
-        (void)cm_atomic32_inc(&room->ack_count);
+    }
+    return room;
+}
+
+static inline void mes_free_room(mes_waiting_room_t *room)
+{
+    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
+    uint32 free_idx = MES_ROOM_ID_TO_FREELIST_ID(room->room_index);
+    mes_room_freelist_t* freelist = &wrpool->room_freelists[free_idx];
+
+    mes_reinit_room(room);
+    cm_spin_lock(&freelist->lock, NULL);
+    cm_bilist_add_tail(&room->node, &freelist->list);
+    cm_spin_unlock(&freelist->lock);
+}
+
+static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, va_list args)
+{
+    uint64 start_stat_time = 0;
+    mes_bufflist_t buff_list;
+    va_list apcopy;
+    va_copy(apcopy, args);
+
+    buff_list.cnt = 0;
+    mes_append_bufflist(&buff_list, head, sizeof(mes_message_head_t));
+    for (uint32 i = 0; i < count; i++) {
+        char *msg = (char *)va_arg(apcopy, char *);
+        unsigned int size = (unsigned int)va_arg(apcopy, unsigned int);
+        if (SECUREC_UNLIKELY(size > MES_MESSAGE_BUFFER_SIZE)) {
+            MES_LOG_ERR_HEAD_EX(head, "message length exceeded");
+            return ERR_MES_MSG_TOO_LARGE;
+        }
+        head->size += size;
+        mes_append_bufflist(&buff_list, msg, size);
+    }
+    va_end(apcopy);
+
+    if (count == 0 || buff_list.cnt == 0) {
+        LOG_RUN_ERR("me send data x inner failed, msg data is NULL");
+        return ERR_MES_PARAM_NULL;
+    }
+
+    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
+        MES_LOG_ERR_HEAD_EX(head, "message length exceeded");
+        return ERR_MES_MSG_TOO_LARGE;
+    }
+
+    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
+        return mes_send_inter_buffer_list(&buff_list);
+    }
+
+    mes_get_consume_time_start(&start_stat_time);
+    int ret = MES_SEND_BUFFLIST(&buff_list);
+    if (ret == CM_SUCCESS) {
+        mes_send_stat(head->cmd);
+        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
+    }
+    return ret;
+}
+
+int mes_send_data(inst_type dest_inst, flag_type flag, char* data, unsigned int size)
+{
+    if (data == NULL) {
+        LOG_RUN_ERR("mes send data failed, msg data is NULL");
+        return ERR_MES_PARAM_NULL;
+    }
+    return mes_send_data_x(dest_inst, flag, 1, data, size);
+}
+
+/*
+ * async p2p message passing with multi-body message
+ * mes_send_data is a special case with 1-body message
+ */
+int mes_send_data_x(inst_type dest_inst, flag_type flag, unsigned int count, ...)
+{
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    va_list args;
+    va_start(args, count);
+    mes_message_head_t head;
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
+        MES_MY_ID, dest_inst, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+    int ret = mes_send_data_x_inner(&head, count, args);
+    va_end(args);
+    return ret;
+}
+
+void mes_prepare_request(ruid_type* ruid)
+{
+    mes_waiting_room_t* room = mes_alloc_room();
+    room->room_status = STATUS_PTP_SENT;
+    *ruid = mes_room_get_ruid(room);
+}
+
+
+int mes_forward_request_x(inst_type dest_inst, flag_type flag, ruid_type ruid, unsigned int count, ...)
+{
+    MES_RETURN_IF_BAD_RUID(ruid);
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    va_list args;
+    va_start(args, count);
+    mes_message_head_t head;
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_FORWARD_REQ, flag,
+        MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
+    int ret = mes_send_data_x_inner(&head, count, args);
+    va_end(args);
+    return ret;
+}
+
+int mes_send_request(inst_type dest_inst, flag_type flag, ruid_type* ruid, char* data, unsigned int size)
+{
+    return mes_send_request_x(dest_inst, flag, ruid, 1, data, size);
+}
+
+/*
+ * synchronous p2p message passing with multi-body message
+ * mes_send_data is a special case with 1-body message
+ */
+int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type* ruid, unsigned int count, ...)
+{
+    *ruid = 0;
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    mes_message_head_t head;
+
+    mes_waiting_room_t* room = mes_alloc_room();
+    room->room_status = STATUS_PTP_SENT;
+    *ruid = mes_room_get_ruid(room);
+    head.ruid = *ruid;
+
+    va_list args;
+    va_start(args, count);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag,
+        MES_MY_ID, dest_inst, *ruid, MES_MSG_HEAD_SIZE);
+    int ret = mes_send_data_x_inner(&head, count, args);
+    va_end(args);
+
+    if (ret != CM_SUCCESS) {
+        *ruid = MES_INVLD_RUID;
+        mes_free_room(room);
+    }
+
+    return ret;
+}
+
+int mes_send_response(inst_type dest_inst, flag_type flag, ruid_type ruid, char* data, unsigned int size)
+{
+    MES_RETURN_IF_BAD_RUID(ruid);
+    return mes_send_response_x(dest_inst, flag, ruid, 1, data, size);
+}
+
+/*
+ * async message response to synchronous request
+ * with ruid that mandates specific room for remote
+ */
+int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, unsigned int count, ...)
+{
+    MES_RETURN_IF_BAD_RUID(ruid);
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    mes_message_head_t head;
+    CM_ASSERT(!MES_RUID_IS_ILLEGAL(ruid) && !MES_RUID_IS_INVALID(ruid));
+
+    va_list args;
+    va_start(args, count);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_ACK, flag,
+        MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
+    int ret = mes_send_data_x_inner(&head, count, args);
+    va_end(args);
+
+    return ret;
+}
+
+int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
+{
+    MES_RETURN_IF_BAD_RUID(ruid);
+    uint64 start_stat_time = cm_get_time_usec();
+    int32 wait_time = 0;
+    mes_message_t msg;
+    mes_waiting_room_t *room = mes_ruid_get_room(ruid);
+
+    if (room == NULL) {
+        LOG_DEBUG_ERR("[mes]ruid%llu:(%llu-%llu) gives invalid room",
+            (uint64)ruid, (uint64)MES_RUID_GET_RID(ruid), (uint64)MES_RUID_GET_RSN(ruid));
+        return ERR_MES_PARAM_INVALID;
+    }
+
+    if (response == NULL) {
+        LOG_DEBUG_INF("[mes]room wait canceled by caller, ruid%llu:(%llu-%llu), room(%llu-%llu)",
+            (uint64)ruid, (uint64)MES_RUID_GET_RID(ruid), (uint64)MES_RUID_GET_RSN(ruid),
+            (uint64)room->room_index, (uint64)room->rsn);
+        mes_protect_when_timeout(room);
+        mes_free_room(room);
+        return CM_SUCCESS;
+    }
+
+    for (;;) {
+        if (!mes_mutex_timed_lock(&room->mutex, MES_WAIT_TIMEOUT)) {
+            wait_time += MES_WAIT_TIMEOUT;
+            if (wait_time >= timeout_ms) {
+                // when timeout the ack msg may reach, so need do some check and protect.
+                mes_protect_when_timeout(room);
+                LOG_DEBUG_WAR("[mes]room wait timeout, rid=%llu, rsn=%llu", (uint64)room->room_index, room->rsn);
+                mes_free_room(room);
+                return ERR_MES_WAIT_OVERTIME;
+            }
+            continue;
+        }
+
+        if (room->msg_buf == NULL) {
+            mes_free_room(room);
+            return ERR_MES_WAIT_OVERTIME;
+        }
+        MES_MESSAGE_ATTACH(&msg, room->msg_buf);
+        MES_MSG_ATTACH(response, room->msg_buf);
+
+        // this situation should not happen, keep this code to observe some time.
+        if (SECUREC_UNLIKELY(!ruid_matches_room_rsn(&(&msg)->head->ruid, room->rsn))) {
+            // rsn not match, ignore this message
+            MES_LOG_WAR_HEAD_EX((&msg)->head, "receive unmatch msg", room);
+            LOG_RUN_ERR("[mes]%s: receive unmatch msg, ruid=%llu, room rsn=%llu.", (char *)__func__,
+                (&msg)->head->ruid, room->rsn);
+            mes_release_message_buf(&msg);
+            MES_MESSAGE_DETACH(&msg);
+            continue;
+        }
+
+        break;
+    }
+
+    mes_free_room(room);
+    mes_consume_with_time((&msg)->head->cmd, MES_TIME_TEST_RECV, start_stat_time);
+
+    return CM_SUCCESS;
+}
+
+int mes_broadcast_x(flag_type flag, unsigned int count, ...)
+{
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    va_list args;
+    va_start(args, count);
+    int ret = CM_SUCCESS;
+
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        mes_message_head_t head;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
+            MES_MY_ID, i, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+        ret = mes_send_data_x_inner(&head, count, args);
+        if (ret != CM_SUCCESS) {
+            continue;
+        }
+    }
+    va_end(args);
+    return ret;
+}
+
+int mes_broadcast(flag_type flag, char* msg_data, unsigned int size)
+{
+    return mes_broadcast_x(flag, 1, msg_data, size);
+}
+
+int mes_broadcast_spx(inst_type* inst_list, unsigned int inst_count, flag_type flag, unsigned int count, ...)
+{
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    MES_RETURN_IF_BAD_INST_COUNT(inst_count);
+    va_list args;
+    va_start(args, count);
+    int ret = CM_SUCCESS;
+
+    for (uint32 i = 0; i < inst_count; i++) {
+        mes_message_head_t head;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
+            MES_MY_ID, inst_list[i], MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+        ret = mes_send_data_x_inner(&head, count, args);
+        if (ret != CM_SUCCESS) {
+            continue;
+        }
+    }
+    va_end(args);
+    return ret;
+}
+
+int mes_broadcast_sp(inst_type* inst_list, unsigned int inst_count, flag_type flag, char* msg_data, unsigned int size)
+{
+    return mes_broadcast_spx(inst_list, inst_count, flag, 1, msg_data, size);
+}
+
+
+int mes_broadcast_request_x(flag_type flag, ruid_type* ruid, unsigned int count, ...)
+{
+    *ruid = 0;
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    va_list args;
+    va_start(args, count);
+    mes_waiting_room_t* room = mes_alloc_room();
+    *ruid = mes_room_get_ruid(room);
+    room->room_status = STATUS_BCAST_SENDING;
+    room->ack_count = 0;
+    room->req_count = 0;
+    int ret = CM_SUCCESS;
+
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        mes_message_head_t head;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag, MES_MY_ID, i, *ruid, MES_MSG_HEAD_SIZE);
+        ret = mes_send_data_x_inner(&head, count, args);
+        if (ret != CM_SUCCESS) {
+            /* room is only freed in paired get response api */
+            continue;
+        }
+        (void)cm_atomic32_inc(&room->req_count);
+    }
+    room->room_status = STATUS_BCAST_SENT;
+    va_end(args);
+    return ret;
+}
+
+int mes_broadcast_request(flag_type flag, ruid_type* ruid, char* msg_data, unsigned int size)
+{
+    return mes_broadcast_request_x(flag, ruid, 1, msg_data, size);
+}
+
+int mes_broadcast_request_spx(inst_type* inst_list, unsigned int inst_count,
+    flag_type flag, ruid_type* ruid, unsigned int count, ...)
+{
+    *ruid = 0;
+    MES_RETURN_IF_BAD_INST_COUNT(inst_count);
+    MES_RETURN_IF_BAD_MSG_COUNT(count);
+    va_list args;
+    va_start(args, count);
+    mes_waiting_room_t* room = mes_alloc_room();
+    *ruid = mes_room_get_ruid(room);
+    room->room_status = STATUS_BCAST_SENDING;
+    room->ack_count = 0;
+    room->req_count = 0;
+    int ret = CM_SUCCESS;
+
+    for (uint32 i = 0; i < inst_count; i++) {
+        mes_message_head_t head;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag, MES_MY_ID, inst_list[i], *ruid, MES_MSG_HEAD_SIZE);
+        ret = mes_send_data_x_inner(&head, count, args);
+        if (ret != CM_SUCCESS) {
+            /* room is only freed in paired get response api */
+            continue;
+        }
+        (void)cm_atomic32_inc(&room->req_count);
+    }
+    room->room_status = STATUS_BCAST_SENT;
+    va_end(args);
+    return ret;
+}
+
+int mes_broadcast_request_sp(inst_type* inst_list, unsigned int inst_count,
+    flag_type flag, ruid_type* ruid, char* msg_data, unsigned int size)
+{
+    return mes_broadcast_request_spx(inst_list, inst_count, flag, ruid, 1, msg_data, size);
+}
+
+int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms)
+{
+    MES_RETURN_IF_BAD_RUID(ruid);
+    int32 wait_time = 0;
+    mes_waiting_room_t *room = mes_ruid_get_room(ruid);
+
+    for (;;) {
+        if (room->req_count == 0) {
+            break;
+        }
+        if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
+            wait_time += MES_WAIT_TIMEOUT;
+            if (wait_time >= timeout_ms) {
+                room->ack_count = 0; // invalid broadcast ack
+                // when timeout the ack msg may reach, so need do some check and protect.
+                mes_protect_when_brcast_timeout(room);
+                LOG_DEBUG_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast",
+                    room->room_index, room->rsn - 1);
+                mes_free_room(room);
+                return ERR_MES_WAIT_OVERTIME;
+            }
+            continue;
+        }
+
         if (room->ack_count >= room->req_count) {
-            room->check_rsn = msg->head->rsn;
-            mes_mutex_unlock(&room->broadcast_mutex);
+            break;
         }
-        cm_spin_unlock(&room->lock);
-    } else {
-        cm_spin_unlock(&room->lock);
-        MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
     }
-    mes_release_message_buf(msg);
-}
+    mes_copy_recv_broadcast_msg(room, responses);
+    mes_free_room(room);
 
-void mes_notify_broadcast_msg_recv_and_release(mes_message_t *msg)
-{
-    if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
-        mes_release_message_buf(msg);
-        LOG_RUN_ERR("[mes]: mes notify broadcast-release msg failed");
-        return;
-    }
-
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[msg->head->dst_sid];
-    while (room->broadcast_flag) {
-        cm_usleep(1);
-    }
-
-    cm_spin_lock(&room->lock, NULL);
-    if (room->rsn == msg->head->rsn) {
-        (void)cm_atomic32_inc(&room->ack_count);
-        if (room->ack_count >= room->req_count) {
-            room->check_rsn = msg->head->rsn;
-            mes_mutex_unlock(&room->broadcast_mutex);
-        }
-        cm_spin_unlock(&room->lock);
-    } else {
-        cm_spin_unlock(&room->lock);
-        MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
-    }
-
-    mes_release_message_buf(msg);
-
-    return;
-}
-
-void mes_notify_broadcast_msg_recv_and_cahce(mes_message_t *msg)
-{
-    if (msg == NULL || msg->head->dst_sid >= CM_MAX_MES_ROOMS) {
-        mes_release_message_buf(msg);
-        LOG_RUN_ERR("[mes]: mes notify broadcast-cache msg failed");
-        return;
-    }
-
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[msg->head->dst_sid];
-    while (room->broadcast_flag) {
-        cm_usleep(1);
-    }
-
-    cm_spin_lock(&room->lock, NULL);
-    if (room->rsn == msg->head->rsn) {
-        room->broadcast_msg[msg->head->src_inst] = msg->buffer;
-        (void)cm_atomic32_inc(&room->ack_count);
-        if (room->ack_count >= room->req_count) {
-            room->check_rsn = msg->head->rsn;
-            mes_mutex_unlock(&room->broadcast_mutex);
-        }
-        cm_spin_unlock(&room->lock);
-    } else {
-        cm_spin_unlock(&room->lock);
-        MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
-        mes_release_message_buf(msg);
-    }
-    return;
+    return CM_SUCCESS;
 }
 
 int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
@@ -1142,6 +1518,17 @@ int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
 
     LOG_RUN_INF("[mes]: connect to instance %u, %s:%hu.", inst_id, ip, port);
 
+    return CM_SUCCESS;
+}
+
+int mes_add_instance(inst_type inst_id, char* ip, unsigned short port)
+{
+    return mes_connect_single(inst_id, ip, port);
+}
+
+int mes_del_instance(inst_type inst_id)
+{
+    mes_disconnect(inst_id);
     return CM_SUCCESS;
 }
 
@@ -1244,6 +1631,7 @@ static int mes_send_inter_msg_in_queue(mes_message_head_t *msg_head, mes_msgqueu
     return CM_SUCCESS;
 }
 
+/* Not available in new MES API */
 int mes_send_inter_msg_all_queue(mes_message_head_t *msg_head)
 {
     mes_task_group_t *task_group = NULL;
@@ -1270,451 +1658,22 @@ int mes_send_inter_msg_all_queue(mes_message_head_t *msg_head)
     return CM_SUCCESS;
 }
 
-int mes_send_data(mes_message_head_t *msg)
+void mes_release_msg(mes_msg_t *msg)
 {
-    uint64 start_stat_time = 0;
-    int ret;
-    if (msg == NULL) {
-        LOG_RUN_ERR("mes send data failed, msg data is NULL");
-        return ERR_MES_PARAM_NULL;
+    if (msg == NULL || msg->buffer == NULL) {
+        return;
     }
 
-    mes_message_head_t *head = msg;
-    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
-        LOG_RUN_ERR("message length %hu excced max %u", head->size, MES_MESSAGE_BUFFER_SIZE);
-        MES_LOG_ERR_HEAD_EX(head, "message length excced");
-        return ERR_MES_MSG_TOO_LARGE;
-    }
-
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id && head->cmd != MES_HEARTBEAT_CMD) {
-        return mes_send_inter_msg(msg);
-    }
-    mes_get_consume_time_start(&start_stat_time);
-
-    ret = MES_SEND_DATA(msg);
-    if (ret == CM_SUCCESS) {
-        mes_send_stat(head->cmd);
-        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
-    }
-    return ret;
-}
-
-int mes_send_data2(const mes_message_head_t *head, const void *body)
-{
-    uint64 start_stat_time = 0;
-    int ret;
-    mes_bufflist_t buff_list;
-
-    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
-        MES_LOG_ERR_HEAD_EX(head, "message length excced");
-        return ERR_MES_MSG_TOO_LARGE;
-    }
-
-    buff_list.cnt = 0;
-    mes_append_bufflist(&buff_list, head, sizeof(mes_message_head_t));
-    mes_append_bufflist(&buff_list, body, head->size - sizeof(mes_message_head_t));
-
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
-        return mes_send_inter_buffer_list(&buff_list);
-    }
-
-    mes_get_consume_time_start(&start_stat_time);
-    ret = MES_SEND_BUFFLIST(&buff_list);
-    if (ret == CM_SUCCESS) {
-        mes_send_stat(head->cmd);
-        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
-    }
-    return ret;
-}
-
-int mes_send_data3(const mes_message_head_t *head, unsigned int head_size, const void *body)
-{
-    uint64 start_stat_time = 0;
-    int ret;
-    mes_bufflist_t buff_list;
-
-    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
-        MES_LOG_ERR_HEAD_EX(head, "message length excced");
-        return ERR_MES_MSG_TOO_LARGE;
-    }
-
-    buff_list.cnt = 0;
-    mes_append_bufflist(&buff_list, head, head_size);
-    mes_append_bufflist(&buff_list, body, head->size - head_size);
-
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
-        return mes_send_inter_buffer_list(&buff_list);
-    }
-
-    mes_get_consume_time_start(&start_stat_time);
-    ret = MES_SEND_BUFFLIST(&buff_list);
-    if (ret == CM_SUCCESS) {
-        mes_send_stat(head->cmd);
-        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
-    }
-    return ret;
-}
-
-int mes_send_data4(const mes_message_head_t *head, unsigned int head_size, const void *body1, unsigned int len1,
-    const void *body2, unsigned int len2)
-{
-    uint64 start_stat_time = 0;
-    mes_bufflist_t buff_list;
-
-    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
-        MES_LOG_ERR_HEAD_EX(head, "message length excced");
-        return ERR_MES_MSG_TOO_LARGE;
-    }
-
-    buff_list.cnt = 0;
-    mes_append_bufflist(&buff_list, head, head_size);
-    mes_append_bufflist(&buff_list, body1, len1);
-    mes_append_bufflist(&buff_list, body2, len2);
-
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
-        return mes_send_inter_buffer_list(&buff_list);
-    }
-
-    mes_get_consume_time_start(&start_stat_time);
-    int ret = MES_SEND_BUFFLIST(&buff_list);
-    if (ret == CM_SUCCESS) {
-        mes_send_stat(head->cmd);
-        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
-    }
-    return ret;
-}
-
-int mes_allocbuf_and_recv_data(unsigned short sid, mes_message_t *msg, unsigned int timeout)
-{
-    uint64 start_stat_time = cm_get_time_usec();
-    uint32 wait_time = 0;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    for (;;) {
-        if (!mes_mutex_timed_lock(&room->mutex, MES_WAIT_TIMEOUT)) {
-            wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout) {
-                mes_protect_when_timeout(
-                    room); // when timeout the ack msg may reach, so need do some check and protect.
-                LOG_DEBUG_WAR("recv data rsn %llu ", room->rsn);
-                return ERR_MES_WAIT_OVERTIME;
-            }
-            continue;
-        }
-
-        MES_MESSAGE_ATTACH(msg, room->msg_buf);
-        room->msg_buf = NULL;
-        if (msg->buffer == NULL) {
-            return ERR_MES_WAIT_OVERTIME;
-        }
-
-        if (SECUREC_UNLIKELY(room->rsn !=
-            msg->head->rsn)) { // this situation should not happen, keep this code to observe some time.
-            // rsn not match, ignore this message
-            MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg");
-            LOG_RUN_ERR("[mes]%s: receive unmatch msg, rsn=%llu, room rsn=%llu.", (char *)__func__,
-                ((mes_message_head_t *)msg->buffer)->rsn, room->rsn);
-            mes_release_message_buf(msg);
-            MES_MESSAGE_DETACH(msg);
-            continue;
-        }
-
-        break;
-    }
-    mes_consume_with_time(msg->head->cmd, MES_TIME_TEST_RECV, start_stat_time);
-
-    return CM_SUCCESS;
-}
-
-void mes_broadcast3(unsigned int sid, uint64 inst_bits, const void *msg_data, uint64 *success_inst,
-    mes_send_data_func send_data)
-{
-    uint64 start_stat_time = 0;
-    uint32 i;
-    uint64 send_inst = 0;
-    mes_message_head_t *head = (mes_message_head_t *)msg_data;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    room->req_count = 0;
-    room->ack_count = 0;
-    room->succ_insts = 0;
-    room->broadcast_flag = CM_TRUE;
-    mes_get_consume_time_start(&start_stat_time);
-    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        if (MES_IS_INST_SEND(inst_bits, i)) {
-            head->dst_inst = (uint8)i;
-            if (send_data((mes_message_head_t *)msg_data) != CM_SUCCESS) {
-                continue;
-            }
-            (void)cm_atomic32_inc(&room->req_count);
-            MES_INST_SENT_SUCCESS(send_inst, i);
-            mes_send_stat(head->cmd);
-        }
-    }
-    room->broadcast_flag = CM_FALSE;
-
-    if (success_inst != NULL) {
-        *success_inst = send_inst;
-    }
-    mes_consume_with_time(head->cmd, MES_TIME_TEST_MULTICAST, start_stat_time);
+    char *buffer = (char *)(msg->buffer - MES_MSG_HEAD_SIZE);
+    mes_free_buf_item(buffer);
     return;
 }
 
-void mes_broadcast(unsigned int sid, uint64 inst_bits, const void *msg_data, uint64 *success_inst)
+void mes_release_msg_list(mes_msg_list_t* message_list)
 {
-    mes_broadcast3(sid, inst_bits, msg_data, success_inst, mes_send_data);
-}
-
-void mes_broadcast4(unsigned int sid, uint64 inst_bits, mes_message_head_t *head, const void *body,
-    uint64 *success_inst, mes_send_data2_func send_data)
-{
-    uint64 start_stat_time = 0;
-    uint32 i;
-    uint64 send_inst = 0;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    room->req_count = 0;
-    room->ack_count = 0;
-    room->succ_insts = 0;
-    room->broadcast_flag = CM_TRUE;
-    mes_get_consume_time_start(&start_stat_time);
-    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        if (MES_IS_INST_SEND(inst_bits, i)) {
-            head->dst_inst = (uint8)i;
-            if (send_data(head, body) != CM_SUCCESS) {
-                continue;
-            }
-            (void)cm_atomic32_inc(&room->req_count);
-            MES_INST_SENT_SUCCESS(send_inst, i);
-            mes_send_stat(head->cmd);
-        }
+    for (uint32 i = 0; i < message_list->count; i++) {
+        mes_release_msg(&message_list->messages[i]);
     }
-    room->broadcast_flag = CM_FALSE;
-
-    if (success_inst != NULL) {
-        *success_inst = send_inst;
-    }
-    mes_consume_with_time(head->cmd, MES_TIME_TEST_MULTICAST, start_stat_time);
-    return;
-}
-
-void mes_broadcast5(unsigned int sid, uint64 inst_bits, mes_message_head_t *head, unsigned int head_size,
-    const void *body, uint64 *success_inst, mes_send_data3_func send_data)
-{
-    uint64 start_stat_time = 0;
-    uint32 i;
-    uint64 send_inst = 0;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    room->req_count = 0;
-    room->ack_count = 0;
-    room->succ_insts = 0;
-    room->broadcast_flag = CM_TRUE;
-    mes_get_consume_time_start(&start_stat_time);
-    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        if (MES_IS_INST_SEND(inst_bits, i)) {
-            head->dst_inst = (uint8)i;
-            if (send_data(head, head_size, body) != CM_SUCCESS) {
-                continue;
-            }
-            (void)cm_atomic32_inc(&room->req_count);
-            MES_INST_SENT_SUCCESS(send_inst, i);
-            mes_send_stat(head->cmd);
-        }
-    }
-    room->broadcast_flag = CM_FALSE;
-
-    if (success_inst != NULL) {
-        *success_inst = send_inst;
-    }
-    mes_consume_with_time(head->cmd, MES_TIME_TEST_MULTICAST, start_stat_time);
-    return;
-}
-
-static inline int mes_broadcast2_send_data(mes_message_head_t *head, const void *body)
-{
-    return mes_send_data2(head, body);
-}
-
-void mes_broadcast2(unsigned int sid, uint64 inst_bits, mes_message_head_t *head, const void *body,
-    uint64 *success_inst)
-{
-    mes_broadcast4(sid, inst_bits, head, body, success_inst, mes_broadcast2_send_data);
-}
-
-int mes_wait_acks(unsigned int sid, unsigned int timeout)
-{
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-    uint32 wait_time = 0;
-
-    for (;;) {
-        if (room->req_count == 0) {
-            break;
-        }
-
-        if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
-            wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout) {
-                room->ack_count = 0; // invalid broadcast ack
-                mes_protect_when_brcast_timeout(room, 0);
-                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%u, ack_count=%d, req_count=%d", room->rsn,
-                    room->check_rsn, sid, room->ack_count, room->req_count);
-                return ERR_MES_WAIT_OVERTIME;
-            }
-            continue;
-        }
-
-        if (room->ack_count >= room->req_count) {
-            break;
-        }
-    }
-
-    return CM_SUCCESS;
-}
-
-int mes_wait_acks2(unsigned int sid, unsigned int timeout, uint64 *succ_insts)
-{
-    uint32 wait_time = 0;
-    int32  ret = CM_SUCCESS;
-
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    for (;;) {
-        if (room->req_count == 0) {
-            break;
-        }
-
-        if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
-            wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout) {
-                room->ack_count = 0; // invalid broadcast ack
-                mes_protect_when_brcast_timeout(room, 0);
-                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%d, ack_count=%d, req_count=%d", room->rsn,
-                    room->check_rsn, sid, room->ack_count, room->req_count);
-                ret = ERR_MES_WAIT_OVERTIME;
-                break;
-            }
-            continue;
-        }
-
-        if (room->ack_count >= room->req_count) {
-            break;
-        }
-    }
-    if (succ_insts != NULL) {
-        *succ_insts = room->succ_insts;
-    }
-    return ret;
-}
-
-int mes_broadcast_and_wait(unsigned int sid, uint64 inst_bits, const void *msg_data, unsigned int timeout,
-    uint64 *success_inst)
-{
-    uint64 start_stat_time = 0;
-    mes_get_consume_time_start(&start_stat_time);
-    mes_broadcast3(sid, inst_bits, msg_data, success_inst, mes_send_data);
-    int ret = mes_wait_acks(sid, timeout);
-    if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes]mes_wait_acks failed.");
-        return ret;
-    }
-
-    mes_consume_with_time(((mes_message_head_t *)msg_data)->cmd, MES_TIME_TEST_MULTICAST_AND_WAIT, start_stat_time);
-    return CM_SUCCESS;
-}
-
-int mes_wait_acks_and_recv_msg2(unsigned int sid, unsigned int timeout, uint64 success_inst,
-    char *recv_msg[MES_MAX_INSTANCES], mes_wait_acks_overtime_proc_func overtime_proc_func)
-{
-    uint64 start_stat_time = 0;
-    mes_get_consume_time_start(&start_stat_time);
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-    uint32 wait_time = 0;
-
-    (void)memset_sp(recv_msg, sizeof(char *) * MES_MAX_INSTANCES, 0, sizeof(char *) * MES_MAX_INSTANCES);
-
-    for (;;) {
-        if (room->req_count == 0) {
-            break;
-        }
-
-        if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
-            wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout) {
-                overtime_proc_func(success_inst, recv_msg);
-                mes_protect_when_brcast_timeout(room, success_inst);
-                LOG_RUN_WAR("[mes]timeout rsn=%llu, check rsn=%llu, sid=%u, ack_count=%d, req_count=%d", room->rsn,
-                    room->check_rsn, sid, room->ack_count, room->req_count);
-                room->ack_count = 0; // invalid broadcast ack
-                return ERR_MES_WAIT_OVERTIME;
-            }
-            continue;
-        }
-
-        if (room->ack_count >= room->req_count) {
-            break;
-        }
-    }
-
-    mes_copy_recv_broadcast_msg(room, success_inst, recv_msg);
-    mes_consume_with_time(((mes_message_head_t *)recv_msg)->cmd, MES_TIME_TEST_WAIT_AND_RECV, start_stat_time);
-    return CM_SUCCESS;
-}
-
-static inline void mes_wait_acks_overtime_proc(uint64 success_inst, char *recv_msg[MES_MAX_INSTANCES])
-{
-    return;
-}
-
-int mes_wait_acks_and_recv_msg(unsigned int sid, unsigned int timeout, uint64 success_inst,
-    char *recv_msg[MES_MAX_INSTANCES])
-{
-    return mes_wait_acks_and_recv_msg2(sid, timeout, success_inst, recv_msg, mes_wait_acks_overtime_proc);
-}
-
-unsigned long long mes_get_current_rsn(unsigned int sid)
-{
-    uint64 rsn;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-
-    cm_spin_lock(&room->lock, NULL);
-    rsn = room->rsn;
-    cm_spin_unlock(&room->lock);
-
-    return rsn;
-}
-
-void mes_init_ack_head(const mes_message_head_t *req_head, mes_message_head_t *ack_head, unsigned int cmd,
-    unsigned short size, unsigned int src_sid)
-{
-    ack_head->version = 0;
-    ack_head->cmd = cmd;
-    ack_head->src_inst = req_head->dst_inst;
-    ack_head->dst_inst = req_head->src_inst;
-    ack_head->src_sid = (uint16)src_sid;
-    ack_head->dst_sid = req_head->src_sid;
-    ack_head->rsn = req_head->rsn;
-    ack_head->size = size;
-    ack_head->flags = 0;
-    ack_head->cluster_ver = req_head->cluster_ver;
-    ack_head->unused1 = 0;
-    ack_head->tickets = 0;
-    ack_head->unused2 = 0;
-}
-
-unsigned long long mes_get_rsn(unsigned int sid)
-{
-    uint64 rsn;
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
-    cm_spin_lock(&room->lock, NULL);
-    rsn = (uint64)cm_atomic_inc((atomic_t *)(&room->rsn));
-    cm_spin_unlock(&room->lock);
-    return rsn;
-}
-
-void mes_set_command_task_group(unsigned char command, mes_task_group_id_t group_id)
-{
-    MES_GLOBAL_INST_MSG.mq_ctx.command_attr[command].group_id = group_id;
 }
 
 void mes_release_message_buf(mes_message_t *msg_buf)
@@ -1832,22 +1791,17 @@ void* mes_get_global_inst(void)
     return &g_mes_ptr;
 }
 
-void mes_msg_end_wait(unsigned long long rsn, unsigned int sid)
+void mes_discard_response(ruid_type ruid)
 {
-    mes_waiting_room_t *room = &MES_GLOBAL_INST_MSG.mes_ctx.waiting_rooms[sid];
+    mes_waiting_room_t *room = mes_ruid_get_room(*(unsigned long long *)(&ruid));
     cm_spin_lock(&room->lock, NULL);
-    if (room->rsn == rsn && room->check_rsn != rsn) {
+    if (room->rsn == ((ruid_t *)(&ruid))->rsn && room->check_rsn != ((ruid_t *)(&ruid))->rsn) {
         room->rsn = (uint64)cm_atomic_inc((atomic_t *)(&room->rsn));
         room->msg_buf = NULL;
-        room->check_rsn = rsn;
+        room->check_rsn = ((ruid_t *)(&ruid))->rsn;
         mes_mutex_unlock(&room->mutex);
     }
     cm_spin_unlock(&room->lock);
-}
-
-unsigned int mes_get_max_watting_rooms(void)
-{
-    return CM_MAX_MES_ROOMS;
 }
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time)
