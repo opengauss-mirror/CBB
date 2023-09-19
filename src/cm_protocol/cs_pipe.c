@@ -91,40 +91,83 @@ static const vio_t g_vio_list[] = {
 #define VIO_WAIT(pipe, ev, timeout, ready) \
     GET_VIO(pipe)->vio_wait(&(pipe)->link, ev, timeout, ready)
 
-static status_t cs_open_tcp_link(const char *host, uint16 port, cs_pipe_t *pipe, link_ready_ack_t *ack,
-    const char *bind_host)
+static status_t cs_send_proto_code(cs_pipe_t *pipe, link_ready_ack_t *ack, bool32 need_send_version)
 {
     tcp_link_t *link = NULL;
     bool32 ready = CM_FALSE;
-    uint32 proto_code = CM_PROTO_CODE;
+    link = &pipe->link.tcp;
+
+    if (need_send_version) {
+        LOG_RUN_INF("[MES] cs_send_proto_code, send version and proto code");
+        version_proto_code_t version_proto_code = {.version = CS_LOCAL_VERSION, .proto_code = CM_PROTO_CODE};
+        if (!IS_BIG_ENDIAN) {
+            // Unified big-endian mode for VERSION
+            version_proto_code.version = cs_reverse_uint32(version_proto_code.version);
+        }
+
+        if (cs_tcp_send_timed(link, (char *)&version_proto_code, sizeof(version_proto_code_t), CM_NETWORK_IO_TIMEOUT) !=
+            CM_SUCCESS) {
+            LOG_RUN_ERR("[MES] cs_send_proto_code, send version proto code failed");
+            return CM_ERROR;
+        }
+    } else {
+        uint32 proto_code = CM_PROTO_CODE;
+        LOG_RUN_INF("[MES] cs_send_proto_code, only send proto code");
+        if (cs_tcp_send_timed(link, (char *)&proto_code, sizeof(proto_code), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
+            LOG_RUN_ERR("[MES] cs_send_proto_code, send proto code failed");
+            return CM_ERROR;
+        }
+    }
+
+    if (cs_tcp_wait(link, CS_WAIT_FOR_READ, pipe->connect_timeout, &ready) != CM_SUCCESS) {
+        LOG_RUN_ERR("[MES] cs_send_proto_code, cs_tcp_wait failed");
+        return CM_ERROR;
+    }
+
+    if (!ready) {
+        CM_THROW_ERROR(ERR_TCP_TIMEOUT, "connect wait for server response");
+        LOG_RUN_ERR("[MES] cs_send_proto_code, not ready");
+        return CM_ERROR;
+    }
+
+    // read link_ready_ack
+    if (cs_tcp_recv_timed(link, (char *)ack, sizeof(link_ready_ack_t), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
+        LOG_RUN_ERR("[MES] cs_send_proto_code, cs_tcp_recv_timed failed");
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
+static status_t cs_open_tcp_link(
+    const char *host, uint16 port, cs_pipe_t *pipe, link_ready_ack_t *ack, const char *bind_host)
+{
+    status_t ret = CM_ERROR;
+    bool32 send_version = CM_TRUE;
+    tcp_link_t *link = NULL;
     uint8 local_endian;
     socket_attr_t sock_attr = {
-        .connect_timeout = pipe->connect_timeout,
-        .l_onoff = pipe->l_onoff,
-        .l_linger = pipe->l_linger
-    };
+        .connect_timeout = pipe->connect_timeout, .l_onoff = pipe->l_onoff, .l_linger = pipe->l_linger};
 
     link = &pipe->link.tcp;
 
     /* create socket */
     CM_RETURN_IFERR(cs_tcp_connect(host, port, link, bind_host, &sock_attr));
     do {
-        if (cs_tcp_send_timed(link, (char *)&proto_code, sizeof(proto_code), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
-            break;
-        }
+        ret = cs_send_proto_code(pipe, ack, CM_TRUE);
+        if (ret == CM_SUCCESS) {
+            send_version = CM_TRUE;
+        } else {
+            /* close socket */
+            (void)cs_close_socket(link->sock);
+            link->sock = CS_INVALID_SOCKET;
+            link->closed = CM_TRUE;
 
-        if (cs_tcp_wait(link, CS_WAIT_FOR_READ, pipe->connect_timeout, &ready) != CM_SUCCESS) {
-            break;
-        }
-
-        if (!ready) {
-            CM_THROW_ERROR(ERR_TCP_TIMEOUT, "connect wait for server response");
-            break;
-        }
-
-        // read link_ready_ack
-        if (cs_tcp_recv_timed(link, (char *)ack, sizeof(link_ready_ack_t), CM_NETWORK_IO_TIMEOUT) != CM_SUCCESS) {
-            break;
+            /* create socket */
+            CM_RETURN_IFERR(cs_tcp_connect(host, port, link, bind_host, &sock_attr));
+            if (cs_send_proto_code(pipe, ack, CM_FALSE) != CM_SUCCESS) {
+                break;
+            }
+            send_version = CM_FALSE;
         }
 
         // reverse if endian is different
@@ -133,6 +176,13 @@ static status_t cs_open_tcp_link(const char *host, uint16 port, cs_pipe_t *pipe,
             ack->flags = cs_reverse_int16(ack->flags);
             ack->version = cs_reverse_int32(ack->version);
             pipe->options |= CSO_DIFFERENT_ENDIAN;
+        }
+
+        LOG_RUN_INF("[MES] cs_open_tcp_link, send_version:%u, ack version:%u", send_version, ack->version);
+        if ((send_version && ack->version < CS_VERSION_5) || (!send_version && ack->version >= CS_VERSION_5)) {
+            LOG_RUN_ERR("[MES] the sent version does not match the received version, send_version:%u, ack version:%u",
+                send_version, ack->version);
+            break;
         }
 
         if (ack->flags & CSO_SUPPORT_SSL) {
@@ -185,8 +235,8 @@ static status_t cs_parse_url(const char *url, server_info_t *server)
 
 status_t cs_connect(const char *url, cs_pipe_t *pipe, const char *bind_host)
 {
-    link_ready_ack_t ack;
-    server_info_t server;
+    link_ready_ack_t ack = {0};
+    server_info_t server = {0};
 
     /* parse url and get pipe type */
     CM_RETURN_IFERR(cs_parse_url(url, &server));
@@ -283,6 +333,7 @@ status_t cs_connect_ex(const char *url, cs_pipe_t *pipe, const char *bind_host,
 
 void cs_disconnect(cs_pipe_t *pipe)
 {
+    pipe->version = CM_INVALID_ID32;
     if (pipe->type == CS_TYPE_TCP) {
         cs_tcp_disconnect(&pipe->link.tcp);
     }

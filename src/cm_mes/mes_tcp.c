@@ -323,15 +323,32 @@ static int mes_diag_proto_type(cs_pipe_t *pipe)
 {
     link_ready_ack_t ack;
     uint32 proto_code = 0;
+    char buffer[sizeof(version_proto_code_t)] = {0};
+    version_proto_code_t version_proto_code = {0};
     int32 size;
 
-    if (cs_read_bytes(pipe, (char *)&proto_code, sizeof(proto_code), &size) != CM_SUCCESS) {
+    if (cs_read_bytes(pipe, buffer, sizeof(version_proto_code_t), &size) != CM_SUCCESS) {
         cs_disconnect(pipe);
         LOG_RUN_ERR("[mes]:cs_read_bytes failed.");
         return ERR_MES_READ_MSG_FAIL;
     }
 
-    if (sizeof(proto_code) != size || proto_code != CM_PROTO_CODE) {
+    if (size == sizeof(version_proto_code_t)) {
+        version_proto_code = *(version_proto_code_t *)buffer;
+        if (!IS_BIG_ENDIAN) {
+            // Unified big-endian mode for VERSION
+            version_proto_code.version = cs_reverse_uint32(version_proto_code.version);
+        }
+        proto_code = version_proto_code.proto_code;
+        pipe->version = version_proto_code.version;
+    } else if (size == sizeof(proto_code)) {
+        proto_code = *(uint32 *)buffer;
+        pipe->version = CS_VERSION_0;
+    } else {
+        LOG_RUN_ERR("[mes] invalid size[%u].", size);
+    }
+
+    if (proto_code != CM_PROTO_CODE) {
         LOG_RUN_ERR("[mes]:invalid protocol.");
         return ERR_MES_PROTOCOL_INVALID;
     }
@@ -576,6 +593,7 @@ static int mes_accept(cs_pipe_t *pipe)
     bool32 ready;
     mes_channel_t *channel;
     char msg_buf[MES_MESSAGE_BUFFER_SIZE];
+
     ret = mes_diag_proto_type(pipe);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes]: init pipe failed.");
