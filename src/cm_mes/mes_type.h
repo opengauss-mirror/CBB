@@ -41,6 +41,7 @@ typedef unsigned long long uint64;
 #endif
 
 #define MES_MAX_BUFFERLIST ((int)4) /* Number of buffers supported by the bufferlist */
+#define MES_MSGHEAD_RESERVED (28)
 
 typedef struct st_mes_message_head {
     unsigned int version;
@@ -48,10 +49,10 @@ typedef struct st_mes_message_head {
     unsigned int  flags;
     unsigned int  caller_tid;
     unsigned long long ruid;
-    unsigned short src_inst; // from instance
-    unsigned short dst_inst; // to instance
+    unsigned int src_inst; // from instance
+    unsigned int dst_inst; // to instance
     unsigned int size;
-    unsigned char reserved[32];
+    unsigned char reserved[MES_MSGHEAD_RESERVED];
 } mes_message_head_t;
 
 /*
@@ -98,13 +99,14 @@ typedef struct st_mes_bufflist {
 #define MES_INIT_MESSAGE_HEAD(head, v_version, v_cmd, v_flags, v_src_inst, v_dst_inst, v_ruid, v_size)      \
     do {                                                                                                    \
         (head)->cmd = (uint8)(v_cmd);                                                                       \
-        (head)->version = (uint32)(v_version);                                                               \
-        (head)->flags = (uint32)(v_flags);                                                                   \
-        (head)->src_inst = (uint16)(v_src_inst);                                                             \
-        (head)->dst_inst = (uint16)(v_dst_inst);                                                             \
+        (head)->version = (uint32)(v_version);                                                              \
+        (head)->flags = (uint32)(v_flags);                                                                  \
+        (head)->src_inst = (uint16)(v_src_inst);                                                            \
+        (head)->dst_inst = (uint16)(v_dst_inst);                                                            \
         (head)->ruid = (uint64)(v_ruid);                                                                    \
         (head)->size = (uint64)(v_size);                                                                    \
         (head)->caller_tid = (uint32)(syscall(__NR_gettid));                                                \
+        securec_check_panic(memset_s((head)->reserved, MES_MSGHEAD_RESERVED, 0, MES_MSGHEAD_RESERVED));     \
     } while (0)
 
 #define MES_MESSAGE_BODY(msg) ((msg)->buffer + sizeof(mes_message_head_t))
