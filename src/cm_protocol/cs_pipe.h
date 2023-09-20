@@ -72,6 +72,11 @@ typedef struct st_link_ready_ack {
     uint8 reserved;
 } link_ready_ack_t;
 
+typedef struct st_version_proto_code {
+    uint32 version;
+    uint32 proto_code;
+} version_proto_code_t;
+
 extern const text_t g_pipe_type_names[CS_TYPE_CEIL];
 
 status_t cs_connect(const char *url, cs_pipe_t *pipe, const char *bind_host);
