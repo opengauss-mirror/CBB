@@ -41,6 +41,7 @@
 #define CM_HW_ARRAY_SN_LEN 21
 
 #define CM_SCSI_ERR_CONFLICT (-2)
+#define CM_NVME_ERR_MISCOMPARE (-2)
 
 int cm_nvme_get_nsid(int fd, int32 *nsid)
 {
@@ -555,7 +556,10 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     void *metadata  = 0;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
-    if (status != CM_NVME_SC_SUCCESS) {
+    if (status == CM_NVME_SC_COMPARE_FAILED) {
+        LOG_DEBUG_ERR("Sending NVMe compare failed in caw, error:%s(%d)", strerror(errno), errno);
+        return CM_NVME_ERR_MISCOMPARE;
+    } else if (status != CM_NVME_SC_SUCCESS) {
         if (status < 0) {
             LOG_DEBUG_ERR("Sending NVMe compare command in caw failed, error:%s(%d)", strerror(errno), errno);
         } else {
