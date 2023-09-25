@@ -77,6 +77,7 @@ int mes_alloc_channels(void)
             channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[i][j];
             channel->send_pipe.connect_timeout = CM_CONNECT_TIMEOUT;
             channel->send_pipe.socket_timeout = CM_SOCKET_TIMEOUT;
+            channel->send_pipe.msgbuf = NULL;
             (void)cm_rwlock_init(&channel->send_lock);
             (void)cm_rwlock_init(&channel->recv_lock);
             mes_init_msgqueue(&channel->msg_queue);
@@ -764,10 +765,14 @@ int mes_tcp_send_data(const void *msg_data)
 
 int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
 {
+    errno_t errcode;
+    uint32 bufsz = 0;
+    uint32 totalsz = MES_MESSAGE_BUFFER_SIZE;
     uint64 stat_time = 0;
     mes_message_head_t *head = (mes_message_head_t *)(buff_list->buffers[0].buf);
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
+    cs_pipe_t *send_pipe = &channel->send_pipe;
 
     cm_rwlock_wlock(&channel->send_lock);
     if (!channel->send_pipe_active) {
@@ -783,15 +788,31 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         "src_inst=%hhu, dst_inst=%hhu, size=%hhu.", buff_list->cnt, (head)->cmd, (uint64)head->ruid,
         (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid),
         (head)->src_inst, (head)->dst_inst, (head)->size);
-    for (int i = 0; i < buff_list->cnt; i++) {
-        if (cs_send_fixed_size(&channel->send_pipe, buff_list->buffers[i].buf, buff_list->buffers[i].len) !=
-            CM_SUCCESS) {
+    if (send_pipe->msgbuf == NULL) {
+        send_pipe->msgbuf = (char *)mes_alloc_buf_item(totalsz);
+        if (send_pipe->msgbuf == NULL) {
             cm_rwlock_unlock(&channel->send_lock);
-            mes_close_send_pipe(channel);
-            LOG_RUN_ERR("cs_send_fixed_size failed. channel %d, errno %d, send pipe closed",
+            LOG_RUN_ERR("[mes] alloc pipe buf failed. channel %d, errno %d",
                 channel->id, cm_get_os_error());
-            return ERR_MES_SEND_MSG_FAIL;
+            return ERR_ALLOC_MEMORY;
         }
+    }
+    for (int i = 0; i < buff_list->cnt; i++) {
+        errcode = memcpy_s(send_pipe->msgbuf + bufsz, totalsz - bufsz,
+            buff_list->buffers[i].buf, buff_list->buffers[i].len);
+        if (errcode != EOK) {
+            LOG_RUN_ERR("[mes] memcpy failed. check bufsz=%d, totalsz=%d, syserr=%d",
+                bufsz + buff_list->buffers[i].len, totalsz, cm_get_os_error());
+            bufsz += buff_list->buffers[i].len;
+            return ERR_SYSTEM_CALL;
+        }
+    }
+    if (cs_send_fixed_size(send_pipe, send_pipe->msgbuf, (int32)bufsz) != CM_SUCCESS) {
+        cm_rwlock_unlock(&channel->send_lock);
+        mes_close_send_pipe(channel);
+        LOG_RUN_ERR("cs_send_fixed_size failed. channel %d, errno %d, send pipe closed",
+            channel->id, cm_get_os_error());
+        return ERR_MES_SEND_MSG_FAIL;
     }
     channel->last_send_time = g_timer()->now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);

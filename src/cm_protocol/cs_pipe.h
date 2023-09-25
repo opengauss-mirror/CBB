@@ -63,6 +63,7 @@ typedef struct st_cs_pipe {
     int32 socket_timeout;  // ms
     int32 l_onoff;
     int32 l_linger;
+    char *msgbuf;
 } cs_pipe_t;
 
 typedef struct st_link_ready_ack {
