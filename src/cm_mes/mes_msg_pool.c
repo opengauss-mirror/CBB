@@ -296,7 +296,7 @@ char *mes_alloc_buf_item_fc(uint32 len)
     do {
         queue = mes_get_buffer_queue(chunk);
         cm_spin_lock(&queue->lock, NULL);
-        if (count / queue->count <= RECV_MSG_POOL_FC_THRESHOLD) {
+        if (queue->count > 0 && count / queue->count <= RECV_MSG_POOL_FC_THRESHOLD) {
             buf_node = queue->first;
             queue->count--;
             if (queue->count == 0) {
