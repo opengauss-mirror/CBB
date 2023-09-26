@@ -803,9 +803,10 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         if (errcode != EOK) {
             LOG_RUN_ERR("[mes] memcpy failed. check bufsz=%d, totalsz=%d, syserr=%d",
                 bufsz + buff_list->buffers[i].len, totalsz, cm_get_os_error());
-            bufsz += buff_list->buffers[i].len;
+            cm_rwlock_unlock(&channel->send_lock);
             return ERR_SYSTEM_CALL;
         }
+        bufsz += buff_list->buffers[i].len;
     }
     if (cs_send_fixed_size(send_pipe, send_pipe->msgbuf, (int32)bufsz) != CM_SUCCESS) {
         cm_rwlock_unlock(&channel->send_lock);
