@@ -50,6 +50,7 @@ extern "C" {
 #define MES_MESSAGE_TINY_SIZE (256) /* app head(64) + mes head(64) + reserved(128) */
 #define MES_MESSAGE_BUFFER_SIZE \
     (uint32)(SIZE_K(32) + MES_MESSAGE_TINY_SIZE) /* heads + data */
+#define MES_CHANNEL_MAX_SEND_BUFFER_SIZE SIZE_K(64)
 #define MES_MIN_TASK_NUM (1)
 #define MES_MAX_TASK_NUM (128)
 #define MES_WAIT_TIMEOUT (5) // ms
@@ -167,6 +168,7 @@ typedef struct st_mes_channel {
     atomic_t recv_count;
     mes_msgqueue_t msg_queue;
     date_t last_send_time;
+    char *msgbuf;
 } mes_channel_t;
 
 typedef struct st_mes_waiting_room {
