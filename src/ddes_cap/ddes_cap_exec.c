@@ -28,6 +28,7 @@
 #include <stdarg.h>
 #include "cm_log.h"
 #include "cm_scsi.h"
+#include "cm_file.h"
 
 #ifdef WIN32
 #include <io.h>
@@ -206,29 +207,23 @@ static cap_oper_t g_cap_opers[] = {
 #define MAX_FD_LEN 6
 status_t cap_agent_init(cap_agent_t *agent, const char *agent_name)
 {
-    if (-1 == pipe(agent->req_pipe)) {
+    if (-1 == pipe(agent->req_pipe || -1 == pipe(agent->res_pipe))) {
         return CM_ERROR;
     }
-    if (-1 == pipe(agent->res_pipe)) {
-        return CM_ERROR;
-    }
-
     agent->pid = fork();
-
     // application server send cap command as a request to cap agent
     // after executing, cap agent send a response
     if (0 == agent->pid) { // child process
-        if (-1 == fcntl(agent->req_pipe.hread, F_SETFL, O_NONBLOCK)) {
+        if (cm_fcntl(agent->req_pipe.hread, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set reading end of request pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-        if (-1 == fcntl(agent->res_pipe.hwrite, F_SETFL, O_NONBLOCK)) {
+        if (cm_fcntl(agent->res_pipe.hwrite, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set writing end of response pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-
         char req_rfd[MAX_FD_LEN + 1], res_wfd[MAX_FD_LEN + 1];
         int32 size = vsnprintf_s(req_rfd, MAX_FD_LEN, MAX_FD_LEN, agent->req_pipe.hread);
         if (SECUREC_UNLIKELY(size == -1)) {
@@ -253,7 +248,6 @@ status_t cap_agent_init(cap_agent_t *agent, const char *agent_name)
             send_fail_response(CM_ERROR, "failed to replace execute image for cap agent.");
             return CM_ERROR;
         }
-
         return CM_SUCCESS;
     } else {
         // close the reading end of request pipe
@@ -261,16 +255,16 @@ status_t cap_agent_init(cap_agent_t *agent, const char *agent_name)
 
         // close the write end of response pipe
         close(agent->res_pipe.hwrite);
-
-        if (-1 == fcntl(agent->req_pipe.hwrite, F_SETFL, O_NONBLOCK)) {
-            // log error;
+        if (cm_fcntl(agent->req_pipe.hwrite, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+            send_fail_response(CM_ERROR,
+                "failed to set writing end of request pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-        if (-1 == fcntl(agent->res_pipe.hread, F_SETFL, O_NONBLOCK)) {
-            // log error;
+        if (cm_fcntl(agent->res_pipe.hread, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+            send_fail_response(CM_ERROR,
+                "failed to set reading end of response pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-
         return check_exec_response(agent->res_pipe.hread, NULL, 0);
     }
 }

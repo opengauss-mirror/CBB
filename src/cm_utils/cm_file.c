@@ -29,7 +29,6 @@
 #else
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #endif
 
 #ifdef __cplusplus
@@ -805,6 +804,23 @@ status_t cm_truncate_file(int32 file, int64 offset)
     return CM_SUCCESS;
 }
 
+status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock)
+{
+    do {
+        if (fcntl(fd, cmd, lock) == 0) {
+            break;
+        }
+
+        if (cm_get_os_error() == EAGAIN || cm_get_os_error() == EINTR) {
+            LOG_DEBUG_INF("Linux return EAGAIN or EINTR errno: %d, try again.", errno);
+            cm_sleep(1);
+            continue;
+        }
+        return CM_ERROR;
+    } while (0);
+    return CM_SUCCESS;
+}
+
 status_t cm_lock_fd(int32 fd)
 {
 #ifdef WIN32
@@ -816,7 +832,7 @@ status_t cm_lock_fd(int32 fd)
     lk.l_whence = SEEK_SET;
     lk.l_start = lk.l_len = 0;
 
-    if (fcntl(fd, F_SETLK, &lk) != 0) {
+    if (cm_fcntl(fd, F_SETLK, &lk) != CM_SUCCESS) {
         CM_THROW_ERROR(ERR_LOCK_FILE, errno);
         return CM_ERROR;
     }
@@ -836,7 +852,7 @@ status_t cm_unlock_fd(int32 fd)
     lk.l_whence = SEEK_SET;
     lk.l_start = lk.l_len = 0;
 
-    if (fcntl(fd, F_SETLK, &lk) != 0) {
+    if (cm_fcntl(fd, F_SETLK, &lk) != CM_SUCCESS) {
         CM_THROW_ERROR(ERR_UNLOCK_FILE, errno);
         return CM_ERROR;
     }
