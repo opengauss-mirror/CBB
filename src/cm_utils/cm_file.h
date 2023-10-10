@@ -28,6 +28,7 @@
 #include <io.h>
 #include <direct.h>
 #else
+#include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
 
@@ -138,6 +139,7 @@ status_t cm_write_file(int32 file, const void *buf, int32 size);
 status_t cm_pwrite_file(int32 file, const char *buf, int32 size, int64 offset);
 status_t cm_pread_file(int32 file, void *buf, int size, int64 offset, int32 *read_size);
 status_t cm_truncate_file(int32 file, int64 offset);
+status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock);
 status_t cm_lock_fd(int32 fd);
 status_t cm_unlock_fd(int32 fd);
 int64 cm_seek_file(int32 file, int64 offset, int32 origin);
