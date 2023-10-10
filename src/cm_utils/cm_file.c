@@ -806,7 +806,7 @@ status_t cm_truncate_file(int32 file, int64 offset)
 
 status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock)
 {
-    do {
+    while (CM_TRUE) {
         if (fcntl(fd, cmd, lock) == 0) {
             break;
         }
@@ -817,7 +817,7 @@ status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock)
             continue;
         }
         return CM_ERROR;
-    } while (0);
+    }
     return CM_SUCCESS;
 }
 
