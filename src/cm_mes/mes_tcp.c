@@ -21,11 +21,9 @@
  *
  * -------------------------------------------------------------------------
  */
-#include "mes.h"
+#include "mes_interface.h"
 #include "mes_func.h"
 #include "mes_msg_pool.h"
-#include "mes_type.h"
-#include "cm_ip.h"
 #include "cm_memory.h"
 #include "cm_timer.h"
 #include "cm_spinlock.h"
@@ -49,7 +47,7 @@ int mes_alloc_channels(void)
     // alloc channel
     if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
         LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     alloc_size = sizeof(mes_channel_t *) * CM_MAX_INSTANCES +
@@ -150,7 +148,7 @@ static int mes_process_event(mes_channel_t *channel)
     }
 
     // ignore heartbeat msg
-    if (head.cmd == MES_HEARTBEAT_CMD) {
+    if (head.cmd == MES_CMD_HEARTBEAT) {
         return CM_SUCCESS;
     }
 
@@ -183,9 +181,9 @@ static int mes_process_event(mes_channel_t *channel)
 static void mes_tcp_try_connect(mes_channel_t *channel)
 {
     int32 ret;
+    cs_pipe_t send_pipe = channel->send_pipe;
     char peer_url[MES_URL_BUFFER_SIZE];
     char *remote_host = MES_HOST_NAME(MES_INSTANCE_ID(channel->id));
-    mes_message_head_t head = { 0 };
 
     ret = snprintf_s(peer_url, MES_URL_BUFFER_SIZE, MES_URL_BUFFER_SIZE, "%s:%hu", remote_host,
         MES_GLOBAL_INST_MSG.profile.inst_net_addr[MES_INSTANCE_ID(channel->id)].port);
@@ -194,35 +192,40 @@ static void mes_tcp_try_connect(mes_channel_t *channel)
         return;
     }
 
-    cm_rwlock_wlock(&channel->send_lock);
-    if (cs_connect(peer_url, &channel->send_pipe, NULL) != CM_SUCCESS) {
-        cm_rwlock_unlock(&channel->send_lock);
+    if (cs_connect(peer_url, &send_pipe, NULL) != CM_SUCCESS) {
         /* Deleted spamming LOG_RUN_ERR: can't establish an connection to 'peer_url'. */
         return;
     }
 
     if (g_ssl_enable) {
-        if (cs_ssl_connect(MES_GLOBAL_INST_MSG.ssl_connector_fd, &channel->send_pipe) != CM_SUCCESS) {
-            cs_disconnect(&channel->send_pipe);
-            cm_rwlock_unlock(&channel->send_lock);
+        if (cs_ssl_connect(MES_GLOBAL_INST_MSG.ssl_connector_fd, &send_pipe) != CM_SUCCESS) {
+            cs_disconnect(&send_pipe);
             return;
         }
     }
 
-    head.cmd = MES_CONNECT_CMD;
-    head.src_inst = (uint8)MES_GLOBAL_INST_MSG.profile.inst_id;
-    head.src_sid = MES_CHANNEL_ID(channel->id); // use sid represent channel id.
-    head.size = (uint16)sizeof(mes_message_head_t);
+    char buf[sizeof(mes_message_head_t)];
+    mes_message_head_t *head = (mes_message_head_t *)buf;
+    head->cmd = MES_CMD_CONNECT;
+    head->dst_inst = 0;
+    head->src_inst = (uint8)MES_GLOBAL_INST_MSG.profile.inst_id;
+    head->caller_tid = MES_CHANNEL_ID(channel->id); // use caller_tid to represent channel id
+    head->size = (uint16)sizeof(mes_message_head_t);
+    head->ruid = 0;
+    head->flags = 0;
+    head->version = 0;
 
-    if (cs_send_bytes(&channel->send_pipe, (char *)&head, sizeof(mes_message_head_t)) != CM_SUCCESS) {
-        cs_disconnect(&channel->send_pipe);
-        cm_rwlock_unlock(&channel->send_lock);
+    if (cs_send_bytes(&send_pipe, (char *)head, sizeof(mes_message_head_t)) != CM_SUCCESS) {
+        cs_disconnect(&send_pipe);
         LOG_RUN_ERR("cs_send_bytes failed.");
         return;
     }
 
+    cm_rwlock_wlock(&channel->send_lock);
+    channel->send_pipe = send_pipe;
     channel->send_pipe_active = CM_TRUE;
     cm_rwlock_unlock(&channel->send_lock);
+
     LOG_RUN_INF("[mes] connect to channel peer %s, success.", peer_url);
     return;
 }
@@ -233,14 +236,13 @@ static void mes_tcp_heartbeat(mes_channel_t *channel)
         return;
     }
 
-    // dst_inst and src_sid used to get current channel in mes_tcp_send_data
+    /* dst_inst and caller_tid used to get current channel in mes_tcp_send_data */
     mes_message_head_t head = { 0 };
-    head.cmd = MES_HEARTBEAT_CMD;
+    head.cmd = MES_CMD_HEARTBEAT;
     head.dst_inst = MES_INSTANCE_ID(channel->id);
-    head.src_sid = MES_CHANNEL_ID(channel->id);
+    head.caller_tid = MES_CHANNEL_ID(channel->id);
     head.size = (uint16)sizeof(mes_message_head_t);
-
-    (void)mes_send_data(&head);
+    (void)mes_tcp_send_data((void *)&head);
 }
 
 static void mes_close_send_pipe(mes_channel_t *channel)
@@ -260,6 +262,11 @@ static void mes_close_channel(mes_channel_t *channel)
 {
     mes_close_recv_pipe(channel);
     mes_close_send_pipe(channel);
+    cm_rwlock_wlock(&channel->send_lock);
+    if (channel->msgbuf != NULL) {
+        free(channel->msgbuf);
+    }
+    cm_rwlock_unlock(&channel->send_lock);
 }
 
 static void mes_channel_entry(thread_t *thread)
@@ -321,15 +328,32 @@ static int mes_diag_proto_type(cs_pipe_t *pipe)
 {
     link_ready_ack_t ack;
     uint32 proto_code = 0;
+    char buffer[sizeof(version_proto_code_t)] = {0};
+    version_proto_code_t version_proto_code = {0};
     int32 size;
 
-    if (cs_read_bytes(pipe, (char *)&proto_code, sizeof(proto_code), &size) != CM_SUCCESS) {
+    if (cs_read_bytes(pipe, buffer, sizeof(version_proto_code_t), &size) != CM_SUCCESS) {
         cs_disconnect(pipe);
         LOG_RUN_ERR("[mes]:cs_read_bytes failed.");
         return ERR_MES_READ_MSG_FAIL;
     }
 
-    if (sizeof(proto_code) != size || proto_code != CM_PROTO_CODE) {
+    if (size == sizeof(version_proto_code_t)) {
+        version_proto_code = *(version_proto_code_t *)buffer;
+        if (!IS_BIG_ENDIAN) {
+            // Unified big-endian mode for VERSION
+            version_proto_code.version = cs_reverse_uint32(version_proto_code.version);
+        }
+        proto_code = version_proto_code.proto_code;
+        pipe->version = version_proto_code.version;
+    } else if (size == sizeof(proto_code)) {
+        proto_code = *(uint32 *)buffer;
+        pipe->version = CS_VERSION_0;
+    } else {
+        LOG_RUN_ERR("[mes] invalid size[%u].", size);
+    }
+
+    if (proto_code != CM_PROTO_CODE) {
         LOG_RUN_ERR("[mes]:invalid protocol.");
         return ERR_MES_PROTOCOL_INVALID;
     }
@@ -432,6 +456,35 @@ static int mes_connect_batch_inner(const unsigned char *inst_id_list, unsigned c
         }
     }
 
+    return CM_SUCCESS;
+}
+
+int mes_connect_single(inst_type inst_id, char* ip, unsigned short port)
+{
+    if (inst_id > CM_INVALID_ID8) {
+        LOG_RUN_ERR("[mes] currently not support id=%u > 255", inst_id);
+        return ERR_MES_PARAM_INVALID;
+    }
+
+    if (MES_GLOBAL_INST_MSG.profile.inst_id == inst_id) {
+        return CM_SUCCESS;
+    }
+    int ret = mes_connect(inst_id, ip, port);
+    if (ret != CM_SUCCESS && ret != ERR_MES_IS_CONNECTED) {
+        LOG_RUN_ERR("[RC] failed to create mes channel to instance %d", inst_id);
+        return ret;
+    }
+
+    uint32 wait_time = 0;
+    while (!mes_connection_ready(inst_id)) {
+        const uint8 once_wait_time = 10;
+        cm_sleep(once_wait_time);
+        wait_time += once_wait_time;
+        if (wait_time > MES_CONNECT_TIMEOUT) {
+            LOG_RUN_INF("[RC] connect to instance %hhu time out.", inst_id);
+            return ERR_MES_CONNECT_TIMEOUT;
+        }
+    }
     return CM_SUCCESS;
 }
 
@@ -545,6 +598,7 @@ static int mes_accept(cs_pipe_t *pipe)
     bool32 ready;
     mes_channel_t *channel;
     char msg_buf[MES_MESSAGE_BUFFER_SIZE];
+
     ret = mes_diag_proto_type(pipe);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes]: init pipe failed.");
@@ -568,12 +622,13 @@ static int mes_accept(cs_pipe_t *pipe)
         return ret;
     }
 
-    if (msg.head->cmd != (uint8)MES_CONNECT_CMD) {
+    if (msg.head->cmd != (uint8)MES_CMD_CONNECT) {
         LOG_RUN_ERR("when building connection type %hhu", msg.head->cmd);
         return ERR_MES_CMD_TYPE_ERR;
     }
 
-    channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg.head->src_inst][MES_SESSION_TO_CHANNEL_ID(msg.head->src_sid)];
+    uint8 chid = MES_CALLER_TID_TO_CHANNEL_ID(msg.head->caller_tid);
+    channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg.head->src_inst][chid];
     mes_close_recv_pipe(channel);
     cm_rwlock_wlock(&channel->recv_lock);
     channel->recv_pipe = *pipe;
@@ -685,16 +740,9 @@ int mes_tcp_send_data(const void *msg_data)
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
     mes_channel_t *channel =
-        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
+        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
 
-    while (!cm_rwlock_trywlock(&channel->send_lock)) {
-        if (!channel->send_pipe_active) {
-            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
-            return ERR_MES_SENDPIPE_NO_REDAY;
-        }
-        cm_sleep(1);
-    }
-
+    cm_rwlock_wlock(&channel->send_lock);
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
@@ -721,38 +769,72 @@ int mes_tcp_send_data(const void *msg_data)
 
 int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
 {
+    errno_t errcode;
+    uint32 bufsz = 0;
+    uint32 totalsz = MES_CHANNEL_MAX_SEND_BUFFER_SIZE;
     uint64 stat_time = 0;
+    bool32 merged = CM_TRUE;
     mes_message_head_t *head = (mes_message_head_t *)(buff_list->buffers[0].buf);
     mes_channel_t *channel =
-        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_SESSION_TO_CHANNEL_ID(head->src_sid)];
+        &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
+    cs_pipe_t *send_pipe = &channel->send_pipe;
 
-    while (!cm_rwlock_trywlock(&channel->send_lock)) {
-        if (!channel->send_pipe_active) {
-            LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
-            return ERR_MES_SENDPIPE_NO_REDAY;
-        }
-        cm_sleep(1);
-    }
-
+    cm_rwlock_wlock(&channel->send_lock);
     if (!channel->send_pipe_active) {
         cm_rwlock_unlock(&channel->send_lock);
         LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "send pipe to instance %d is not ready", head->dst_inst);
         return ERR_MES_SENDPIPE_NO_REDAY;
     }
     mes_get_consume_time_start(&stat_time);
-    LOG_DEBUG_INF("Begin tcp send buffer, buffer list cnt is %u. cmd=%hhu, rsn=%llu, src_inst=%hhu, dst_inst=%hhu, "
-                "src_sid=%hu, dst_sid=%hu.",
-        buff_list->cnt, (head)->cmd, (head)->rsn, (head)->src_inst, (head)->dst_inst, (head)->src_sid, (head)->dst_sid);
-    for (int i = 0; i < buff_list->cnt; i++) {
-        if (cs_send_fixed_size(&channel->send_pipe, buff_list->buffers[i].buf, buff_list->buffers[i].len) !=
-            CM_SUCCESS) {
+    if (head->cmd == MES_CMD_SYNCH_ACK) {
+        CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
+    }
+    LOG_DEBUG_INF("Begin tcp send buffer, buffer list cnt is %u. cmd=%hhu, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, "
+        "src_inst=%hhu, dst_inst=%hhu, size=%hhu.", buff_list->cnt, (head)->cmd, (uint64)head->ruid,
+        (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid),
+        (head)->src_inst, (head)->dst_inst, (head)->size);
+    
+    if (channel->msgbuf == NULL) {
+        channel->msgbuf = (char *)malloc(totalsz);
+        if (channel->msgbuf == NULL) {
+            merged = CM_FALSE;
+        }
+    }
+
+    if (merged) {
+        /* merge buffers to one package and send, to improve performance */
+        for (int i = 0; i < buff_list->cnt; i++) {
+            errcode = memcpy_s(channel->msgbuf + bufsz, totalsz - bufsz,
+                buff_list->buffers[i].buf, buff_list->buffers[i].len);
+            if (errcode != EOK) {
+                LOG_RUN_ERR("[mes]memcpy failed, check bufsz=%d, totalsz=%d, syserr=%d",
+                    bufsz + buff_list->buffers[i].len, totalsz, cm_get_os_error());
+                cm_rwlock_unlock(&channel->send_lock);
+                return ERR_SYSTEM_CALL;
+            }
+            bufsz += buff_list->buffers[i].len;
+        }
+        if (cs_send_fixed_size(send_pipe, channel->msgbuf, (int32)bufsz) != CM_SUCCESS) {
             cm_rwlock_unlock(&channel->send_lock);
             mes_close_send_pipe(channel);
             LOG_RUN_ERR("cs_send_fixed_size failed. channel %d, errno %d, send pipe closed",
                 channel->id, cm_get_os_error());
             return ERR_MES_SEND_MSG_FAIL;
         }
+    } else {
+        /* malloc failed doesn't matter, we need to send every buffer */
+        for (int i = 0; i < buff_list->cnt; i++) {
+            if (cs_send_fixed_size(send_pipe, buff_list->buffers[i].buf, (int32)buff_list->buffers[i].len) 
+                != CM_SUCCESS) {
+                cm_rwlock_unlock(&channel->send_lock);
+                mes_close_send_pipe(channel);
+                LOG_RUN_ERR("cs_send_fixed_size failed. channel %d, errno %d, send pipe closed",
+                    channel->id, cm_get_os_error());
+                return ERR_MES_SEND_MSG_FAIL;
+            }
+        }
     }
+
     channel->last_send_time = g_timer()->now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&channel->send_lock);

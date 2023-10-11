@@ -36,6 +36,7 @@
 #include <sys/prctl.h>
 #include <sched.h>
 #include <sys/eventfd.h>
+#include <semaphore.h>
 #endif
 
 // include file and define of gittid()
@@ -50,9 +51,11 @@ extern "C" {
 #ifdef WIN32
 typedef CRITICAL_SECTION thread_lock_t;
 #define thread_local_var __declspec(thread)
+typedef HANDLE cm_sem_t;
 #else
 typedef pthread_mutex_t thread_lock_t;
 #define thread_local_var __thread
+typedef sem_t cm_sem_t;
 #endif
 
 #define DFLT_THREAD_GUARD_SIZE 4096
@@ -112,6 +115,7 @@ typedef void (*thread_entry_t)(thread_t *thread);
 status_t cm_create_thread(thread_entry_t entry, uint32 stack_size, void *argument, thread_t *thread);
 void cm_close_thread(thread_t *thread);
 void cm_close_thread_nowait(thread_t *thread);
+void cm_close_thread_with_sem(thread_t *thread, cm_sem_t *sem);
 
 uint32 cm_get_current_thread_id(void);
 void cm_release_thread(thread_t *thread);
@@ -126,6 +130,11 @@ void cm_switch_stack_base(thread_t *thread, char *stack_base, char **org_base);
 #ifdef WIN32
 typedef DWORD cpu_set_t;
 #endif
+
+void cm_sem_init(cm_sem_t *sem);
+void cm_sem_post(cm_sem_t *sem);
+void cm_sem_wait(cm_sem_t *sem);
+void cm_sem_destroy(cm_sem_t *sem);
 
 #ifdef __cplusplus
 }

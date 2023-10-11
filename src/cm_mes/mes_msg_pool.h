@@ -29,6 +29,7 @@
 #include "cm_defs.h"
 #include "cm_spinlock.h"
 #include "cm_error.h"
+#include "mes_interface.h"
 
 #ifdef __cplusplus
 extern "C" {

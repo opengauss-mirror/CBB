@@ -38,6 +38,11 @@ extern "C" {
 #endif
 typedef enum en_cs_minor_version {
     MIN_VERSION_0 = 0,
+    MIN_VERSION_1 = 1,
+    MIN_VERSION_2 = 2,
+    MIN_VERSION_3 = 3,
+    MIN_VERSION_4 = 4,
+    MIN_VERSION_5 = 5,
 } cs_minor_version_t;
 
 typedef enum en_cs_major_version {
@@ -49,8 +54,16 @@ typedef enum en_cs_major_version {
 #define CS_PROTOCOL_MINOR(v)    ((v) & 0x0000ffff)
 #define CS_PROTOCOL(m, n)        (((m) << 16) | (n))
 
+/* only send proto_code when tcp connect */
+#define CS_VERSION_0 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_0)
+#define CS_VERSION_1 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_1)
+#define CS_VERSION_2 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_2)
+#define CS_VERSION_3 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_3)
+#define CS_VERSION_4 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_4)
 
-#define CS_LOCAL_VERSION (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_0)
+/* send version and proto_code when tcp connect */
+#define CS_VERSION_5 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_5)
+#define CS_LOCAL_VERSION CS_VERSION_5
 
 #define CS_CMD_UNKONOW       (uint8)0
 #define CS_CMD_HANDSHAKE     (uint8)1 /* process before login, added since v2.0; for SSL only since v9.0 */

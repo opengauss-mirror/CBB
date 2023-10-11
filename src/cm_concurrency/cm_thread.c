@@ -274,6 +274,13 @@ void cm_close_thread(thread_t *thread)
 #endif
 }
 
+void cm_close_thread_with_sem(thread_t *thread, cm_sem_t *sem)
+{
+    thread->closed = CM_TRUE;
+    cm_sem_post(sem);
+    cm_close_thread(thread);
+}
+
 void cm_release_thread(thread_t *thread)
 {
 #ifdef WIN32
@@ -307,6 +314,41 @@ uint32 cm_get_current_thread_id(void)
 }
 #endif
 
+void cm_sem_init(cm_sem_t *sem)
+{
+#ifdef WIN32
+    *sem = CreateSemaphore(NULL, 0, INT_MAX, NULL);
+#else
+    (void)sem_init(sem, 0, 0);
+#endif
+}
+
+void cm_sem_post(cm_sem_t *sem)
+{
+#ifdef WIN32
+    ReleaseSemaphore(*sem, 1, NULL);
+#else
+    (void)sem_post(sem);
+#endif
+}
+
+void cm_sem_wait(cm_sem_t *sem)
+{
+#ifdef WIN32
+    WaitForSingleObject(*sem, INFINITE);
+#else
+    (void)sem_wait(sem);
+#endif
+}
+
+void cm_sem_destroy(cm_sem_t *sem)
+{
+#ifdef WIN32
+    CloseHandle(*sem);
+#else
+    (void)sem_destroy(sem);
+#endif
+}
 
 #ifdef __cplusplus
 }

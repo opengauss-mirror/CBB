@@ -26,6 +26,7 @@
 
 #include "cm_types.h"
 #include "cm_spinlock.h"
+#include "cm_log.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,10 +63,12 @@ typedef struct st_latch_statis {
     spin_statis_t s_spin;
     spin_statis_t ix_spin;
 
-    uint32 hits;
-    uint32 misses;
-    uint32 spin_gets;
+    uint64 hits;
+    uint64 misses;
+    uint64 spin_gets;
     bool32 enable;
+
+    spin_statis_instance_t spin_stat;
 } latch_statis_t;
 
 static inline void cm_latch_init(latch_t *latch)
@@ -77,9 +80,11 @@ static inline void cm_latch_init(latch_t *latch)
     latch->shared_count = 0;
 }
 
+#define LATCH_NEED_STAT(stat)  ((stat) != NULL && (stat)->enable)
+
 static inline void cm_latch_stat_inc(latch_statis_t *stat, uint32 count)
 {
-    if (stat != NULL && stat->enable) {
+    if (LATCH_NEED_STAT(stat)) {
         stat->hits++;
         stat->spin_gets = (count == 0) ? 0 : stat->spin_gets + 1;
     }
@@ -90,7 +95,7 @@ static inline void cm_latch_ix2x(latch_t *latch, uint32 sid, latch_statis_t *sta
     uint32 count = 0;
 
     do {
-        if (stat != NULL) {
+        if (LATCH_NEED_STAT(stat)) {
             stat->misses++;
         }
         while (latch->shared_count > 0) {
@@ -102,7 +107,8 @@ static inline void cm_latch_ix2x(latch_t *latch, uint32 sid, latch_statis_t *sta
             }
         }
 
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->ix_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->ix_spin : NULL,
+            (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
         if (latch->shared_count == 0) {
             latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
@@ -120,7 +126,7 @@ static inline bool32 cm_latch_timed_ix2x(latch_t *latch, uint32 sid, uint32 wait
     uint32 ticks = 0;
 
     do {
-        if (stat != NULL) {
+        if (LATCH_NEED_STAT(stat)) {
             stat->misses++;
         }
         while (latch->shared_count > 0) {
@@ -137,7 +143,8 @@ static inline bool32 cm_latch_timed_ix2x(latch_t *latch, uint32 sid, uint32 wait
             }
         }
 
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->ix_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->ix_spin : NULL,
+            (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
         if (latch->shared_count == 0) {
             latch->sid = (uint16)sid;
             latch->stat = LATCH_STATUS_X;
@@ -155,7 +162,8 @@ static inline void cm_latch_x(latch_t *latch, uint32 sid, latch_statis_t *stat)
     uint32 count = 0;
 
     do {
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->x_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->x_spin : NULL,
+            (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
 
         if (latch->stat == LATCH_STATUS_IDLE) {
             latch->sid = (uint16)sid;
@@ -170,7 +178,7 @@ static inline void cm_latch_x(latch_t *latch, uint32 sid, latch_statis_t *stat)
             return;
         } else {
             cm_spin_unlock(&latch->lock);
-            if (stat != NULL) {
+            if (LATCH_NEED_STAT(stat)) {
                 stat->misses++;
             }
             while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
@@ -191,7 +199,8 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
     uint32 ticks = 0;
 
     do {
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->x_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->x_spin : NULL,
+            (LATCH_NEED_STAT(stat) ? &stat->spin_stat : NULL));
 
         if (latch->stat == LATCH_STATUS_IDLE) {
             latch->sid = (uint16)sid;
@@ -203,7 +212,7 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
             latch->stat = LATCH_STATUS_IX;
             cm_spin_unlock(&latch->lock);
             if (!cm_latch_timed_ix2x(latch, sid, wait_ticks, stat)) {
-                cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->x_spin : NULL);
+                cm_spin_lock_with_stat(&latch->lock, NULL, (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
                 latch->stat = latch->shared_count > 0 ? LATCH_STATUS_S : LATCH_STATUS_IDLE;
                 cm_spin_unlock(&latch->lock);
                 return CM_FALSE;
@@ -211,7 +220,7 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
             return CM_TRUE;
         } else {
             cm_spin_unlock(&latch->lock);
-            if (stat != NULL) {
+            if (LATCH_NEED_STAT(stat)) {
                 stat->misses++;
             }
             while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
@@ -231,12 +240,26 @@ static inline bool32 cm_latch_timed_x(latch_t *latch, uint32 sid, uint32 wait_ti
     } while (1);
 }
 
+static inline void cm_latch_x2ix(latch_t *latch, uint32 sid, latch_statis_t *stat)
+{
+    cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->x_spin : NULL,
+        (LATCH_NEED_STAT(stat) ? &stat->spin_stat : NULL));
+    if (SECUREC_UNLIKELY(latch->sid != sid || latch->stat != LATCH_STATUS_X)) {
+        LOG_RUN_ERR("latch sid:%u != sid:%u or stat:%u not stat X", (uint32)latch->sid, sid, (uint32)latch->stat);
+        cm_spin_unlock(&latch->lock);
+        return;
+    }
+    latch->stat = LATCH_STATUS_X;
+    cm_spin_unlock(&latch->lock);
+}
+
 static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch_statis_t *stat)
 {
     uint32 count = 0;
 
     do {
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->s_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->s_spin : NULL,
+            (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
 
         if (latch->stat == LATCH_STATUS_IDLE) {
             latch->stat = LATCH_STATUS_S;
@@ -252,10 +275,11 @@ static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch
             return;
         } else {
             cm_spin_unlock(&latch->lock);
-            if (stat != NULL) {
+            if (LATCH_NEED_STAT(stat)) {
                 stat->misses++;
             }
-            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
+            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S &&
+                !(latch->stat == LATCH_STATUS_IX && is_force)) {
                 count++;
                 if (count >= GS_SPIN_COUNT) {
                     SPIN_STAT_INC(stat, s_sleeps);
@@ -273,7 +297,8 @@ static inline bool32 cm_latch_timed_s(latch_t *latch, uint32 wait_ticks, bool32 
     uint32 ticks = 0;
 
     do {
-        cm_spin_lock(&latch->lock, (stat != NULL) ? &stat->s_spin : NULL);
+        cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->s_spin : NULL,
+            (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
 
         if (latch->stat == LATCH_STATUS_IDLE) {
             latch->stat = LATCH_STATUS_S;
@@ -286,7 +311,8 @@ static inline bool32 cm_latch_timed_s(latch_t *latch, uint32 wait_ticks, bool32 
             return CM_TRUE;
         } else {
             cm_spin_unlock(&latch->lock);
-            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S) {
+            while (latch->stat != LATCH_STATUS_IDLE && latch->stat != LATCH_STATUS_S &&
+                (latch->stat == LATCH_STATUS_IX && is_force)) {
                 if (ticks >= wait_ticks) {
                     return CM_FALSE;
                 }
@@ -306,18 +332,21 @@ static inline bool32 cm_latch_timed_s(latch_t *latch, uint32 wait_ticks, bool32 
 static inline void cm_unlatch(latch_t *latch, latch_statis_t *stat)
 {
     spin_statis_t *stat_spin = NULL;
+    spin_statis_instance_t *stat_spin_ex = NULL;
 
-    if (stat != NULL) {
-        stat_spin = (LATCH_STATUS_S == latch->stat) ? &stat->s_spin : &stat->x_spin;
+    if (LATCH_NEED_STAT(stat)) {
+        stat_spin = (latch->stat == LATCH_STATUS_S) ? &stat->s_spin : &stat->x_spin;
+        stat_spin_ex = &stat->spin_stat;
     }
 
-    cm_spin_lock(&latch->lock, stat_spin);
+    cm_spin_lock_with_stat(&latch->lock, stat_spin, stat_spin_ex);
 
     if (latch->shared_count > 0) {
         latch->shared_count--;
     }
 
     if ((latch->stat == LATCH_STATUS_S || latch->stat == LATCH_STATUS_X) && (latch->shared_count == 0)) {
+        latch->sid = 0;
         latch->stat = LATCH_STATUS_IDLE;
     }
 
