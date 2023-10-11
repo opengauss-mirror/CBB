@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Huawei Technologies Co.,Ltd.
+ * Copyright (c) 2023 Huawei Technologies Co.,Ltd.
  *
  * CBB is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -13,26 +13,36 @@
  * See the Mulan PSL v2 for more details.
  * -------------------------------------------------------------------------
  *
- * mes_cb.h
+ * cm_system.h
  *
  *
  * IDENTIFICATION
- *    src/cm_mes/mes_cb.h
+ *    src/cm_utils/cm_system.h
  *
  * -------------------------------------------------------------------------
  */
+#ifndef __CM_SYSTEM_H__
+#define __CM_SYSTEM_H__
 
-#include "mes_interface.h"
+#include <stdio.h>
+#include <string.h>
 
-#ifndef __MES_CB_H__
-#define __MES_CB_H__
+#include "cm_defs.h"
+#include "cm_error.h"
+#include "cs_pipe.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-mes_thread_init_t get_mes_worker_init_cb(void);
-int set_mes_worker_init_cb(mes_thread_init_t callback);
+uint64 cm_sys_pid(void);
+char *cm_sys_program_name(void);
+char *cm_sys_user_name(void);
+char *cm_sys_host_name(void);
+char *cm_sys_platform_name(void);
+int64 cm_sys_ticks(void);
+int64 cm_sys_process_start_time(uint64 pid);
+bool32 cm_sys_process_alived(uint64 pid, int64 start_time);
 
 #ifdef __cplusplus
 }

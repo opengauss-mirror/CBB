@@ -235,7 +235,7 @@ mes_msgqueue_t *mes_get_command_task_queue(const mes_message_head_t *head)
     uint32 queue_id;
     uint32 queue_num;
 
-    group_id = MES_GLOBAL_INST_MSG.mq_ctx.command_attr[head->cmd].group_id;
+    group_id = head->flags & MES_FLAG_PRIO_7;
     mes_task_group_t* group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[group_id];
     queue_num = group->task_num > MES_GROUP_QUEUE_NUM ? MES_GROUP_QUEUE_NUM : group->task_num;
     queue_id = (group->push_cursor++) % queue_num;
@@ -367,6 +367,8 @@ void mes_task_proc(thread_t *thread)
     uint32 queue_id = 0;
     uint32 queue_num;
 
+    mes_msg_t app_msg;
+
     PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_task_proc_%u", index));
     cm_set_thread_name(thread_name);
 
@@ -405,12 +407,20 @@ void mes_task_proc(thread_t *thread)
 
         group->pop_cursor = queue_id + 1;
 
-        mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_GET_QUEUE, start_stat_time);
-        mes_get_consume_time_start(&start_stat_time);
+        if (msgitem->msg.head->cmd == MES_CMD_SYNCH_ACK) {
+            mes_notify_msg_recv(&msgitem->msg);
+        } else {
+            mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_GET_QUEUE, start_stat_time);
+            mes_get_consume_time_start(&start_stat_time);
 
-        MES_GLOBAL_INST_MSG.proc(index, &msgitem->msg);
+            app_msg.buffer = msgitem->msg.buffer + sizeof(mes_message_head_t);
+            app_msg.size = msgitem->msg.head->size - sizeof(mes_message_head_t);
+            app_msg.src_inst = (unsigned int)msgitem->msg.head->src_inst;
+            MES_GLOBAL_INST_MSG.proc(index, msgitem->msg.head->ruid, &app_msg);
 
-        mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_QUEUE_PROC, start_stat_time);
+            mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_QUEUE_PROC, start_stat_time);
+        }
+
         mes_put_msgitem_nolock(&finished_msgitem_queue, msgitem);
         if (MSG_ITEM_BATCH_SIZE == finished_msgitem_queue.count) {
             mes_free_msgitems(&MES_GLOBAL_INST_MSG.mq_ctx.pool, &finished_msgitem_queue);

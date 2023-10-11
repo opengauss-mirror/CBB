@@ -25,6 +25,8 @@
 #ifndef __MES_TYPE_H__
 #define __MES_TYPE_H__
 
+#include <sys/syscall.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,97 +41,32 @@ typedef unsigned long long uint64;
 #endif
 
 #define MES_MAX_BUFFERLIST ((int)4) /* Number of buffers supported by the bufferlist */
-#define MES_MAX_BUFFPOOL_NUM ((int)8)
-#define MES_MAX_INSTANCES            (unsigned int)64
-#define MES_MAX_IP_LEN 64
-#define MES_MAX_LOG_PATH 4096
-
-typedef enum en_mes_task_group_id_t {
-    MES_TASK_GROUP_ZERO = 0,
-    MES_TASK_GROUP_ONE,
-    MES_TASK_GROUP_TWO,
-    MES_TASK_GROUP_THREE,
-    MES_TASK_GROUP_ALL
-} mes_task_group_id_t;
-
-typedef enum en_mes_time_stat {
-    MES_TIME_TEST_SEND = 0,
-    MES_TIME_SEND_IO,
-    MES_TIME_TEST_RECV,
-    MES_TIME_TEST_MULTICAST,
-    MES_TIME_TEST_MULTICAST_AND_WAIT,
-    MES_TIME_TEST_WAIT_AND_RECV,
-    MES_TIME_GET_BUF,
-    MES_TIME_READ_MES,
-    MES_TIME_PROC_FUN,
-    MES_TIME_PUT_QUEUE,
-    MES_TIME_GET_QUEUE,
-    MES_TIME_QUEUE_PROC,
-    MES_TIME_PUT_BUF,
-    MES_TIME_CEIL
-} mes_time_stat_t;
-
-typedef enum en_mes_pipe_type {
-    MES_TYPE_TCP = 1,
-    MES_TYPE_IPC = 2,
-    MES_TYPE_DOMAIN_SCOKET = 3,
-    MES_TYPE_SSL = 4,
-    MES_TYPE_EMBEDDED = 5, /* embedded mode, reserved */
-    MES_TYPE_DIRECT = 6,   /* direct mode, reserved */
-    MES_TYPE_RDMA = 7,     /* direct mode, reserved */
-    MES_TYPE_CEIL
-} mes_pipe_type_t;
-
-typedef struct st_mes_addr {
-    char ip[MES_MAX_IP_LEN];
-    unsigned short port;
-    unsigned char reserved[2];
-} mes_addr_t;
-
-typedef struct st_mes_buffer_attr {
-    unsigned int size;
-    unsigned int count;
-} mes_buffer_attr_t;
-
-typedef struct st_mes_buffer_pool_attr {
-    unsigned int pool_count;
-    unsigned int queue_count;
-    mes_buffer_attr_t buf_attr[MES_MAX_BUFFPOOL_NUM];
-} mes_buffer_pool_attr_t;
-
-typedef struct st_mes_profile {
-    unsigned int inst_id;
-    unsigned int inst_cnt;
-    mes_pipe_type_t pipe_type;
-    mes_buffer_pool_attr_t buffer_pool_attr;
-    unsigned int channel_cnt;
-    unsigned int work_thread_cnt;
-    unsigned int mes_elapsed_switch;
-    unsigned char rdma_rpc_use_busypoll;    // busy poll need to occupy the cpu core
-    unsigned char rdma_rpc_is_bind_core;
-    unsigned char rdma_rpc_bind_core_start;
-    unsigned char rdma_rpc_bind_core_end;
-    char ock_log_path[MES_MAX_LOG_PATH];
-    mes_addr_t inst_net_addr[MES_MAX_INSTANCES];
-    unsigned int task_group[MES_TASK_GROUP_ALL];
-    // Indicates whether to connected to other instances during MES initialization
-    unsigned int conn_created_during_init : 1;
-    unsigned int reserved : 31;
-} mes_profile_t;
+#define MES_MSGHEAD_RESERVED (28)
 
 typedef struct st_mes_message_head {
-    unsigned char cmd; // command
-    unsigned char flags;
-    unsigned char src_inst; // from instance
-    unsigned char dst_inst; // to instance
-    unsigned short src_sid; // from session
-    unsigned short dst_sid; // to session
-    unsigned short size;
-    unsigned short tickets;
-    unsigned int unused;
-    unsigned long long rsn;
-    unsigned int cluster_ver;
+    unsigned int version;
+    unsigned int cmd;
+    unsigned int  flags;
+    unsigned int  caller_tid;
+    unsigned long long ruid;
+    unsigned int src_inst; // from instance
+    unsigned int dst_inst; // to instance
+    unsigned int size;
+    unsigned char reserved[MES_MSGHEAD_RESERVED];
 } mes_message_head_t;
+
+/*
+ * MES_CMD_CONNECT=0, MES_CMD_CONNECT=254, max=255
+ */
+typedef enum en_mes_cmd {
+    MES_CMD_CONNECT = 0,
+    MES_CMD_HEARTBEAT = 1,
+    MES_CMD_ASYNC_MSG = 2,
+    MES_CMD_SYNCH_REQ = 3,
+    MES_CMD_SYNCH_ACK = 4,
+    MES_CMD_FORWARD_REQ = 5,
+    MES_CMD_MAX,
+} mes_cmd_t;
 
 #define MES_MSG_HEAD_SIZE sizeof(mes_message_head_t)
 
@@ -143,25 +80,37 @@ typedef struct st_mes_buffer {
     unsigned int len; /* buffer length */
 } mes_buffer_t;
 
+/* room unique id */
+typedef struct st_ruid {
+    union {
+        struct {
+            unsigned long long room_id : 16;
+            unsigned long long rsn : 48;
+        };
+        unsigned long long ruid;
+    };
+} ruid_t;
+
 typedef struct st_mes_bufflist {
     unsigned short cnt;
     mes_buffer_t buffers[MES_MAX_BUFFERLIST];
 } mes_bufflist_t;
 
-#define MES_INIT_MESSAGE_HEAD(head, v_cmd, v_flags, v_src_inst, v_dst_inst, v_src_sid, v_dst_sid) \
-    do {                                                                                          \
-        (head)->cmd = (uint8)(v_cmd);                                                               \
-        (head)->flags = (uint8)(v_flags);                                                           \
-        (head)->src_inst = (uint8)(v_src_inst);                                                     \
-        (head)->dst_inst = (uint8)(v_dst_inst);                                                     \
-        (head)->src_sid = (uint16)(v_src_sid);                                                      \
-        (head)->dst_sid = (uint16)(v_dst_sid);                                                      \
+#define MES_INIT_MESSAGE_HEAD(head, v_version, v_cmd, v_flags, v_src_inst, v_dst_inst, v_ruid, v_size)      \
+    do {                                                                                                    \
+        (head)->cmd = (uint8)(v_cmd);                                                                       \
+        (head)->version = (uint32)(v_version);                                                              \
+        (head)->flags = (uint32)(v_flags);                                                                  \
+        (head)->src_inst = (uint16)(v_src_inst);                                                            \
+        (head)->dst_inst = (uint16)(v_dst_inst);                                                            \
+        (head)->ruid = (uint64)(v_ruid);                                                                    \
+        (head)->size = (uint64)(v_size);                                                                    \
+        (head)->caller_tid = (uint32)(syscall(__NR_gettid));                                                \
+        securec_check_panic(memset_s((head)->reserved, MES_MSGHEAD_RESERVED, 0, MES_MSGHEAD_RESERVED));     \
     } while (0)
 
 #define MES_MESSAGE_BODY(msg) ((msg)->buffer + sizeof(mes_message_head_t))
 
-typedef void (*mes_message_proc_t)(unsigned int work_thread, mes_message_t *message);
-typedef int(*usr_cb_decrypt_pwd_t)(const char *cipher, unsigned int len, char *plain, unsigned int size);
 
 #ifdef __cplusplus
 }

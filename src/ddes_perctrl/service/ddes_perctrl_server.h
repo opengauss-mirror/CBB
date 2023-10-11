@@ -31,7 +31,7 @@ typedef int32 (*cmd_executor_t)(perctrl_packet_t *req, perctrl_packet_t *ack);
 
 typedef struct st_perctrl_cmd_hdl {
     perctrl_cmd_e cmd;
-    cmd_executor_t exec;
+    cmd_executor_t exec[2];
 } perctrl_cmd_hdl_t;
 
 #endif

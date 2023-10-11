@@ -308,7 +308,6 @@ static void build_mec_head(char *buf, uint32 buf_size, const char *module_name)
     }
 }
 
-
 void cm_dump_mem(void *dump_addr, uint32 dump_len)
 {
     uint32 index;

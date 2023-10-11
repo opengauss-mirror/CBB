@@ -200,7 +200,7 @@ void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat)
         return;
     }
     json_t *statJson = (json_t *)res_stat;
-    json_destory(statJson);
+    json_destroy(statJson);
 }
 
 // get detail stats info

@@ -87,7 +87,7 @@ static inline status_t cm_stack_alloc(void *owner, uint32 size, void **ptr)
     cm_stack_t *stack = (cm_stack_t *)owner;
     uint32 actual_size = CM_ALIGN8(size);
     if ((uint64)stack->heap_offset + actual_size >= stack->push_offset) {
-        CM_THROW_ERROR(ERR_ALLOC_MEMORY);
+        CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)stack->heap_offset + actual_size, "stack size");
         return CM_ERROR;
     }
 

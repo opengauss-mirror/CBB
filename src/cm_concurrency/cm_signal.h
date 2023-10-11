@@ -36,13 +36,17 @@ extern "C" {
 #define SIGQUIT 3
 #define SIGUSR1 30
 #define SIGCHLD 20
-
+#define SIGRTMIN 34
+#define SIGRTMAX 64
 #endif
+
+#define SIG_BACKTRACE ((SIGRTMIN) + 8)
 
 typedef void (*signal_proc)(int32);
 
 #ifndef WIN32
 status_t cm_regist_signal_ex(int32 signo, void (*handle)(int, siginfo_t *, void *));
+status_t cm_regist_signal_restart(int32 signo, void (*handle)(int, siginfo_t *, void *));
 #endif
 
 status_t cm_regist_signal(int32 signo, signal_proc func);

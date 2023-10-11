@@ -23,7 +23,6 @@
  */
 #include "mes_msg_pool.h"
 #include "mes_func.h"
-#include "mes_type.h"
 
 #define RECV_MSG_POOL_FC_THRESHOLD 10
 
@@ -70,7 +69,7 @@ int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_
 
     if (buf_count == 0) {
         LOG_RUN_ERR("[mes]: mes_pool_size should greater than 0.");
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     // init queue
@@ -136,7 +135,7 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
 
     if (queue_num == 0 || queue_num > MES_MAX_BUFFER_QUEUE_NUM) {
         LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].", queue_num, MES_MAX_BUFFPOOL_NUM);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     queues_size = (uint64)(queue_num * sizeof(mes_buf_queue_t));
@@ -206,7 +205,7 @@ int mes_init_message_pool(void)
         (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count > MES_MAX_BUFFPOOL_NUM)) {
         LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].",
             MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count, MES_MAX_BUFFPOOL_NUM);
-        return ERR_MES_PARAM_INVAIL;
+        return ERR_MES_PARAM_INVALID;
     }
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count; i++) {
@@ -297,7 +296,7 @@ char *mes_alloc_buf_item_fc(uint32 len)
     do {
         queue = mes_get_buffer_queue(chunk);
         cm_spin_lock(&queue->lock, NULL);
-        if (count / queue->count <= RECV_MSG_POOL_FC_THRESHOLD) {
+        if (queue->count > 0 && count / queue->count <= RECV_MSG_POOL_FC_THRESHOLD) {
             buf_node = queue->first;
             queue->count--;
             if (queue->count == 0) {
@@ -326,9 +325,9 @@ static void mes_release_buf_stat(const char *msg_buf)
 {
     if (g_mes_stat.mes_elapsed_switch) {
         mes_message_head_t *head = (mes_message_head_t *)msg_buf;
-        cm_spin_lock(&(g_mes_stat.mes_commond_stat[head->cmd].lock), NULL);
-        cm_atomic32_dec(&(g_mes_stat.mes_commond_stat[head->cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_commond_stat[head->cmd].lock));
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[head->cmd].lock), NULL);
+        cm_atomic32_dec(&(g_mes_stat.mes_command_stat[head->cmd].occupy_buf));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[head->cmd].lock));
         mes_elapsed_stat(head->cmd, MES_TIME_PUT_BUF);
     }
     return;

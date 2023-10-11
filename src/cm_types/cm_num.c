@@ -639,7 +639,7 @@ status_t cm_str2uint64(const char *str, uint64 *value)
     }
 
     if (*value == UINT64_MAX) { // if str = "18446744073709551616", *value will be ULLONG_MAX
-        if (cm_compare_str(str, (const char *)UINT64_MAX) != 0) {
+        if (cm_compare_str(str, (const char *)UNSIGNED_LLONG_MAX) != 0) {
             CM_THROW_ERROR_EX(ERR_VALUE_ERROR,
                 "Convert int64 failed, the number text is not in the range of unsigned long long, text = %s", str);
             return CM_ERROR;
