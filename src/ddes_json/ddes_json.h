@@ -64,7 +64,7 @@ typedef struct st_json_t {
 typedef struct st_json_val {
     struct st_json_val *next;
     json_type_t type;
-    char data[0];
+    char data[];
 } json_val_t;
 
 typedef struct st_json_arr {

@@ -96,6 +96,19 @@ LOCAL_DIR=$(dirname "${LOCAL_PATH}")
 export PACKAGE=$LOCAL_DIR/../../../
 export OUT_PACKAGE=cbb
 
+# gcc version
+if [[ -d "${binarylib_dir}/buildtools/gcc10.3" ]]; then
+    gcc_version="10.3"
+else
+    gcc_version="7.3"
+fi
+
+export GCC_PATH=$binarylib_dir/buildtools/gcc$gcc_version/
+export CC=$GCC_PATH/gcc/bin/gcc
+export CXX=$GCC_PATH/gcc/bin/g++
+export LD_LIBRARY_PATH=$GCC_PATH/gcc/lib64:$GCC_PATH/isl/lib:$GCC_PATH/mpc/lib/:$GCC_PATH/mpfr/lib/:$GCC_PATH/gmp/lib/:$LD_LIBRARY_PATH
+export PATH=$GCC_PATH/gcc/bin:$PATH
+
 export CBB_LIBRARYS=$(pwd)/../../../library
 
 [ -d "${CBB_LIBRARYS}" ] && rm -rf ${CBB_LIBRARYS}
