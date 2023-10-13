@@ -265,6 +265,7 @@ static void mes_close_channel(mes_channel_t *channel)
     cm_rwlock_wlock(&channel->send_lock);
     if (channel->msgbuf != NULL) {
         free(channel->msgbuf);
+        channel->msgbuf = NULL;
     }
     cm_rwlock_unlock(&channel->send_lock);
 }
