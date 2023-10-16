@@ -51,6 +51,16 @@ static inline void cm_rtrim0_binary(binary_t *bin)
     }
 }
 
+static inline uint32 cm_bitmap64_count(uint64 bitmap)
+{
+    uint32 count = 0;
+    while (bitmap != 0) {
+        bitmap = bitmap & (bitmap - 1);
+        count++;
+    }
+    return count;
+}
+
 static inline void cm_bitmap64_set(uint64 *bitmap, uint8 num)
 {
     CM_ASSERT(num < CM_MAX_INSTANCES);
