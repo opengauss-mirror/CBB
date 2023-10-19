@@ -133,6 +133,7 @@ typedef struct st_sig_buf_node_t {
 } sig_buf_node_t;
 
 status_t cm_proc_sign_init(box_excp_item_t *excep_info);
+void cm_proc_sig_get_fixed_header(box_excp_item_t *excep_info);
 void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_t *siginfo, void *context);
 void cm_proc_get_register_info(box_reg_info_t *cpu_info, ucontext_t *uc);
 void cm_print_sig_info(box_excp_item_t *excep_info, void *cpu_info);
