@@ -453,6 +453,8 @@ typedef enum en_compress_algorithm {
 #define CM_PASSWORD_BUFFER_SIZE (uint32)512
 #define CM_MAX_SSL_PWD_CIPHER_LEN  (uint32)1024
 #define CM_MAX_MESSAGE_BUFFER_SIZE (SIZE_M(10))
+#define CM_WAIT_FOREVER (-1)
+#define CM_SLEEP_TIME 10
 
 #define KEY_LF                  10L
 #define KEY_CR                  13L
