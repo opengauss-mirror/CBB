@@ -214,12 +214,12 @@ status_t cap_agent_init(cap_agent_t *agent, const char *agent_name)
     // application server send cap command as a request to cap agent
     // after executing, cap agent send a response
     if (0 == agent->pid) { // child process
-        if (cm_fcntl(agent->req_pipe.hread, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+        if (cm_fcntl(agent->req_pipe.hread, F_SETFL, O_NONBLOCK, CM_WAIT_FOREVER) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set reading end of request pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-        if (cm_fcntl(agent->res_pipe.hwrite, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+        if (cm_fcntl(agent->res_pipe.hwrite, F_SETFL, O_NONBLOCK, CM_WAIT_FOREVER) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set writing end of response pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
@@ -255,12 +255,12 @@ status_t cap_agent_init(cap_agent_t *agent, const char *agent_name)
 
         // close the write end of response pipe
         close(agent->res_pipe.hwrite);
-        if (cm_fcntl(agent->req_pipe.hwrite, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+        if (cm_fcntl(agent->req_pipe.hwrite, F_SETFL, O_NONBLOCK, CM_WAIT_FOREVER) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set writing end of request pipe to non-block. errno = %d.", errno);
             return CM_ERROR;
         }
-        if (cm_fcntl(agent->res_pipe.hread, F_SETFL, O_NONBLOCK) != CM_SUCCESS) {
+        if (cm_fcntl(agent->res_pipe.hread, F_SETFL, O_NONBLOCK, CM_WAIT_FOREVER) != CM_SUCCESS) {
             send_fail_response(CM_ERROR,
                 "failed to set reading end of response pipe to non-block. errno = %d.", errno);
             return CM_ERROR;

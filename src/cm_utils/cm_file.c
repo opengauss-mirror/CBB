@@ -804,24 +804,43 @@ status_t cm_truncate_file(int32 file, int64 offset)
     return CM_SUCCESS;
 }
 
-status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock)
+static bool32 cm_is_timeout(int32 timeout, int32 sleep_times, int32 sleeps)
 {
+    if ((timeout == CM_WAIT_FOREVER) || (sleeps == 0)) {
+        return CM_FALSE;
+    }
+
+    return (bool32)((timeout / sleeps) < sleep_times);
+}
+
+status_t cm_fcntl(int32 fd, int32 cmd, struct flock *lock, int32 timeout)
+{
+#ifdef WIN32
+    return CM_SUCCESS;
+#else
+    int32 sleep_times = 0;
     while (CM_TRUE) {
         if (fcntl(fd, cmd, lock) == 0) {
             break;
         }
 
+        if (cm_is_timeout(timeout, sleep_times, CM_SLEEP_TIME)) {
+            LOG_DEBUG_INF("fcntl failed and timeout, errno: %d.", errno);
+            return CM_ERROR;
+        }
         if (cm_get_os_error() == EAGAIN || cm_get_os_error() == EINTR) {
             LOG_DEBUG_INF("Linux return EAGAIN or EINTR errno: %d, try again.", errno);
-            cm_sleep(1);
+            cm_sleep(CM_SLEEP_TIME);
+            sleep_times++;
             continue;
         }
         return CM_ERROR;
     }
     return CM_SUCCESS;
+#endif
 }
 
-status_t cm_lock_fd(int32 fd)
+status_t cm_lock_fd(int32 fd, int32 timeout)
 {
 #ifdef WIN32
     return CM_SUCCESS;
@@ -832,7 +851,7 @@ status_t cm_lock_fd(int32 fd)
     lk.l_whence = SEEK_SET;
     lk.l_start = lk.l_len = 0;
 
-    if (cm_fcntl(fd, F_SETLK, &lk) != CM_SUCCESS) {
+    if (cm_fcntl(fd, F_SETLK, &lk, timeout) != CM_SUCCESS) {
         CM_THROW_ERROR(ERR_LOCK_FILE, errno);
         return CM_ERROR;
     }
@@ -852,7 +871,7 @@ status_t cm_unlock_fd(int32 fd)
     lk.l_whence = SEEK_SET;
     lk.l_start = lk.l_len = 0;
 
-    if (cm_fcntl(fd, F_SETLK, &lk) != CM_SUCCESS) {
+    if (cm_fcntl(fd, F_SETLK, &lk, CM_WAIT_FOREVER) != CM_SUCCESS) {
         CM_THROW_ERROR(ERR_UNLOCK_FILE, errno);
         return CM_ERROR;
     }
