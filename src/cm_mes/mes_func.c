@@ -560,7 +560,7 @@ static int mes_init_session_room(void)
         GS_INIT_SPIN_LOCK(room->lock);
 
         room->rsn = MES_FIRST_RUID;
-        room->check_rsn = room->rsn;
+        room->check_rsn = MES_INVLD_RUID;
         room->room_index = (uint16)i;
         freelist_idx = MES_ROOM_ID_TO_FREELIST_ID(i);
         cm_bilist_add_tail(&room->node, (bilist_t *)&wrpool->room_freelists[freelist_idx].list);
@@ -718,6 +718,16 @@ static inline unsigned long long mes_room_get_ruid(mes_waiting_room_t* room)
     return res.ruid;
 }
 
+static bool8 inline mes_check_msg_recv(mes_message_t *msg, mes_waiting_room_t *room)
+{
+    CM_ASSERT(room->room_status != STATUS_BCAST_SENDING);
+    bool8 bcast_check = room->room_status != STATUS_BCAST_SENT ||
+        room->broadcast_msg[msg->head->src_inst] == NULL;
+    bool8 rsn_check = ruid_matches_room_rsn(&msg->head->ruid, room->rsn) &&
+        ((ruid_t *)&(msg->head->ruid))->rsn > room->check_rsn;
+    return bcast_check && rsn_check;
+}
+
 void mes_notify_msg_recv(mes_message_t *msg)
 {
     if (msg == NULL || msg->buffer == NULL || MES_RUID_IS_ILLEGAL(msg->head->ruid) ||
@@ -733,7 +743,7 @@ void mes_notify_msg_recv(mes_message_t *msg)
     }
 
     cm_spin_lock(&room->lock, NULL);
-    if (ruid_matches_room_rsn(&msg->head->ruid, room->rsn)) {
+    if (mes_check_msg_recv(msg, room)) {
         if (room->room_status == STATUS_PTP_SENT) {
             room->msg_buf = msg->buffer;
             room->check_rsn = ((ruid_t *)&(msg->head->ruid))->rsn;
@@ -755,6 +765,10 @@ void mes_notify_msg_recv(mes_message_t *msg)
     } else {
         cm_spin_unlock(&room->lock);
         MES_LOG_WAR_HEAD_EX(msg->head, "receive unmatch msg", room);
+        LOG_DEBUG_WAR("[mes]discard msg, room->rid=%llu, rsn=%llu, crsn=%llu, ruid=%llu(%llu-%llu), rstatus=%d",
+            (uint64)room->room_index, room->rsn, room->check_rsn, (uint64)msg->head->ruid,
+            (uint64)MES_RUID_GET_RID(msg->head->ruid), (uint64)MES_RUID_GET_RSN(msg->head->ruid),
+            room->room_status);
         mes_release_message_buf(msg);
     }
     return;
@@ -1076,6 +1090,7 @@ static inline void mes_reinit_room(mes_waiting_room_t* room)
     room->req_count = 0;
     room->err_code = 0;
     room->msg_buf = NULL;
+    mes_clean_recv_broadcast_msg(room);
     cm_spin_unlock(&room->lock);
 }
 
