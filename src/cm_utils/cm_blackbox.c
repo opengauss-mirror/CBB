@@ -204,7 +204,7 @@ for (uint32 i = 0; i < 31; i++) {
 #endif
 }
 
-void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_t *siginfo, void *context)
+void cm_proc_sig_get_fixed_header(box_excp_item_t *excep_info)
 {
     uint32 loop = 0;
     char *platform_name = NULL;
@@ -214,8 +214,6 @@ void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_
     for (loop = 1; loop < BOX_SPACE_SIZE; loop++) {
         excep_info->trace_tail[loop] = (uint32)BOX_TAIL_MAGIC;
     }
-    excep_info->sig_index = (uint32)sig_num;
-    excep_info->thread_id = pthread_self();
     excep_info->loc_id = cm_sys_pid();
     platform_name = cm_sys_platform_name();
     int32 ret = strncpy_s(excep_info->platform, CM_NAME_BUFFER_SIZE, platform_name, strlen(platform_name));
@@ -223,7 +221,13 @@ void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_
     loc_name = cm_sys_program_name();
     ret = strncpy_s(excep_info->loc_name, CM_NAME_BUFFER_SIZE, loc_name, strlen(loc_name));
     securec_check_panic(ret);
-   if (siginfo != NULL) {
+}
+
+void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_t *siginfo, void *context)
+{
+    excep_info->sig_index = (uint32)sig_num;
+    excep_info->thread_id = pthread_self();
+    if (siginfo != NULL) {
         excep_info->sig_code = siginfo->si_code;
         if (excep_info->sig_code <= 0) {
             excep_info->sig_uid = siginfo->si_uid;
@@ -231,7 +235,7 @@ void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_
         } else if (need_print_sig_addr(excep_info->sig_index)) {
             excep_info->sig_addr = siginfo->si_addr;
         }
-   }
+    }
     (void)cm_date2str(g_timer()->now, "yyyy-mm-dd hh24:mi:ss.ff3", excep_info->date, CM_MAX_TIME_STRLEN);
 }
 
