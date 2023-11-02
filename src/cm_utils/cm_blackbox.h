@@ -100,8 +100,8 @@ typedef struct st_box_reg_info {
     box_reg_info_t reg_info;
     uintptr_t stack_addr;
     char sig_name[CM_NAME_BUFFER_SIZE];
-    char loc_name[CM_FILE_NAME_BUFFER_SIZE + 1];
     char platform[CM_NAME_BUFFER_SIZE];
+    char loc_name[CM_FILE_NAME_BUFFER_SIZE + 1];
     uchar ins_content[BOX_INS_CONT_LEN];
     char version[BOX_VERSION_LEN];
     char date[CM_MAX_TIME_STRLEN];

@@ -73,12 +73,10 @@ static void cm_get_program_name(void)
     struct procentry64 processInfo;
 
     while (getprocs64(&processInfo, sizeof(processInfo), 0, 0, &pid, 1) > 0) {
-        if (uint64)
-            (processInfo.pi_pid == g_process_id)
-            {
-                len = getargs(&processInfo, sizeof(processInfo), g_program_name, CM_FILE_NAME_BUFFER_SIZE);
-                break;
-            }
+        if ((uint64)(processInfo.pi_pid) == g_process_id) {
+            len = getargs(&processInfo, sizeof(processInfo), g_program_name, CM_FILE_NAME_BUFFER_SIZE);
+            break;
+        }
     }
 #else /* linux */
     len = readlink("/proc/self/exe", g_program_name, CM_FILE_NAME_BUFFER_SIZE);
