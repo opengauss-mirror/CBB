@@ -216,11 +216,17 @@ void cm_proc_sig_get_fixed_header(box_excp_item_t *excep_info)
     }
     excep_info->loc_id = cm_sys_pid();
     platform_name = cm_sys_platform_name();
-    int32 ret = strncpy_s(excep_info->platform, CM_NAME_BUFFER_SIZE, platform_name, strlen(platform_name));
-    securec_check_panic(ret);
+    errno_t rc = strncpy_s(excep_info->platform, CM_NAME_BUFFER_SIZE, platform_name, strlen(platform_name));
+    if (rc != EOK) {
+        LOG_DEBUG_ERR("Fail to copy platform name %s", platform_name);
+        excep_info->platform[0] = '\0';
+    }
     loc_name = cm_sys_program_name();
-    ret = strncpy_s(excep_info->loc_name, CM_NAME_BUFFER_SIZE, loc_name, strlen(loc_name));
-    securec_check_panic(ret);
+    rc = strncpy_s(excep_info->loc_name, CM_FILE_NAME_BUFFER_SIZE + 1, loc_name, strlen(loc_name));
+    if (rc != EOK) {
+        LOG_DEBUG_ERR("Fail to copy loc name %s", loc_name);
+        excep_info->loc_name[0] = '\0';
+    }
 }
 
 void cm_proc_sig_get_header(box_excp_item_t *excep_info, int32 sig_num, siginfo_t *siginfo, void *context)
