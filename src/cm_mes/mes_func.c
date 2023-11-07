@@ -153,9 +153,11 @@ static inline void mes_protect_when_timeout(mes_waiting_room_t *room)
     cm_spin_lock(&room->lock, NULL);
     (void)cm_atomic_inc((atomic_t *)(&room->rsn));
     if (!pthread_mutex_trylock(&room->mutex)) { // trylock to avoid mutex has been unlocked.
-        mes_free_buf_item((char *)room->msg_buf);
-        LOG_RUN_ERR("[mes]%s: mutex has unlock, rsn=%llu, room rsn=%llu.", (char *)__func__,
-            (uint64)((ruid_t *)(&((mes_message_head_t *)room->msg_buf)->ruid))->rsn, room->rsn);
+        if (room->msg_buf != NULL) {
+            LOG_RUN_ERR("[mes]%s: mutex has unlock, rsn=%llu, room rsn=%llu.", (char *)__func__,
+                (uint64)((ruid_t *)(&((mes_message_head_t *)room->msg_buf)->ruid))->rsn, room->rsn);
+            mes_free_buf_item((char *)room->msg_buf);
+        }
     }
     cm_spin_unlock(&room->lock);
 }
