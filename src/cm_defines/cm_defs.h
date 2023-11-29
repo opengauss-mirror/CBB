@@ -86,7 +86,7 @@ extern "C" {
 #define CM_TCP_KEEP_COUNT          (uint32)3
 #define CM_TCP_PORT_MAX_LENGTH     (uint32)5
 #define CM_POLL_WAIT               (uint32)50   /* mill-seconds */
-#define CM_CONNECT_TIMEOUT         (uint32)60000 /* mill-seconds, it can not be too small, because if network delay */
+#define CM_CONNECT_TIMEOUT         (uint32)60000 /* mill-seconds, it can not be too small, because of network delay */
 #define CM_SOCKET_TIMEOUT          (uint32)60000 /* mill-seconds */
 #define CM_TIME_THOUSAND_UN        (uint32)1000
 #define CM_HANDSHAKE_TIMEOUT       (uint32)600000 /* mill-seconds */
@@ -94,6 +94,7 @@ extern "C" {
 
 #define CM_NETWORK_IO_TIMEOUT      (uint32)5000 /* mill-seconds */
 #define CM_SSL_IO_TIMEOUT          (uint32)30000 /* mill-seconds */
+#define CM_MIN_CONNECT_TIMEOUT     (uint32)10 /* mill-seconds */
 
 #define CM_PROTO_CODE                *(uint32 *)"\xFE\xDC\xBA\x98"
 #define CM_MAX_LSNR_HOST_COUNT     (uint32)8
@@ -101,14 +102,14 @@ extern "C" {
 #define CM_INFINITE_TIMEOUT        (uint32)0xFFFFFFFF
 #define CM_MAX_THREAD_NAME_LEN     (128)
 
-#define CM_MAX_SESSIONS             (uint32)16320
+#define CM_MAX_SESSIONS               (uint32)16320
 #define CM_MAX_DBWR_PROCESS             (uint32)36
 #define CM_MAX_INSTANCES            (uint32)64
 #define CM_MIN_PORT                (uint32)1024
 
 /* mes */
 #define CM_MAX_MES_ROOMS_BASE           (uint32)(CM_MAX_SESSIONS)
-#define CM_MAX_MES_ROOMS                (uint32)16384 /* must be a multiple of room freelist num */
+#define CM_MAX_MES_ROOMS                (uint32)(16384) /* must be a multiple of room freelist num */
 #define CM_MAX_ROOM_FREELIST_NUM        (uint32)512
 #define CM_MES_ROOMS_PER_FREELIST       (uint32)(CM_MAX_MES_ROOMS / CM_MAX_ROOM_FREELIST_NUM)
 #define CM_MAX_MES_MSG_CMD              (uint8)255
@@ -296,7 +297,7 @@ extern "C" {
 #define CM_MAX_NUMBER_LEN       (uint32)128
 #define CM_DEFAULT_DIGIT_RADIX  10
 #define CM_DEFAULT_NULL_VALUE         (uint32)0xFFFFFFFF
-#define UNSIGNED_LLONG_MAX "18446744073709551615"
+#define UNSIGNED_LLONG_MAX  "18446744073709551615"
 #define SIGNED_LLONG_MAX "9223372036854775807"
 #define SIGNED_LLONG_MIN "-9223372036854775808"
      
@@ -366,6 +367,7 @@ static inline void cm_sleep(uint32 ms)
 #define CM_MAX_PATH_LEN                 (uint32)(CM_FULL_PATH_BUFFER_SIZE - CM_MAX_NAME_LEN)
 #define CM_MAX_LOG_HOME_LEN             \
     (uint32)(CM_MAX_PATH_LEN - 20) // reserve 20 characters for the stitching path(e. g./run,/audit)
+
 #define CM_SINGLE_QUOTE_LEN             (uint32)2
 #define CM_NAME_BUFFER_SIZE             (uint32)CM_ALIGN4(CM_MAX_NAME_LEN + 1)
 
@@ -375,19 +377,7 @@ static inline void cm_sleep(uint32 ms)
 #define CM_MAX_CONFIG_LINE_SIZE SIZE_K(2)
 
 #define CM_PARAM_BUFFER_SIZE (uint32)1024
-
-#define MEC_MIN_CHANNEL_NUM      (uint32)(1)
-#define MEC_DEFAULT_CHANNEL_NUM  (uint32)(5)
-#define MEC_MAX_CHANNEL_NUM      (uint32)(1000)
-
-#define MEC_DEFALT_THREAD_NUM            (16)
-#define MEC_DEFALT_AGENT_NUM             (10)
-#define MEC_MAX_AGENT_NUM                (1000)
-#define MEC_MAX_REACTOR_NUM              (100)
-#define MEC_MAX_COMPRESS_LEVEL           (9)
-
-#define REP_DEFALT_APPEND_THREAS_NUM     (2)
-#define REP_MAX_APPEND_THREAS_NUM        (1000)
+#define CM_CONF_VALUE_BUFFER_SIZE(item_count)  (uint32)CM_ALIGN4(CM_PARAM_BUFFER_SIZE * 3 * (item_count))
 
 #define CM_BUFLEN_32             32
 #define CM_BUFLEN_64             64
@@ -396,6 +386,22 @@ static inline void cm_sleep(uint32 ms)
 #define CM_BUFLEN_512            512
 #define CM_BUFLEN_1K             1024
 #define CM_BUFLEN_4K             4096
+
+#define CM_1X_FIXED              1
+#define CM_2X_FIXED              2
+#define CM_3X_FIXED              3
+#define CM_10X_FIXED             10
+#define CM_30X_FIXED             30
+#define CM_100X_FIXED            100
+#define CM_1000X_FIXED           1000
+
+#define CM_SLEEP_1_FIXED         1
+#define CM_SLEEP_5_FIXED         5
+#define CM_SLEEP_10_FIXED        10
+#define CM_SLEEP_50_FIXED        50
+#define CM_SLEEP_100_FIXED       100
+#define CM_SLEEP_500_FIXED       500
+#define CM_SLEEP_1000_FIXED      1000
 
 static inline uint64 cm_get_next_2power(uint64 size)
 {
@@ -430,12 +436,8 @@ static inline uint64 cm_get_prev_2power(uint64 size)
 #define BUDDY_MIN_BLOCK_SIZE           (uint64)64
 #define BUDDY_MAX_BLOCK_SIZE           SIZE_G(2)
 
-typedef enum en_compress_algorithm {
-    COMPRESS_NONE = 0,
-    COMPRESS_ZSTD = 1,
-    COMPRESS_LZ4  = 2,
-    COMPRESS_CEIL  = 3,
-} compress_algorithm_t;
+#define MES_MAX_COMPRESS_LEVEL           (9)
+#define MES_DEFAULT_COMPRESS_LEVEL       (1)
 
 // XXX, 4*128=512
 #define MAX_INST_STR_LEN (512 + 1)

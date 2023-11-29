@@ -178,9 +178,10 @@ static status_t cs_open_tcp_link(
             pipe->options |= CSO_DIFFERENT_ENDIAN;
         }
 
-        LOG_RUN_INF("[MES] cs_open_tcp_link, send_version:%u, ack version:%u", send_version, ack->version);
+        LOG_RUN_INF(
+            "[mes] cs_open_tcp_link, send_version:%s, ack version:%u", send_version ? "TRUE" : "FALSE", ack->version);
         if ((send_version && ack->version < CS_VERSION_5) || (!send_version && ack->version >= CS_VERSION_5)) {
-            LOG_RUN_ERR("[MES] the sent version does not match the received version, send_version:%u, ack version:%u",
+            LOG_RUN_ERR("[mes] the sent version does not match the received version, send_version:%u, ack version:%u",
                 send_version, ack->version);
             break;
         }

@@ -78,6 +78,9 @@ static log_file_handle_t g_logger[LOG_COUNT] = {
 #define LOG_SUPPRESS_TIME_THRESHOLD (int32)(1 * MICROSECS_PER_SECOND) // 1s
 #define LOG_SUPPRESS_MAX_COUNT 10
 #define MAX_LOG_SUPPRESS_EXPIRED_TIME (int32)(2 * LOG_SUPPRESS_TIMEOUT)
+#define CM_FILENAME_FORMAT_DEFAULT      0
+#define CM_FILENAME_FORMAT_SEPARATED    1
+#define CM_MAX_LENGTH                   64
 
 typedef enum en_log_suppress_status {
     LOG_NORMAL = 0,
@@ -97,7 +100,13 @@ typedef struct st_log_suppress {
     char name[CM_FILE_NAME_BUFFER_SIZE];
     bool8 is_used;
 } log_suppress_t;
-static thread_local_var log_suppress_t *g_log_suppress[MAX_LOG_SUPPRESS_COUNT] = { (void*)0 };
+
+typedef struct st_log_suppress_entry {
+    log_suppress_t log_suppress[MAX_LOG_SUPPRESS_COUNT];
+    uint32 thread_id;
+} log_suppress_entry_t;
+
+static thread_local_var uint32 g_thrd_log_suppress_id = 0;
 static const char *g_log_suppress_status_str[LOG_SUPPRESS_STATUS_CEIL] = {
     [LOG_NORMAL] = "",
     [LOG_SUPPRESS] = "",
@@ -105,7 +114,7 @@ static const char *g_log_suppress_status_str[LOG_SUPPRESS_STATUS_CEIL] = {
     [LOG_SUPPRESS_BEGIN] = "LOG_SUPPRESS_BEGIN>",
     [LOG_SUPPRESS_END] = "LOG_SUPPRESS_END>"
 };
-static log_suppress_t *g_log_suppress_array[MAX_THREAD_NUM_COUNT] = { (void*)0 };
+static log_suppress_entry_t *g_log_suppress_array = NULL;
 static spinlock_t g_log_suppress_lock;
 
 log_file_handle_t *cm_log_logger_file(uint32 log_count)
@@ -316,8 +325,9 @@ static bool32 is_backup_file(const char *bak_file_name, const char *log_file_nam
     size_t log_file_name_len = strlen(log_file_name);
     size_t log_ext_name_len = strlen(log_ext_name);
     size_t bak_file_name_len = strlen(bak_file_name);
-    size_t timestamp_len = strlen("_yyyymmddhhmissfff");
-
+    size_t timestamp_len = (g_log_param.log_filename_format == CM_FILENAME_FORMAT_SEPARATED)
+                               ? strlen("_yyyy-mm-dd_hhmissfff")
+                               : strlen("_yyyymmddhhmissfff");
     // the 1 in the if condition is the length of the '.'
     if (log_file_name_len + timestamp_len + log_ext_name_len + 1 != bak_file_name_len) {
         return CM_FALSE;
@@ -340,6 +350,10 @@ static bool32 is_backup_file(const char *bak_file_name, const char *log_file_nam
         return CM_FALSE;
     }
     for (unsigned int i = 1; i < timestamp_len; i++) {
+        if (g_log_param.log_filename_format == CM_FILENAME_FORMAT_SEPARATED
+            && (timestamp[i] == '-' || timestamp[i] == '_')) {
+            continue;
+        }
         if (timestamp[i] < '0' || timestamp[i] > '9') {
             return CM_FALSE;
         }
@@ -557,6 +571,30 @@ static void cm_log_remove_bak_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_
     }
 }
 
+static status_t cm_log_get_timestamp(char* timestamp, uint32 max_length)
+{
+    errno_t errcode;
+    date_detail_t detail = g_timer()->detail;
+
+    if (g_log_param.log_filename_format == CM_FILENAME_FORMAT_DEFAULT) {
+        errcode = snprintf_s(timestamp, max_length, max_length - 1, "%4u%02u%02u%02u%02u%02u%03u",
+                             detail.year, detail.mon, detail.day,
+                             detail.hour, detail.min, detail.sec, detail.millisec);
+    } else if (g_log_param.log_filename_format == CM_FILENAME_FORMAT_SEPARATED) {
+        errcode = snprintf_s(timestamp, max_length, max_length - 1, "%4u-%02u-%02u_%02u%02u%02u%03u",
+                             detail.year, detail.mon, detail.day,
+                             detail.hour, detail.min, detail.sec, detail.millisec);
+    } else {
+        return CM_ERROR;
+    }
+    if (SECUREC_UNLIKELY(errcode == -1)) {
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+
 static void cm_log_get_bak_file_name(const log_file_handle_t *log_file_handle, char *bak_file)
 {
     /*
@@ -564,18 +602,14 @@ static void cm_log_get_bak_file_name(const log_file_handle_t *log_file_handle, c
     Where logFile is the file name, ext is the file extension, and yyyymmddhhmissff3 is in milliseconds.
     */
     char bak_file_name[CM_FILE_NAME_BUFFER_SIZE] = {0};
-    char ext_name[64] = {0};
-    char timestamp[64] = {0};
+    char ext_name[CM_MAX_LENGTH] = {0};
+    char timestamp[CM_MAX_LENGTH] = {0};
     char *file_ext_name = NULL;
     size_t name_len = CM_MAX_FILE_NAME_LEN;
     errno_t errcode;
-    date_detail_t detail = g_timer()->detail;
 
-    errcode = snprintf_s(timestamp, sizeof(timestamp), sizeof(timestamp) - 1, "%4u%02u%02u%02u%02u%02u%03u",
-                         detail.year, detail.mon, detail.day,
-                         detail.hour, detail.min, detail.sec, detail.millisec);
-    if (SECUREC_UNLIKELY(errcode == -1)) {
-        CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+    // Get current timestamp
+    if (cm_log_get_timestamp(timestamp, CM_MAX_LENGTH) != CM_SUCCESS) {
         return;
     }
 
@@ -646,7 +680,9 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
     if (cm_log_param_instance()->log_compressed) {
         need_compressed = CM_TRUE;
     }
-    CM_RETURN_IFERR(cm_log_get_bak_file_list(bak_file_name, &backup_file_count, log_file_handle->file_name, need_compressed));
+
+    CM_RETURN_IFERR(cm_log_get_bak_file_list(bak_file_name, &backup_file_count,
+        log_file_handle->file_name, need_compressed));
 
     // Passing need_bak_file_count - 1 is because log_file_handle->file_name is about to be converted to a backup file.
     cm_log_remove_bak_file(bak_file_name, remove_file_count, backup_file_count, need_bak_file_count - 1);
@@ -736,49 +772,24 @@ static void cm_write_rmv_and_bak_file_log(char *bak_file_name[CM_MAX_LOG_FILE_CO
     }
 }
 
-static status_t cm_alloc_compress_buf(char **buffer)
-{
-    if (cm_log_param_instance()->log_compress_buf != NULL) {
-        *buffer = cm_log_param_instance()->log_compress_buf;
-    } else {
-        *buffer = malloc(CM_LOG_COMPRESS_BUFSIZE);
-        if (*buffer == NULL) {
-            CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)CM_LOG_COMPRESS_BUFSIZE, "log compress memory");
-            return CM_ERROR;
-        }
-        errno_t rc = memset_s(*buffer, CM_LOG_COMPRESS_BUFSIZE, 0, CM_LOG_COMPRESS_BUFSIZE);
-        if (rc != EOK) {
-            CM_FREE_PTR(*buffer);
-            return CM_ERROR;
-        }
-    }
-    return CM_SUCCESS;
-}
-
-static void cm_free_compress_buf(char *buffer)
-{
-    if (cm_log_param_instance()->log_compress_buf != buffer) {
-        CM_FREE_PTR(buffer);
-    }
-}
-
 static status_t compress_file_to_gzip(const char *infilename, const char *outfilename)
 {
     uint32 num_read = 0;
-    char *buffer = NULL;
+    char *buffer = cm_log_param_instance()->log_compress_buf;
+    if (buffer == NULL) {
+        LOG_RUN_ERR("log_compress_buf is NULL");
+        return CM_ERROR;
+    }
     uint32 buffer_len = CM_LOG_COMPRESS_BUFSIZE;
-    CM_RETURN_IFERR(cm_alloc_compress_buf(&buffer));
 
     FILE *infile = fopen(infilename, "r");
-    if (infile == NULL) {
-        cm_free_compress_buf(buffer);
+    if (NULL == infile) {
         return CM_ERROR;
     }
 
     gzFile outfile = gzopen(outfilename, "wb9");
-    if (outfile == NULL) {
+    if (NULL == outfile) {
         (void)fclose(infile);
-        cm_free_compress_buf(buffer);
         return CM_ERROR;
     }
 
@@ -786,17 +797,18 @@ static status_t compress_file_to_gzip(const char *infilename, const char *outfil
         if (gzwrite(outfile, buffer, num_read) == 0) {
             (void)fclose(infile);
             (void)gzclose(outfile);
-            cm_free_compress_buf(buffer);
             return CM_ERROR;
         }
     }
+    if (feof(infile) == 0) {
+        return CM_ERROR;
+    }
 
-    errno_t rc = memset_s(buffer, buffer_len, 0, buffer_len);
     (void)fclose(infile);
     (void)gzclose(outfile);
-    cm_free_compress_buf(buffer);
+    errno_t rc = memset_s(buffer, buffer_len, 0, buffer_len);
     if (rc != EOK) {
-        return CM_FALSE;
+        return CM_ERROR;
     }
     return CM_SUCCESS;
 }
@@ -817,7 +829,7 @@ static void cm_compress_log_file(log_file_handle_t *log_file_handle, char *bak_f
     if (compress_file_to_gzip(bak_file_name, new_bak_file_name) == CM_SUCCESS &&
         chmod(new_bak_file_name, cm_log_param_instance()->log_bak_file_permissions) == 0 &&
         cm_remove_file(bak_file_name) == CM_SUCCESS) {
-            return;
+        return;
     }
     LOG_RUN_ERR("failed to rotate the log file:%s", bak_file_name);
     return;
@@ -935,40 +947,34 @@ static void cm_log_fulfil_write_buf(log_file_handle_t *log_file_handle, text_t *
         need_rec_filelog, cm_write_log_file);
 }
 
-static status_t malloc_log_suppress_mem(void)
+static status_t get_log_suppress_mem(void)
 {
-    errno_t errno;
-    cm_spin_lock(&g_log_suppress_lock, NULL);
+    if (g_log_suppress_array == NULL || g_thrd_log_suppress_id == MAX_THREAD_NUM_COUNT) {
+        return CM_ERROR;
+    }
+    if (g_log_suppress_array[g_thrd_log_suppress_id].thread_id == cm_get_current_thread_id()) {
+        return CM_SUCCESS;
+    }
 
+    cm_spin_lock(&g_log_suppress_lock, NULL);
     for (uint32 i = 0; i < MAX_THREAD_NUM_COUNT; i++) {
-        if (g_log_suppress_array[i] == NULL) {
-            g_log_suppress_array[i] = (log_suppress_t*)malloc(MAX_LOG_SUPPRESS_COUNT * sizeof(log_suppress_t));
-            if (g_log_suppress_array[i] == NULL) {
-                CM_THROW_ERROR(ERR_ALLOC_MEMORY, "");
-                cm_spin_unlock(&g_log_suppress_lock);
-                return CM_ERROR;
-            }
-            errno = memset_s(g_log_suppress_array[i], MAX_LOG_SUPPRESS_COUNT * sizeof(log_suppress_t),
-                0, MAX_LOG_SUPPRESS_COUNT * sizeof(log_suppress_t));
-            if (errno != EOK) {
-                CM_THROW_ERROR(ERR_SYSTEM_CALL, errno);
-                CM_FREE_PTR(g_log_suppress_array[i]);
-                cm_spin_unlock(&g_log_suppress_lock);
-                return CM_ERROR;
-            }
-            for (int j = 0; j < MAX_LOG_SUPPRESS_COUNT; j++) {
-                g_log_suppress[j] = g_log_suppress_array[i] + j;
-            }
+        if (g_log_suppress_array[i].thread_id == 0) {
+            g_log_suppress_array[i].thread_id = cm_get_current_thread_id();
+            g_thrd_log_suppress_id = i;
             cm_spin_unlock(&g_log_suppress_lock);
             return CM_SUCCESS;
         }
     }
     cm_spin_unlock(&g_log_suppress_lock);
+    g_thrd_log_suppress_id = MAX_THREAD_NUM_COUNT;
     return CM_ERROR;
 }
 
 static uint32 get_log_index(log_type_t log_type, const char *code_file_name, uint32 code_line_num)
 {
+    if (get_log_suppress_mem() != CM_SUCCESS) {
+        return MAX_LOG_SUPPRESS_COUNT;
+    }
     char buf[CM_FILE_NAME_BUFFER_SIZE + CM_MAX_NAME_LEN] = {0};
     errno_t errcode = snprintf_s(buf, CM_FILE_NAME_BUFFER_SIZE + CM_MAX_NAME_LEN,
         CM_FILE_NAME_BUFFER_SIZE + CM_MAX_NAME_LEN - 1,
@@ -977,33 +983,29 @@ static uint32 get_log_index(log_type_t log_type, const char *code_file_name, uin
         CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
         return MAX_LOG_SUPPRESS_COUNT;
     }
-    if (g_log_suppress[0] == NULL) {
-        if (malloc_log_suppress_mem() != CM_SUCCESS) {
-            return MAX_LOG_SUPPRESS_COUNT;
-        }
-    }
     uint32 name_len = (uint32)strlen(buf);
     uint32 name_hash_val = cm_hash_bytes((uint8 *)buf, name_len, name_len);
     uint32 index = name_hash_val % MAX_LOG_SUPPRESS_COUNT;
     for (uint32 i = index; i < MAX_LOG_SUPPRESS_COUNT + index; i++) {
         uint32 index_tmp = i % MAX_LOG_SUPPRESS_COUNT;
-        if (!g_log_suppress[index_tmp]->is_used) {
-            g_log_suppress[index_tmp]->is_used = CM_TRUE;
-            g_log_suppress[index_tmp]->line = code_line_num;
-            g_log_suppress[index_tmp]->type = log_type;
-            g_log_suppress[index_tmp]->count = 0;
-            g_log_suppress[index_tmp]->print_time = g_timer()->now;
-            g_log_suppress[index_tmp]->suppress_status = LOG_NORMAL;
-            errcode = strcpy_s(g_log_suppress[index_tmp]->name, CM_FILE_NAME_BUFFER_SIZE, code_file_name);
+        log_suppress_t *suppress = &g_log_suppress_array[g_thrd_log_suppress_id].log_suppress[index_tmp];
+        if (!suppress->is_used) {
+            suppress->is_used = CM_TRUE;
+            suppress->line = code_line_num;
+            suppress->type = log_type;
+            suppress->count = 0;
+            suppress->print_time = g_timer()->now;
+            suppress->suppress_status = LOG_NORMAL;
+            errcode = strcpy_s(suppress->name, CM_FILE_NAME_BUFFER_SIZE, code_file_name);
             if (SECUREC_UNLIKELY(errcode == -1)) {
                 CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
                 return MAX_LOG_SUPPRESS_COUNT;
             }
             return index_tmp;
         } else {
-            if (g_log_suppress[index_tmp]->line == code_line_num &&
-                g_log_suppress[index_tmp]->type == log_type &&
-                (strcmp(g_log_suppress[index_tmp]->name, code_file_name) == 0)) {
+            if (suppress->line == code_line_num &&
+                suppress->type == log_type &&
+                (strcmp(suppress->name, code_file_name) == 0)) {
                 return index_tmp;
             }
         }
@@ -1011,24 +1013,24 @@ static uint32 get_log_index(log_type_t log_type, const char *code_file_name, uin
     return MAX_LOG_SUPPRESS_COUNT;
 }
 
-static inline bool32 is_log_match_suppress_rule(uint32 log_index)
+static inline bool32 is_log_match_suppress_rule(log_suppress_t *one_log_suppress)
 {
     bool8 need_suppress = CM_FALSE;
-    int64 time_diff = g_timer()->now - g_log_suppress[log_index]->print_time;
-    if ((time_diff < LOG_SUPPRESS_TIME_THRESHOLD && g_log_suppress[log_index]->count >= LOG_SUPPRESS_MAX_COUNT)) {
+    int64 time_diff = g_timer()->now - one_log_suppress->print_time;
+    if ((time_diff < LOG_SUPPRESS_TIME_THRESHOLD && one_log_suppress->count >= LOG_SUPPRESS_MAX_COUNT)) {
         need_suppress = CM_TRUE;
     }
     if (time_diff > LOG_SUPPRESS_TIME_THRESHOLD) {
-        g_log_suppress[log_index]->print_time = g_timer()->now;
-        g_log_suppress[log_index]->count = 0;
+        one_log_suppress->print_time = g_timer()->now;
+        one_log_suppress->count = 0;
     }
     return need_suppress;
 }
 
-static inline void clear_expired_suppress_status(uint32 log_index)
+static inline void clear_expired_suppress_status(log_suppress_t *one_log_suppress)
 {
-    if (((g_timer()->now - g_log_suppress[log_index]->print_time) > MAX_LOG_SUPPRESS_EXPIRED_TIME)) {
-        (void)memset_s(g_log_suppress[log_index], sizeof(log_suppress_t), 0, sizeof(log_suppress_t));
+    if (((g_timer()->now - one_log_suppress->print_time) > MAX_LOG_SUPPRESS_EXPIRED_TIME)) {
+        (void)memset_s(one_log_suppress, sizeof(log_suppress_t), 0, sizeof(log_suppress_t));
     }
 }
 
@@ -1038,46 +1040,47 @@ static log_suppress_status check_log_suppress(log_type_t log_type, const char *c
     if (index == MAX_LOG_SUPPRESS_COUNT) {
         return LOG_NORMAL;
     }
-    switch (g_log_suppress[index]->suppress_status) {
+    log_suppress_t *log_suppress = &g_log_suppress_array[g_thrd_log_suppress_id].log_suppress[index];
+    switch (log_suppress->suppress_status) {
         case LOG_NORMAL:
-            if (is_log_match_suppress_rule(index)) {
-                g_log_suppress[index]->suppress_status = LOG_SUPPRESS_BEGIN;
+            if (is_log_match_suppress_rule(log_suppress)) {
+                log_suppress->suppress_status = LOG_SUPPRESS_BEGIN;
             } else {
-                g_log_suppress[index]->count++;
+                log_suppress->count++;
             }
             break;
         case LOG_SUPPRESS_BEGIN:
-            g_log_suppress[index]->print_time = g_timer()->now + LOG_SUPPRESS_TIMEOUT;
-            g_log_suppress[index]->count = 0;
-            g_log_suppress[index]->suppress_status = LOG_SUPPRESS;
+            log_suppress->print_time = g_timer()->now + LOG_SUPPRESS_TIMEOUT;
+            log_suppress->count = 0;
+            log_suppress->suppress_status = LOG_SUPPRESS;
             break;
         case LOG_SUPPRESS_TMOUT:
-            if (g_log_suppress[index]->count >=
+            if (log_suppress->count >=
                 LOG_SUPPRESS_MAX_COUNT * (LOG_SUPPRESS_TIMEOUT / LOG_SUPPRESS_TIME_THRESHOLD)) {
-                g_log_suppress[index]->print_time = g_timer()->now + LOG_SUPPRESS_TIMEOUT;
-                g_log_suppress[index]->count = 1;
-                g_log_suppress[index]->suppress_status = LOG_SUPPRESS;
+                log_suppress->print_time = g_timer()->now + LOG_SUPPRESS_TIMEOUT;
+                log_suppress->count = 1;
+                log_suppress->suppress_status = LOG_SUPPRESS;
             } else {
-                g_log_suppress[index]->suppress_status = LOG_SUPPRESS_END;
+                log_suppress->suppress_status = LOG_SUPPRESS_END;
             }
             break;
         case LOG_SUPPRESS:
-            if (g_timer()->now > g_log_suppress[index]->print_time) {
-                g_log_suppress[index]->suppress_status = LOG_SUPPRESS_TMOUT;
+            if (g_timer()->now > log_suppress->print_time) {
+                log_suppress->suppress_status = LOG_SUPPRESS_TMOUT;
             }
-            g_log_suppress[index]->count++;
+            log_suppress->count++;
             break;
         case LOG_SUPPRESS_END:
-            g_log_suppress[index]->print_time = g_timer()->now;
-            g_log_suppress[index]->count = 0;
-            g_log_suppress[index]->is_used = CM_FALSE;
-            g_log_suppress[index]->suppress_status = LOG_NORMAL;
+            log_suppress->print_time = g_timer()->now;
+            log_suppress->count = 0;
+            log_suppress->is_used = CM_FALSE;
+            log_suppress->suppress_status = LOG_NORMAL;
             break;
         default:
             break;
     }
-    clear_expired_suppress_status(index);
-    return g_log_suppress[index]->suppress_status;
+    clear_expired_suppress_status(log_suppress);
+    return log_suppress->suppress_status;
 }
 
 void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, const char *code_file_name,
@@ -1206,6 +1209,20 @@ status_t cm_log_init(log_type_t log_type, const char *file_name)
     log_file->file_handle = CM_INVALID_FD;
     log_file->file_inode = 0;
     log_file->log_type = log_type;
+    if (g_log_suppress_array == NULL) {
+        g_log_suppress_array = (log_suppress_entry_t *)malloc(MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
+        if (g_log_suppress_array == NULL) {
+            CM_THROW_ERROR(ERR_ALLOC_MEMORY, "");
+            return CM_ERROR;
+        }
+        errcode = memset_s(g_log_suppress_array, MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t), 0,
+            MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
+        if (errcode != EOK) {
+            CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
+            CM_FREE_PTR(g_log_suppress_array);
+            return CM_ERROR;
+        }
+    }
     return CM_SUCCESS;
 }
 
@@ -1217,9 +1234,7 @@ void cm_log_open_compress(log_type_t log_type, bool8 log_compressed)
 
 void cm_log_uninit(void)
 {
-    for (uint32 i = 0; i < MAX_THREAD_NUM_COUNT; i++) {
-        CM_FREE_PTR(g_log_suppress_array[i]);
-    }
+    CM_FREE_PTR(g_log_suppress_array);
 }
 
 // if val = 700, log_file_permissions is (S_IRUSR | S_IWUSR | S_IXUSR)
@@ -1429,6 +1444,7 @@ void cm_write_trace_log(uint64 tracekey, const char *format, ...)
     cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
     va_end(args);
 }
+
 #define BLACKBOX_PRINT_LINE_LEN 16
 #define BLACKBOX_PRINT_SPACE_LEN 4
 #define BLACKBOX_MAX_PRINT_SIZE (SIZE_M(8))

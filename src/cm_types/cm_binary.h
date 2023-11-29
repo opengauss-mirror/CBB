@@ -31,6 +31,9 @@
 extern "C" {
 #endif
 
+#define CM_BITMAP_8        (uint8)8
+#define CM_BITMAP_64       (uint8)64
+
 typedef struct st_binary {
     uint8 *bytes;
     uint32 size;
@@ -51,6 +54,24 @@ static inline void cm_rtrim0_binary(binary_t *bin)
     }
 }
 
+static inline void cm_bitmap8_set(uint8 *bitmap, uint8 num)
+{
+    CM_ASSERT(num < CM_BITMAP_8);
+    *bitmap |= ((uint8)1 << num);
+}
+
+static inline void cm_bitmap8_clear(uint8 *bitmap, uint8 num)
+{
+    CM_ASSERT(num < CM_BITMAP_8);
+    *bitmap &= (~((uint8)1 << num));
+}
+
+static inline bool32 cm_bitmap8_exist(const uint8 *bitmap, uint8 num)
+{
+    CM_ASSERT(num < CM_BITMAP_8);
+    return ((*bitmap) & ((uint8)1 << num)) != 0;
+}
+
 static inline uint32 cm_bitmap64_count(uint64 bitmap)
 {
     uint32 count = 0;
@@ -63,19 +84,19 @@ static inline uint32 cm_bitmap64_count(uint64 bitmap)
 
 static inline void cm_bitmap64_set(uint64 *bitmap, uint8 num)
 {
-    CM_ASSERT(num < CM_MAX_INSTANCES);
+    CM_ASSERT(num < CM_BITMAP_64);
     *bitmap |= ((uint64)1 << num);
 }
 
 static inline void cm_bitmap64_clear(uint64 *bitmap, uint8 num)
 {
-    CM_ASSERT(num < CM_MAX_INSTANCES);
+    CM_ASSERT(num < CM_BITMAP_64);
     *bitmap &= (~((uint64)1 << num));
 }
 
 static inline bool32 cm_bitmap64_exist(const uint64 *bitmap, uint8 num)
 {
-    CM_ASSERT(num < CM_MAX_INSTANCES);
+    CM_ASSERT(num < CM_BITMAP_64);
     return ((*bitmap) & ((uint64)1 << num)) != 0;
 }
 
@@ -88,7 +109,7 @@ static inline uint64 cm_bitmap64_create(const uint8 *inst_id, uint8 inst_count)
     return inst_map;
 }
 
-static inline uint64 cm_cm_bitmap64_minus(uint64 bitmap1, uint64 bitmap2)
+static inline uint64 cm_bitmap64_minus(uint64 bitmap1, uint64 bitmap2)
 {
     return bitmap1 & (~bitmap2);
 }
@@ -112,7 +133,7 @@ static inline bool32 cm_bitmap64_include(uint64 bitmap1, uint64 bitmap2)
  * if there is bit in bitmap2 is also in bitmap1, return true
  * bitmap1 = 1101, bitmap2 = 0010 return false
  * bitmap1 = 1101, bitmap2 = 0011 return true
-*/
+ */
 static inline bool32 cm_bitmap64_exist_ex(uint64 bitmap1, uint64 bitmap2)
 {
     return (bitmap1 & bitmap2) != 0;

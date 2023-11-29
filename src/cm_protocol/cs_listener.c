@@ -32,7 +32,6 @@
 extern "C" {
 #endif
 
-
 static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
 {
     pipe->type = CS_TYPE_TCP;
@@ -53,7 +52,6 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
 
     /* set default options of sock */
     cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
-    cs_set_buffer_size(link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
     cs_set_keep_alive(link->sock, CM_TCP_KEEP_IDLE, CM_TCP_KEEP_INTERVAL, CM_TCP_KEEP_COUNT);
     cs_set_linger(link->sock, 1, 1);
 
@@ -118,6 +116,12 @@ static void srv_tcp_lsnr_proc(thread_t *thread)
             lsnr->status = LSNR_STATUS_PAUSED;
         }
     }
+
+    mes_thread_deinit_t cb_thread_deinit = get_mes_worker_deinit_cb();
+    if (cb_thread_deinit != NULL) {
+        cb_thread_deinit();
+        LOG_RUN_INF("[mes] tcp lsnr thread deinit callback: cb_thread_deinit done");
+    }
 }
 
 
@@ -136,7 +140,7 @@ static status_t cs_alloc_sock_slot(tcp_lsnr_t *lsnr, int32 *slot_id)
     return CM_ERROR;
 }
 
-static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int32 *slot_id)
+status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int32 *slot_id)
 {
     socket_t *sock = NULL;
     tcp_option_t option;
@@ -147,6 +151,7 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
         CM_THROW_ERROR(ERR_IPADDRESS_NUM_EXCEED, (uint32)CM_MAX_LSNR_HOST_COUNT);
         return CM_ERROR;
     }
+    LOG_DEBUG_INF("[mes] host:%s, port:%u", host, lsnr->port);
 
     CM_RETURN_IFERR(cm_ipport_to_sockaddr(host, lsnr->port, &sock_addr));
 
@@ -201,9 +206,26 @@ static status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int3
     }
 
     (void)cm_atomic_inc(&lsnr->sock_count);
+    LOG_RUN_INF("[mes] create new listen socket, ip:%s, port:%u, slot_id:%u", host, (uint32)lsnr->port, *slot_id);
     return CM_SUCCESS;
 }
 
+void cs_close_one_lsnr_sock(tcp_lsnr_t *lsnr, int32 slot_id)
+{
+    if (slot_id == CM_MAX_LSNR_HOST_COUNT) {
+        return;
+    }
+    if (lsnr->socks[slot_id] == CS_INVALID_SOCKET) {
+        return;
+    }
+    (void)cs_close_socket(lsnr->socks[slot_id]);
+    lsnr->socks[slot_id] = CS_INVALID_SOCKET;
+    lsnr->slots[slot_id] = (int32)CM_MAX_LSNR_HOST_COUNT;
+
+    (void)cm_atomic_dec(&lsnr->sock_count);
+    LOG_RUN_INF(
+        "[mes] close old listen socket, ip:%s, port:%u, slot_id:%u", lsnr->host[slot_id], (uint32)lsnr->port, slot_id);
+}
 
 void cs_close_lsnr_socks(tcp_lsnr_t *lsnr)
 {
@@ -212,6 +234,7 @@ void cs_close_lsnr_socks(tcp_lsnr_t *lsnr)
         if (lsnr->socks[loop] != CS_INVALID_SOCKET) {
             (void)cs_close_socket(lsnr->socks[loop]);
             lsnr->socks[loop] = CS_INVALID_SOCKET;
+            lsnr->slots[loop] = (int32)CM_MAX_LSNR_HOST_COUNT;
         }
     }
     (void)cm_atomic_set(&lsnr->sock_count, 0);
@@ -230,6 +253,7 @@ status_t cs_create_lsnr_socks(tcp_lsnr_t *lsnr)
                 cs_close_lsnr_socks(lsnr);
                 return CM_ERROR;
             }
+            lsnr->slots[loop] = slot_id;
         }
     }
 
@@ -273,13 +297,13 @@ status_t cs_start_tcp_lsnr(tcp_lsnr_t *lsnr, connect_action_t action)
     }
 
     if (cs_create_lsnr_socks(lsnr) != CM_SUCCESS) {
-        LOG_RUN_ERR("[MEC]failed to create lsnr sockets for listener type %d", (int32)lsnr->type);
+        LOG_RUN_ERR("[mes] failed to create lsnr sockets for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
 
     if (cs_lsnr_init_epoll_fd(lsnr) != CM_SUCCESS) {
         cs_close_lsnr_socks(lsnr);
-        LOG_RUN_ERR("[MEC]failed to init epoll fd for listener type %d", (int32)lsnr->type);
+        LOG_RUN_ERR("[mes] failed to init epoll fd for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
 
@@ -288,7 +312,7 @@ status_t cs_start_tcp_lsnr(tcp_lsnr_t *lsnr, connect_action_t action)
         cs_close_lsnr_socks(lsnr);
         (void)epoll_close(lsnr->epoll_fd);
         lsnr->status = LSNR_STATUS_STOPPED;
-        LOG_RUN_ERR("[MEC]failed to create accept thread for listener type %d", (int32)lsnr->type);
+        LOG_RUN_ERR("[mes] failed to create accept thread for listener type %d", (int32)lsnr->type);
         return CM_ERROR;
     }
     return CM_SUCCESS;

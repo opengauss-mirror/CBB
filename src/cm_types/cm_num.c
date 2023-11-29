@@ -623,6 +623,30 @@ status_t cm_str2uint32(const char *str, uint32 *value)
     return CM_SUCCESS;
 }
 
+status_t cm_str2int32(const char *str, int32 *value)
+{
+    char *err = NULL;
+    int ret = cm_check_is_signed_number(str);
+    if (ret != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+
+    int64 val_int64 = strtoll(str, &err, CM_DEFAULT_DIGIT_RADIX);
+    if (cm_is_err(err)) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert int32 failed, text = %s", str);
+        return CM_ERROR;
+    }
+
+    if (val_int64 > INT_MAX || val_int64 < INT_MIN) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR,
+                          "Convert int32 failed, the number text is not in the range of int32, text = %s", str);
+        return CM_ERROR;
+    }
+
+    *value = (int32)val_int64;
+    return CM_SUCCESS;
+}
+
 status_t cm_str2uint64(const char *str, uint64 *value)
 {
     char *err = NULL;
@@ -710,6 +734,23 @@ num_errno_t cm_numpart2bigint(const num_part_t *np, int64 *i64)
 
     *i64 = np->is_neg ? -val : val;
     return NERR_SUCCESS;
+}
+
+status_t cm_check_is_signed_number(const char *str)
+{
+    int len = (int)strlen(str);
+    if (len == 0) {
+        return CM_ERROR;
+    }
+    if (!CM_IS_DIGIT(str[0]) && !CM_IS_SIGN_CHAR(str[0])) {
+        return CM_ERROR;
+    }
+    for (int i = 1; i < len; i++) {
+        if (!CM_IS_DIGIT(str[i])) {
+            return CM_ERROR;
+        }
+    }
+    return CM_SUCCESS;
 }
 
 status_t cm_check_is_number(const char *str)

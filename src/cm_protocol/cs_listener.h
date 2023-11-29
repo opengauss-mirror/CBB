@@ -57,6 +57,7 @@ typedef struct st_tcp_lsnr {
     lsnr_type_t type;
     lsnr_status_t status;
     char host[CM_MAX_LSNR_HOST_COUNT][CM_MAX_IP_LEN];
+    int32 slots[CM_MAX_LSNR_HOST_COUNT];
     uint16 port;
     int epoll_fd;        // for listened sockets
     atomic_t sock_count; // may listen on multiple IP address
@@ -73,6 +74,8 @@ status_t cs_lsnr_init_epoll_fd(tcp_lsnr_t *lsnr);
 void cs_close_lsnr_socks(tcp_lsnr_t *lsnr);
 void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe);
 void cs_pause_tcp_lsnr(tcp_lsnr_t *lsnr);
+status_t cs_create_one_lsnr_sock(tcp_lsnr_t *lsnr, const char *host, int32 *slot_id);
+void cs_close_one_lsnr_sock(tcp_lsnr_t *lsnr, int32 slot_id);
 
 #ifdef __cplusplus
 }

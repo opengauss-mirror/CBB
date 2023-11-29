@@ -44,8 +44,6 @@ __declspec(thread)error_info_t g_tls_error = { 0 };
 __thread error_info_t g_tls_error = { 0 };
 #endif
 
-#define CM_ERROR_COUNT 3000
-
 /*
  * one error no corresponds to one error desc
  * Attention: keep the array index same as error no
@@ -55,6 +53,7 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_ERRNO_BASE]               = "Normal, no error reported",
 
     [ERR_SYSTEM_CALL]              = "Secure C lib has thrown an error %d",
+    [ERR_RESET_MEMORY]             = "Reset memory error %s",
     [ERR_ALLOC_MEMORY_REACH_LIMIT] = "Have reach the memory limit %lld",
     [ERR_ALLOC_MEMORY]             = "Failed to allocate %llu bytes for %s",
     [ERR_LOAD_LIBRARY]             = "Failed to load library '%s': error code %d",
@@ -83,6 +82,7 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_COMPRESS_ERROR]           = "%s failed to compress, errno=%d, %s",
     [ERR_DECOMPRESS_ERROR]         = "%s failed to decompress, errno=%d, %s",
     [ERR_COMPRESS_FREE_ERROR]      = "%s failed to free stream context, errno=%d, %s",
+    [ERR_NULL_PTR]                 = "Null pointer error",
     [ERR_MEM_ZONE_INIT_FAIL]       = "Failed to init buddy memory zone",
     [ERR_MEM_OUT_OF_MEMORY]        = "Failed to allocate %llu bytes from buddy memory pool",
     [ERR_CREATE_EVENT]             = "Failed to initialize event notification, error code %d",
@@ -111,7 +111,10 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_SCSI_LOCK_OCCUPIED] = "The lock is already occupied",
     [ERR_SCSI_REG_CONFLICT] = "Register conflict, rk %llu",
     /* invalid configuration errors: 200 - 299 */
+    [ERR_INIT_LOGGER]              = "Failed to init logger module",
     [ERR_PARSE_CFG_STR]            = "Failed to parse dcf_config, the cfg_str is %s",
+    [ERR_PARAMETERS]               = "Parameter error, the param type: %s",
+    [ERR_READ_BY_KEY]              = "Failed to read by key, errno %d",
     // network errors 300~399
     [ERR_PACKET_READ]              = "Receive packet has no more data to read, packet size: %u, offset: %u, read: %u",
     [ERR_PACKET_SEND]              = "Send packet has no more space to put data, buff size: %u, head size: %u, "

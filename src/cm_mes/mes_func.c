@@ -26,17 +26,22 @@
 #include "cm_memory.h"
 #include "cm_spinlock.h"
 #include "cs_tcp.h"
+#include "mes_tcp.h"
 #include "cm_date_to_text.h"
 #include "mes_rpc_dl.h"
 #include "mes_rpc_ulog4c.h"
 #include "cm_defs.h"
 #include "mes_metadata.h"
 #include "mes_interface.h"
+#include "mec_type.h"
+#include "mes_recv.h"
+
 
 mes_instance_t g_cbb_mes;
-static mes_callback_t g_cbb_mes_callback;
+mes_callback_t g_cbb_mes_callback;
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
+static spinlock_t g_profile_lock;
 
 static mes_global_ptr_t g_mes_ptr = {
     .g_cbb_mes_ptr = &g_cbb_mes,
@@ -49,7 +54,8 @@ static mes_global_ptr_t g_mes_ptr = {
 #define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
 #define MES_CONNETION_READY(inst_id) g_cbb_mes_callback.conn_ready_func(inst_id)
-#define MES_ALLOC_MSGITEM(queue) g_cbb_mes_callback.alloc_msgitem_func(queue)
+#define MES_ALLOC_MSGITEM(queue, is_send) g_cbb_mes_callback.alloc_msgitem_func(queue, is_send)
+
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
 
 // for ssl
@@ -60,10 +66,19 @@ static inline void mes_clean_recv_broadcast_msg(mes_waiting_room_t *room)
 {
     uint32 i;
     mes_message_t msg;
-    for (i = 0; i < CM_MAX_INSTANCES; i++) {
+    for (i = 0; i < MES_MAX_INSTANCES; i++) {
         if (room->broadcast_msg[i] != NULL) {
             MES_MESSAGE_ATTACH(&msg, room->broadcast_msg[i]);
             mes_release_message_buf(&msg);
+            room->broadcast_msg[i] = NULL;
+        }
+    }
+}
+
+static inline void mes_clean_broadcast_msg_ptr(mes_waiting_room_t *room)
+{
+    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
+        if (room->broadcast_msg[i] != NULL) {
             room->broadcast_msg[i] = NULL;
         }
     }
@@ -258,20 +273,33 @@ static inline void mes_copy_recv_broadcast_msg(mes_waiting_room_t *room, mes_msg
     }
 }
 
-static int mes_send_inter_buffer_list(mes_bufflist_t *buff_list)
+int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
 {
     int ret;
-    mes_message_t msg;
-    char *buffer;
+    char *buffer = NULL;
     uint32 pos = 0;
     uint32 total_len = 0;
+    mes_message_head_t *head = (mes_message_head_t *)((void*)buff_list->buffers[0].buf);
+    mes_priority_t priority = MES_PRIORITY(head->flags);
+    uint8 enable_compress_priority = MES_GLOBAL_INST_MSG.profile.enable_compress_priority;
+    bool32 send_directly = MES_GLOBAL_INST_MSG.profile.send_directly;
+    compress_algorithm_t algorithm = MES_GLOBAL_INST_MSG.profile.algorithm;
+
+    if (is_send && send_directly && (!cm_bitmap8_exist(&enable_compress_priority, priority) ||
+        algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL || head->size <= MES_MIN_COMPRESS_SIZE)) {
+        return MES_SEND_BUFFLIST(buff_list);
+    }
 
     for (int i = 0; i < buff_list->cnt; i++) {
         total_len += buff_list->buffers[i].len;
     }
 
-    buffer = mes_alloc_buf_item(total_len);
+    inst_type inst_id = is_send ? head->dst_inst : head->src_inst;
+    buffer = mes_alloc_buf_item(total_len, is_send, inst_id, priority);
     if (buffer == NULL) {
+        LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, alloc buf item failed, is_send:%u, src_inst:%u, dst_inst:%u, "
+                      "priority:%u",
+                      is_send, head->src_inst, head->dst_inst, priority);
         return ERR_MES_MALLOC_FAIL;
     }
 
@@ -279,21 +307,27 @@ static int mes_send_inter_buffer_list(mes_bufflist_t *buff_list)
         ret = memcpy_s(buffer + pos, total_len - pos, buff_list->buffers[i].buf, buff_list->buffers[i].len);
         if (ret != EOK) {
             mes_free_buf_item(buffer);
+            LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, memcpy_s failed, is_send:%u, src_inst:%u, dst_inst:%u, "
+                          "total_len:%u, priority:%u, ret:%d",
+                          is_send, head->src_inst, head->dst_inst, total_len, priority, ret);
             return ERR_MES_MEMORY_COPY_FAIL;
         }
         pos += buff_list->buffers[i].len;
+        if (total_len == pos) {
+            break;
+        }
     }
 
+    mes_message_t msg;
     MES_MESSAGE_ATTACH(&msg, buffer);
 
-    ret = mes_put_inter_msg(&msg);
-    if (ret != CM_SUCCESS) {
+    ret = mes_put_msg_queue(&msg, is_send);
+    if (ret != CM_SUCCESS || (MES_GLOBAL_INST_MSG.profile.send_directly && is_send)) {
         mes_free_buf_item(buffer);
-        LOG_RUN_ERR("[mes] send inner failed.");
         return ret;
     }
 
-    return CM_SUCCESS;
+    return ret;
 }
 
 static inline void mes_append_bufflist(mes_bufflist_t *buff_list, const void *buff, uint32 len)
@@ -316,135 +350,217 @@ static void mes_clean_session_mutex(uint32 ceil)
     MES_GLOBAL_INST_MSG.mes_ctx.creatWaitRoom = CM_FALSE;
 }
 
-static inline int mes_set_addr(uint32 inst_id, const char *ip, uint16 port)
+static int mes_set_addr(uint32 index, const mes_addr_t *inst_net_addr)
 {
-    errno_t ret = strncpy_s(MES_GLOBAL_INST_MSG.profile.inst_net_addr[inst_id].ip, CM_MAX_IP_LEN, ip, strlen(ip));
-    if (ret != EOK) {
-        return ERR_MES_STR_COPY_FAIL;
+    errno_t ret;
+    inst_type inst_id = inst_net_addr->inst_id;
+    char *ip = (char *)inst_net_addr->ip;
+    char *secondary_ip = (char *)inst_net_addr->secondary_ip;
+    unsigned short port = inst_net_addr->port;
+    unsigned char need_connect = inst_net_addr->need_connect;
+
+    if (!CM_IS_EMPTY_STR(ip) && cm_check_ip_valid(ip)) {
+        ret = strncpy_s(MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].ip, CM_MAX_IP_LEN, ip, strlen(ip));
+        if (ret != EOK) {
+            LOG_DEBUG_ERR("[mes] mes_set_addr, strncpy_s ip failed, inst_id:%u, ip:%s, port:%u", inst_id, ip, port);
+            return ERR_MES_STR_COPY_FAIL;
+        }
+    } else {
+        ret = memset_sp(MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].ip, CM_MAX_IP_LEN, 0, CM_MAX_IP_LEN);
+        if (ret != EOK) {
+            LOG_DEBUG_ERR("[mes] mes_set_addr, memset_sp ip failed, inst_id:%u", inst_id);
+            return ERR_MES_STR_COPY_FAIL;
+        }
     }
-    MES_GLOBAL_INST_MSG.profile.inst_net_addr[inst_id].port = port;
+
+    if (!CM_IS_EMPTY_STR(secondary_ip) && cm_check_ip_valid(secondary_ip)) {
+        ret = strncpy_s(MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].secondary_ip, CM_MAX_IP_LEN,
+                        secondary_ip, strlen(secondary_ip));
+        if (ret != EOK) {
+            LOG_DEBUG_ERR("[mes] mes_set_addr, strncpy_s secondary_ip failed, inst_id:%u, secondary_ip:%s, port:%u",
+                          inst_id, secondary_ip, port);
+            return ERR_MES_STR_COPY_FAIL;
+        }
+    } else {
+        ret = memset_sp(MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].secondary_ip, CM_MAX_IP_LEN, 0, CM_MAX_IP_LEN);
+        if (ret != EOK) {
+            LOG_DEBUG_ERR("[mes] mes_set_addr, memset_sp ip failed, inst_id:%u", inst_id);
+            return ERR_MES_STR_COPY_FAIL;
+        }
+    }
+
+    MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].port = port;
+    MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].inst_id = inst_id;
+    MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].need_connect = need_connect;
     return CM_SUCCESS;
 }
 
-static int mes_set_instance_info(uint32 inst_id, uint32 inst_cnt, const mes_addr_t *inst_net_addr)
+static int mes_set_instance_info(inst_type inst_id, uint32 inst_cnt, const mes_addr_t *inst_net_addrs)
 {
     int ret;
-    if (inst_id >= CM_MAX_INSTANCES) {
-        LOG_RUN_ERR("inst_id %u is invalid, exceed max instance num %u.", inst_id, CM_MAX_INSTANCES);
+    uint32 i;
+    if (inst_id >= MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes] inst_id %u is invalid, exceed max instance num %u.", inst_id, MES_MAX_INSTANCES);
         return ERR_MES_PARAM_INVALID;
     }
 
-    if (inst_cnt > CM_MAX_INSTANCES) {
-        LOG_RUN_ERR("instinst_count_id %u is invalid, exceed max instance num %u.", inst_cnt, CM_MAX_INSTANCES);
+    if (inst_cnt > MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes] inst_count %u is invalid, exceed max instance num %u.", inst_cnt, MES_MAX_INSTANCES);
         return ERR_MES_PARAM_INVALID;
     }
 
-    MES_GLOBAL_INST_MSG.profile.inst_id = inst_id;
-    MES_GLOBAL_INST_MSG.profile.inst_cnt = inst_cnt;
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    cm_spin_lock(&g_profile_lock, NULL);
+    profile->inst_id = inst_id;
+    profile->inst_cnt = 0;
 
-    ret = memset_sp(MES_GLOBAL_INST_MSG.profile.inst_net_addr, (sizeof(mes_addr_t) * CM_MAX_INSTANCES), 0,
-        (sizeof(mes_addr_t) * CM_MAX_INSTANCES));
+    ret = memset_sp(profile->inst_net_addr, (sizeof(mes_addr_t) * MES_MAX_INSTANCES), 0,
+                    (sizeof(mes_addr_t) * MES_MAX_INSTANCES));
     if (ret != EOK) {
+        cm_spin_unlock(&g_profile_lock);
+        LOG_RUN_ERR("[mes] mes_set_instance_info, memset_sp failed.");
         return ERR_MES_MEMORY_SET_FAIL;
     }
+    for (i = 0; i < MES_MAX_INSTANCES; i++) {
+        profile->inst_net_addr[i].inst_id = MES_MAX_INSTANCES;
+    }
 
-    for (uint32 i = 0; i < inst_cnt; i++) {
-        ret = mes_set_addr(i, inst_net_addr[i].ip, inst_net_addr[i].port);
+    for (i = 0; i < inst_cnt; i++) {
+        ret = mes_set_addr(i, &inst_net_addrs[i]);
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes]mes_set_addr failed.");
+            cm_spin_unlock(&g_profile_lock);
+            LOG_RUN_ERR("[mes] mes_set_instance_info, mes_set_addr failed.");
             return ret;
         }
     }
+
+    profile->inst_cnt = inst_cnt;
+    cm_spin_unlock(&g_profile_lock);
     return CM_SUCCESS;
 }
 
-static int mes_set_group_task_worker_num(mes_task_group_id_t group_id, uint32 task_num)
+static void mes_set_priority_num(uint32 priority_cnt)
 {
-    mes_task_group_t *task_group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[group_id];
+    if (priority_cnt < MES_MIN_PRIORITY_NUM) {
+        MES_GLOBAL_INST_MSG.profile.priority_cnt = MES_MIN_PRIORITY_NUM;
+        LOG_RUN_WAR("[mes] min priority num is %u.", MES_MIN_PRIORITY_NUM);
+    } else if (priority_cnt > MES_MAX_PRIORITY_NUM) {
+        MES_GLOBAL_INST_MSG.profile.priority_cnt = MES_MAX_PRIORITY_NUM;
+        LOG_RUN_WAR("[mes] max priority num is %u.", MES_MAX_PRIORITY_NUM);
+    } else {
+        MES_GLOBAL_INST_MSG.profile.priority_cnt = priority_cnt;
+    }
+
+    LOG_RUN_INF("[mes] set priority num %u.", MES_GLOBAL_INST_MSG.profile.priority_cnt);
+}
+
+static int mes_set_priority_task_worker_num(mes_priority_t priority, uint32 task_num, bool32 is_send)
+{
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority];
 
     if (task_num == 0) {
-        LOG_RUN_WAR("[mes]: group_id %u set task_num 0.", group_id);
+        LOG_RUN_WAR("[mes] priority %u set task_num 0, is_send:%u.", priority, is_send);
         return CM_SUCCESS;
     }
 
-    if (task_group->is_set) {
-        LOG_RUN_ERR("[mes]: group_id %u has been set already.", group_id);
-        return ERR_MES_THE_GROUP_SETED;
+    if (task_priority->is_set) {
+        LOG_RUN_ERR("[mes] priority %u has been set already, is_send:%u.", priority, is_send);
+        return ERR_MES_THE_PRIORITY_SETED;
     }
 
-    if ((MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx + task_num) > MES_GLOBAL_INST_MSG.mq_ctx.task_num) {
-        LOG_RUN_ERR("[mes]: group %u task num %u has excced total task num.", group_id, task_num);
+    if ((mq_ctx->priority.assign_task_idx + task_num) > mq_ctx->task_num) {
+        LOG_RUN_ERR("[mes] priority %u task num %u has exceed total task num, is_send:%u.",
+                    priority, task_num, is_send);
         return ERR_MES_PARAM_INVALID;
     }
 
-    task_group->push_cursor = 0;
-    task_group->pop_cursor = 0;
-    task_group->group_id = group_id;
-    task_group->task_num = (uint8)task_num;
-    task_group->start_task_idx = (uint8)MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx;
-    MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx += task_num;
-    task_group->is_set = CM_TRUE;
+    task_priority->push_cursor = 0;
+    task_priority->pop_cursor = 0;
+    task_priority->is_set = CM_TRUE;
+    task_priority->task_num = (uint8)task_num;
+    task_priority->start_task_idx = (uint8)mq_ctx->priority.assign_task_idx;
+    task_priority->priority = priority;
+    mq_ctx->priority.assign_task_idx += task_num;
 
-    LOG_RUN_INF("[mes]: set group %u start_task_idx %hhu task num %u.",
-        group_id, task_group->start_task_idx, task_num);
-
-    return CM_SUCCESS;
-}
-
-int mes_send_inter_msg(const void *msg_data)
-{
-    int ret;
-    mes_message_t msg;
-    char *buffer;
-    mes_message_head_t *msgdata = (mes_message_head_t *)msg_data;
-
-    buffer = mes_alloc_buf_item(msgdata->size);
-    if (buffer == NULL) {
-        return ERR_MES_MALLOC_FAIL;
-    }
-
-    ret = memcpy_s(buffer, msgdata->size, msg_data, msgdata->size);
-    if (ret != EOK) {
-        mes_free_buf_item(buffer);
-        LOG_RUN_ERR("[mes] mes copy inter msg failed, msg_data size(%d).", msgdata->size);
-        return ERR_MES_MEMORY_SET_FAIL;
-    }
-
-    MES_MESSAGE_ATTACH(&msg, buffer);
-    ret = mes_put_inter_msg(&msg);
-    if (ret != CM_SUCCESS) {
-        mes_free_buf_item(buffer);
-        LOG_RUN_ERR("[mes] mes_put_inter_msg failed.");
-        return ret;
-    }
+    LOG_RUN_INF("[mes] set priority %u start_task_idx %hhu task num %u, is_send:%u.",
+                priority, task_priority->start_task_idx, task_num, is_send);
 
     return CM_SUCCESS;
 }
 
 static int mes_set_buffer_pool(const mes_profile_t *profile)
 {
-    uint32 pool_count = profile->buffer_pool_attr.pool_count;
-    uint32 queue_count = profile->buffer_pool_attr.queue_count;
+    for (uint32 priority = 0; priority < profile->priority_cnt; priority++) {
+        uint32 pool_count = profile->buffer_pool_attr[priority].pool_count;
+        uint32 queue_count = profile->buffer_pool_attr[priority].queue_count;
 
-    if ((pool_count == 0) || (pool_count > MES_MAX_BUFFPOOL_NUM)) {
-        LOG_RUN_ERR("[mes] pool_count %u is invalid, legal scope is [1, %d].", pool_count, MES_MAX_BUFFPOOL_NUM);
-        return CM_ERROR;
-    }
+        if ((pool_count == 0) || (pool_count > MES_MAX_BUFFPOOL_NUM)) {
+            LOG_RUN_ERR("[mes] pool_count %u is invalid, legal scope is [1, %d], priority:%u.",
+                        pool_count, MES_MAX_BUFFPOOL_NUM, priority);
+            return CM_ERROR;
+        }
 
-    if ((queue_count == 0) || (queue_count > MES_MAX_BUFFER_QUEUE_NUM)) {
-        LOG_RUN_ERR("[mes] pool_queue_count %u is invalid, legal scope is [1, %d].", queue_count,
-            MES_MAX_BUFFER_QUEUE_NUM);
-        return CM_ERROR;
-    }
+        if ((queue_count == 0) || (queue_count > MES_MAX_BUFFER_QUEUE_NUM)) {
+            LOG_RUN_ERR("[mes] pool_queue_count %u is invalid, legal scope is [1, %d], priority:%u.",
+                        queue_count, MES_MAX_BUFFER_QUEUE_NUM, priority);
+            return CM_ERROR;
+        }
 
-    MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count = pool_count;
-    MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.queue_count = queue_count;
+        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count = pool_count;
+        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].queue_count = queue_count;
 
-    for (uint32 i = 0; i < pool_count; i++) {
-        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.buf_attr[i] = profile->buffer_pool_attr.buf_attr[i];
+        for (uint32 i = 0; i < pool_count; i++) {
+            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size =
+                    profile->buffer_pool_attr[priority].buf_attr[i].size + sizeof(mes_message_head_t);
+            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].count =
+                    profile->buffer_pool_attr[priority].buf_attr[i].count;
+        }
     }
 
     return CM_SUCCESS;
+}
+
+void mes_set_specified_priority_enable_compress(mes_priority_t priority, bool8 enable_compress)
+{
+    uint8 enable_compress_priority = MES_GLOBAL_INST_MSG.profile.enable_compress_priority;
+    if (enable_compress) {
+        cm_bitmap8_set(&enable_compress_priority, (uint8)priority);
+    } else {
+        cm_bitmap8_clear(&enable_compress_priority, (uint8)priority);
+    }
+    MES_GLOBAL_INST_MSG.profile.enable_compress_priority = enable_compress_priority;
+    LOG_RUN_INF("[mes] set set specified priority %u enable_compress %u.", priority, enable_compress);
+}
+
+void mes_set_compress_algorithm(compress_algorithm_t algorithm)
+{
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    if (algorithm == profile->algorithm) {
+        return;
+    }
+
+    if (algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL) {
+        profile->algorithm = COMPRESS_NONE;
+    } else {
+        profile->algorithm = algorithm;
+    }
+    LOG_RUN_INF("[mes] set compress algorithm %u.", profile->algorithm);
+}
+
+void mes_set_compress_level(uint32 level)
+{
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    if (level == profile->compress_level) {
+        return;
+    }
+
+    if (level < MES_DEFAULT_COMPRESS_LEVEL || level > MES_MAX_COMPRESS_LEVEL) {
+        profile->compress_level = MES_DEFAULT_COMPRESS_LEVEL;
+    } else {
+        profile->compress_level = level;
+    }
+    LOG_RUN_INF("[mes] set compress algorithm level %u.", profile->compress_level);
 }
 
 static void mes_set_channel_num(uint32 channel_cnt)
@@ -463,25 +579,10 @@ static void mes_set_channel_num(uint32 channel_cnt)
     return;
 }
 
-static void mes_set_work_thread_num(uint32 thread_num)
-{
-    if (thread_num < MES_MIN_TASK_NUM) {
-        MES_GLOBAL_INST_MSG.profile.work_thread_cnt = MES_MIN_TASK_NUM;
-        LOG_RUN_WAR("[mes] min work thread num is %d.", MES_MIN_TASK_NUM);
-    } else if (thread_num > MES_MAX_TASK_NUM) {
-        MES_GLOBAL_INST_MSG.profile.work_thread_cnt = MES_MAX_TASK_NUM;
-        LOG_RUN_WAR("[mes] max work thread num is %d.", MES_MAX_TASK_NUM);
-    } else {
-        MES_GLOBAL_INST_MSG.profile.work_thread_cnt = thread_num;
-    }
-
-    LOG_RUN_INF("[mes] set work thread num %u.", MES_GLOBAL_INST_MSG.profile.work_thread_cnt);
-    return;
-}
-
 static int mes_set_profile(mes_profile_t *profile)
 {
     int ret;
+    GS_INIT_SPIN_LOCK(g_profile_lock);
     ret = mes_set_instance_info(profile->inst_id, profile->inst_cnt, profile->inst_net_addr);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes]: mes_set_instance_info failed.");
@@ -493,22 +594,41 @@ static int mes_set_profile(mes_profile_t *profile)
         LOG_RUN_ERR("[mes]: set buffer pool failed.");
         return ret;
     }
-
     MES_GLOBAL_INST_MSG.profile.pipe_type = profile->pipe_type;
     MES_GLOBAL_INST_MSG.profile.conn_created_during_init = profile->conn_created_during_init;
+    MES_GLOBAL_INST_MSG.profile.frag_size = profile->frag_size;
+    MES_GLOBAL_INST_MSG.profile.connect_timeout = profile->connect_timeout;
+    MES_GLOBAL_INST_MSG.profile.socket_timeout = profile->socket_timeout;
+    MES_GLOBAL_INST_MSG.profile.need_serial = profile->need_serial;
+    MES_GLOBAL_INST_MSG.profile.send_directly = profile->send_directly;
     mes_set_channel_num(profile->channel_cnt);
-    mes_set_work_thread_num(profile->work_thread_cnt);
+    mes_set_priority_num(profile->priority_cnt);
+    MES_GLOBAL_INST_MSG.profile.enable_compress_priority = profile->enable_compress_priority;
+    mes_set_compress_algorithm(profile->algorithm);
+    mes_set_compress_level(profile->compress_level);
 
-    ret = memcpy_sp(MES_GLOBAL_INST_MSG.profile.task_group, sizeof(MES_GLOBAL_INST_MSG.profile.task_group),
-        profile->task_group, sizeof(MES_GLOBAL_INST_MSG.profile.task_group));
+    ret = memcpy_sp(MES_GLOBAL_INST_MSG.profile.send_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.send_task_count), profile->send_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.send_task_count));
     if (ret != EOK) {
-        LOG_RUN_ERR("[mes]: set buffer pool failed.");
+        LOG_RUN_ERR("[mes]: set send_task_count failed.");
+        return ERR_MES_MEMORY_COPY_FAIL;
+    }
+    ret = memcpy_sp(MES_GLOBAL_INST_MSG.profile.recv_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.recv_task_count), profile->recv_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.recv_task_count));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes]: set recv_task_count failed.");
         return ERR_MES_MEMORY_COPY_FAIL;
     }
 
-    // mq
-    MES_GLOBAL_INST_MSG.mq_ctx.task_num = MES_GLOBAL_INST_MSG.profile.work_thread_cnt;
-    MES_GLOBAL_INST_MSG.mq_ctx.group.assign_task_idx = 0;
+    ret = memcpy_sp(MES_GLOBAL_INST_MSG.profile.work_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.work_task_count), profile->work_task_count,
+                    sizeof(MES_GLOBAL_INST_MSG.profile.work_task_count));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes]: set work_task_count failed.");
+        return ERR_MES_MEMORY_COPY_FAIL;
+    }
 
     // pipe work method and bind core
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_use_busypoll = profile->rdma_rpc_use_busypoll;
@@ -516,7 +636,7 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_bind_core_start = profile->rdma_rpc_bind_core_start;
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_bind_core_end = profile->rdma_rpc_bind_core_end;
     ret = strncpy_sp(MES_GLOBAL_INST_MSG.profile.ock_log_path, MES_MAX_LOG_PATH, profile->ock_log_path,
-        MES_MAX_LOG_PATH - 1);
+                     MES_MAX_LOG_PATH - 1);
     if (ret != EOK) {
         LOG_RUN_ERR("[mes]: copy ock_log_path failed.");
         return ERR_MES_MEMORY_COPY_FAIL;
@@ -533,7 +653,7 @@ static int mes_init_session_room(void)
     mes_waiting_room_t *room = NULL;
     mes_room_freelist_t *wr_freelist = NULL;
     MES_GLOBAL_INST_MSG.mes_ctx.creatWaitRoom = CM_TRUE;
-    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
+    mes_waiting_room_pool_t *wrpool = &MES_WAITING_ROOM_POOL;
 
     MEMS_RETURN_IFERR(memset_s(wrpool, sizeof(mes_waiting_room_pool_t), 0, sizeof(mes_waiting_room_pool_t)));
 
@@ -578,14 +698,14 @@ static int mes_register_func(void)
         g_cbb_mes_callback.send_func = mes_tcp_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
         g_cbb_mes_callback.conn_ready_func = mes_tcp_connection_ready;
-        g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem_nolock;
+        g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         g_cbb_mes_callback.connect_func = mes_rdma_rpc_connect_handle;
         g_cbb_mes_callback.disconnect_func = mes_rdma_rpc_disconnect_handle;
         g_cbb_mes_callback.send_func = mes_rdma_rpc_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_rdma_rpc_send_bufflist;
         g_cbb_mes_callback.conn_ready_func = mes_rdma_rpc_connection_ready;
-        g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem_nolock;
+        g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     }
     return CM_SUCCESS;
 }
@@ -598,7 +718,7 @@ static int mes_init_conn(void)
         return ERR_MES_CONNTYPE_ERR;
     }
 
-    for (uint32 i = 0; i < CM_MAX_INSTANCES; i++) {
+    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
         conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[i];
         conn->is_connect = CM_FALSE;
         cm_init_thread_lock(&conn->lock);
@@ -616,24 +736,37 @@ static int mes_init_pipe_resource(void)
     return CM_ERROR;
 }
 
-static int mes_init_group_task(void)
+static int mes_init_priority_task(bool32 is_send)
 {
     int ret;
     uint32 loop;
     uint32 task_num = 0;
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    uint32 *task_priority =
+            is_send ? MES_GLOBAL_INST_MSG.profile.send_task_count : MES_GLOBAL_INST_MSG.profile.work_task_count;
+    uint32 priority_cnt = MES_GLOBAL_INST_MSG.profile.priority_cnt;
 
-    // check num
-    for (loop = 0; loop < MES_TASK_GROUP_ALL; loop++) {
-        task_num += MES_GLOBAL_INST_MSG.profile.task_group[loop];
+    for (loop = 0; loop < priority_cnt; loop++) {
+        if (task_priority[loop] == 0) {
+            task_priority[loop] = 1;
+        }
+        task_num += task_priority[loop];
     }
 
-    if (task_num != MES_GLOBAL_INST_MSG.mq_ctx.task_num) {
-        LOG_RUN_ERR("[mes] mes set group task num is not equal work thread num.");
-        return ERR_MES_GROUPTASK_NUM_ERR;
+    if (task_num > MES_MAX_TASK_NUM) {
+        return CM_ERROR;
     }
+    mq_ctx->task_num = task_num;
 
-    for (loop = 0; loop < MES_TASK_GROUP_ALL; loop++) {
-        ret = mes_set_group_task_worker_num((mes_task_group_id_t)loop, MES_GLOBAL_INST_MSG.profile.task_group[loop]);
+    for (loop = 0; loop < priority_cnt; loop++) {
+        if (task_priority[loop] < MES_MIN_TASK_NUM) {
+            if (is_send && MES_GLOBAL_INST_MSG.profile.send_directly) {
+                continue;
+            }
+            LOG_RUN_ERR("[mes] init priority task failed, priority %u task num is zero, is_send:%u", loop, is_send);
+            return CM_ERROR;
+        }
+        ret = mes_set_priority_task_worker_num((mes_priority_t)loop, task_priority[loop], is_send);
         if (ret != CM_SUCCESS) {
             return ret;
         }
@@ -641,18 +774,130 @@ static int mes_init_group_task(void)
     return CM_SUCCESS;
 }
 
+static int mes_start_work_thread_statically(bool32 is_send)
+{
+    bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
+    bool32 send_directly = MES_GLOBAL_INST_MSG.profile.send_directly;
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+
+    if (is_send && send_directly) {
+        return CM_SUCCESS;
+    }
+
+    for (uint32 loop = 0; loop < mq_ctx->task_num; loop++) {
+        GS_INIT_SPIN_LOCK(mq_ctx->work_thread_idx[loop].lock);
+        mq_ctx->work_thread_idx[loop].is_send = is_send;
+        mq_ctx->work_thread_idx[loop].mq_ctx = mq_ctx;
+        mq_ctx->work_thread_idx[loop].index = loop;
+        if (need_serial) {
+            mq_ctx->work_thread_idx[loop].is_start = CM_FALSE;
+            continue;
+        }
+        if (cm_event_init(&mq_ctx->work_thread_idx[loop].event) != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] create thread %u event failed, error code %d, is_send:%u.",
+                        loop, cm_get_os_error(), is_send);
+            return CM_ERROR;
+        }
+        if (cm_create_thread(mes_task_proc, 0, &mq_ctx->work_thread_idx[loop], &mq_ctx->tasks[loop].thread) !=
+            CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] create work thread %u failed, is_send:%u.", loop, is_send);
+            return ERR_MES_WORK_THREAD_FAIL;
+        }
+        mq_ctx->work_thread_idx[loop].is_start = CM_TRUE;
+        LOG_RUN_INF("[mes] mes_start_work_thread_statically, is_send:%u, index:%u", is_send, loop);
+    }
+
+    return CM_SUCCESS;
+}
+
+static int mes_init_mq_instance(bool32 is_send)
+{
+    int ret;
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    for (uint32 loop = 0; loop < MES_MAX_TASK_NUM; loop++) {
+        mq_ctx->tasks[loop].choice = 0;
+        mes_init_msgqueue(&mq_ctx->tasks[loop].queue);
+    }
+
+    mes_init_msgitem_pool(&mq_ctx->pool);
+    GS_INIT_SPIN_LOCK(mq_ctx->msg_pool_init_lock);
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (is_send && (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id)) {
+            continue;
+        }
+        for (uint32 priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
+            if (mes_init_message_pool(is_send, inst_id, priority) != CM_SUCCESS) {
+                for (uint32 k = 0; k < i; k++) {
+                    for (uint32 priority1 = 0; priority1 < priority; priority1++) {
+                        mes_destroy_message_pool(is_send, inst_id, priority1);
+                    }
+                }
+                return CM_ERROR;
+            }
+        }
+    }
+
+    mq_ctx->priority.assign_task_idx = 0;
+    ret = mes_init_priority_task(is_send);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes set send priority task num failed, is_send:%u.", is_send);
+        return ret;
+    }
+
+    ret = mes_start_work_thread_statically(is_send);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes start work thread statically failed, is_send:%u.", is_send);
+        return ret;
+    }
+    return CM_SUCCESS;
+}
+
+static int mes_init_mq()
+{
+    int ret;
+    mq_context_t *send_mq = &MES_GLOBAL_INST_MSG.send_mq;
+    mq_context_t *recv_mq = &MES_GLOBAL_INST_MSG.recv_mq;
+
+    ret = memset_s(send_mq, sizeof(mq_context_t), 0, sizeof(mq_context_t));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes] mes_init_mq memset send_mq failed.");
+        return CM_ERROR;
+    }
+    ret = memset_s(recv_mq, sizeof(mq_context_t), 0, sizeof(mq_context_t));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes] mes_init_mq memset recv_mq failed.");
+        return CM_ERROR;
+    }
+
+    send_mq->profile = &MES_GLOBAL_INST_MSG.profile;
+    send_mq->mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
+    recv_mq->profile = &MES_GLOBAL_INST_MSG.profile;
+    recv_mq->mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
+
+    ret = mes_init_mq_instance(CM_TRUE);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] init send mq instance failed.");
+        return ret;
+    }
+
+    ret = mes_init_mq_instance(CM_FALSE);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] init receive mq instance failed.");
+        return ret;
+    }
+    return CM_SUCCESS;
+}
 
 static int mes_init_resource(void)
 {
     int ret;
-    mes_init_msg_queue();
-    (void)mes_register_func();
-
-    ret = mes_init_group_task();
+    ret = mes_init_mq();
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes] mes set group task num failed.");
+        LOG_RUN_ERR("[mes] mes init mq failed.");
         return ret;
     }
+    (void)mes_register_func();
 
     ret = mes_init_conn();
     if (ret != CM_SUCCESS) {
@@ -662,14 +907,14 @@ static int mes_init_resource(void)
 
     ret = mes_init_session_room();
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("mes_init_session_room failed.");
+        LOG_RUN_ERR("[mes] mes_init_session_room failed.");
         return ret;
     }
 
     ret = mes_init_pipe_resource();
     if (ret != CM_SUCCESS) {
         mes_clean_session_mutex(CM_MAX_MES_ROOMS);
-        LOG_RUN_ERR("mes_init_session_room failed.");
+        LOG_RUN_ERR("[mes] mes_init_session_room failed.");
         return ret;
     }
 
@@ -678,9 +923,10 @@ static int mes_init_resource(void)
 
 static void mes_destroy_msgitem_pool(void)
 {
-    mes_free_msgitem_pool(&MES_GLOBAL_INST_MSG.mq_ctx.pool);
-    mes_init_msgitem_pool(&MES_GLOBAL_INST_MSG.mq_ctx.pool);
-    mes_init_msgqueue(&MES_GLOBAL_INST_MSG.mq_ctx.local_queue);
+    mes_free_msgitem_pool(&MES_GLOBAL_INST_MSG.send_mq.pool);
+    mes_init_msgitem_pool(&MES_GLOBAL_INST_MSG.send_mq.pool);
+    mes_free_msgitem_pool(&MES_GLOBAL_INST_MSG.recv_mq.pool);
+    mes_init_msgitem_pool(&MES_GLOBAL_INST_MSG.recv_mq.pool);
 }
 
 static inline void mes_close_libdl(void)
@@ -693,15 +939,15 @@ static inline void mes_close_libdl(void)
 
 static void mes_destroy_resource(void)
 {
-    mes_destory_message_pool();
+    mes_free_channel_msg_queue(CM_TRUE);
+    mes_free_channel_msg_queue(CM_FALSE);
     mes_free_channels();
-    mes_destroy_msgitem_pool();
     mes_clean_session_mutex(CM_MAX_MES_ROOMS);
     mes_close_libdl();
     return;
 }
 
-static inline mes_waiting_room_t* mes_ruid_get_room(unsigned long long ruid)
+static inline mes_waiting_room_t *mes_ruid_get_room(unsigned long long ruid)
 {
     unsigned long long rid = ((ruid_t *)(&ruid))->room_id;
     return (rid >= CM_MAX_MES_ROOMS) ? NULL : &MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[rid];
@@ -712,7 +958,7 @@ static inline bool8 ruid_matches_room_rsn(unsigned long long *ruid, unsigned lon
     return ((ruid_t *)ruid)->rsn == room_rsn;
 }
 
-static inline unsigned long long mes_room_get_ruid(mes_waiting_room_t* room)
+static inline unsigned long long mes_room_get_ruid(mes_waiting_room_t *room)
 {
     ruid_t res;
     res.room_id = room->room_index;
@@ -776,11 +1022,18 @@ void mes_notify_msg_recv(mes_message_t *msg)
     return;
 }
 
-void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_t *msg)
+void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
 {
+    if (mes_decompress(msg) != CM_SUCCESS) {
+        mes_release_message_buf(msg);
+        LOG_RUN_ERR("[mes] decompress msg failed, src:%u, dst:%u, size:%u, flag:%u.",
+                    msg->head->src_inst, msg->head->dst_inst, msg->head->size, msg->head->flags);
+        return;
+    }
+
     uint64 start_time = 0;
     mes_get_consume_time_start(&start_time);
-    mes_msgitem_t *msgitem;
+    mes_msgitem_t *msgitem = NULL;
 
     mes_recv_message_stat(msg);
 
@@ -790,7 +1043,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_
         return;
     }
 
-    msgitem = MES_ALLOC_MSGITEM(my_queue);
+    msgitem = MES_ALLOC_MSGITEM(my_queue, CM_FALSE);
     if (msgitem == NULL) {
         mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes]: alloc msgitem failed.");
@@ -799,25 +1052,25 @@ void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_
 
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
-    mes_put_msgitem_enqueue(msgitem);
+
+    uint32 work_index = 0;
+    mes_put_msgitem_enqueue(msgitem, CM_FALSE, &work_index);
     mes_consume_with_time(msg->head->cmd, MES_TIME_PUT_QUEUE, start_time);
-
-    return;
-}
-
-static int mes_start_work_thread(void)
-{
-    for (uint32 loop = 0; loop < MES_GLOBAL_INST_MSG.profile.work_thread_cnt; loop++) {
-        MES_GLOBAL_INST_MSG.mes_ctx.work_thread_idx[loop] = loop;
-        if (cm_create_thread(mes_task_proc, 0, &MES_GLOBAL_INST_MSG.mes_ctx.work_thread_idx[loop],
-            &MES_GLOBAL_INST_MSG.mq_ctx.tasks[loop].thread) != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes]create work thread %u failed.", loop);
-            return ERR_MES_WORK_THREAD_FAIL;
-        }
+    if (work_index == CM_INVALID_ID32 || work_index >= MES_MAX_TASK_NUM) {
+        mes_release_message_buf(msg);
+        LOG_RUN_ERR("[mes] mes_process_message, get work index failed.");
+        return;
     }
 
-    MES_GLOBAL_INST_MSG.mes_ctx.startWorkTh = CM_TRUE;
-    return CM_SUCCESS;
+    // need_serial = CM_TRUE, will start task dynamically
+    // else will event notify
+    if (mes_start_task_dynamically(CM_FALSE, work_index) != CM_SUCCESS) {
+        mes_release_message_buf(msg);
+        LOG_RUN_ERR("[mes] mes_process_message, start task failed.");
+        return;
+    }
+
+    return;
 }
 
 static int mes_start_listen_thread(void)
@@ -852,17 +1105,17 @@ static void mes_close_listen_thread(void)
     return;
 }
 
-static void mes_close_work_thread(void)
+static void mes_close_work_thread(bool32 is_send)
 {
-    if (!MES_GLOBAL_INST_MSG.mes_ctx.startWorkTh) {
-        return;
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    for (uint32 loop = 0; loop < mq_ctx->task_num; loop++) {
+        if (mq_ctx->work_thread_idx[loop].is_start) {
+            cm_close_thread(&mq_ctx->tasks[loop].thread);
+            cm_event_destory(&mq_ctx->work_thread_idx[loop].event);
+            mq_ctx->work_thread_idx[loop].is_start = CM_FALSE;
+            mes_init_msgqueue(&mq_ctx->tasks[loop].queue);
+        }
     }
-
-    for (uint32 loop = 0; loop < MES_GLOBAL_INST_MSG.profile.work_thread_cnt; loop++) {
-        cm_close_thread(&MES_GLOBAL_INST_MSG.mq_ctx.tasks[loop].thread);
-    }
-
-    MES_GLOBAL_INST_MSG.mes_ctx.startWorkTh = CM_FALSE;
     return;
 }
 
@@ -875,14 +1128,14 @@ static int mes_connect_by_profile(void)
 
     // channel connect
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        if (i == MES_GLOBAL_INST_MSG.profile.inst_id) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
             continue;
         }
 
-        ret = mes_connect(i, MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].ip,
-            MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].port);
+        ret = mes_connect(inst_id);
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes] conncect to instance %u failed.", i);
+            LOG_RUN_ERR("[mes] connect to instance %u failed.", inst_id);
             return ret;
         }
     }
@@ -895,18 +1148,18 @@ status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size)
     param_value_t keypwd;
 
     // check password which encrypted by CBB
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_PWD_PLAINTEXT, &keypwd));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_PWD_PLAINTEXT, &keypwd));
     if (keypwd.inter_pwd.cipher_len > 0) {
-        CM_RETURN_IFERR(cm_decrypt_pwd(&keypwd.inter_pwd, (uchar*)plain, &size));
+        CM_RETURN_IFERR(cm_decrypt_pwd(&keypwd.inter_pwd, (uchar *)plain, &size));
         ssl_cfg->key_password = plain;
         return CM_SUCCESS;
     }
 
     // check password which encrypted by RSM
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_PWD_CIPHERTEXT, &keypwd));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_PWD_CIPHERTEXT, &keypwd));
     if (!CM_IS_EMPTY_STR(keypwd.ext_pwd)) {
         if (usr_cb_decrypt_pwd == NULL) {
-            LOG_RUN_ERR("[MEC]user decrypt function has not registered");
+            LOG_RUN_ERR("[mes] user decrypt function has not registered");
             return CM_ERROR;
         }
         CM_RETURN_IFERR(usr_cb_decrypt_pwd(keypwd.ext_pwd, (unsigned int)strlen(keypwd.ext_pwd), plain, size));
@@ -933,7 +1186,7 @@ static void mes_deinit_ssl(void)
 
 static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
 {
-    char plain[CM_PASSWD_MAX_LEN + 1] = { 0 };
+    char plain[CM_PASSWD_MAX_LEN + 1] = {0};
 
     // verify ssl key password and KMC module
     if (mes_verify_ssl_key_pwd(ssl_cfg, plain, sizeof(plain) - 1) != CM_SUCCESS) {
@@ -945,14 +1198,14 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
     MES_GLOBAL_INST_MSG.ssl_acceptor_fd = cs_ssl_create_acceptor_fd(ssl_cfg);
     if (MES_GLOBAL_INST_MSG.ssl_acceptor_fd == NULL) {
         MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
-        LOG_RUN_ERR("[MEC]create ssl acceptor context failed");
+        LOG_RUN_ERR("[mes] create ssl acceptor context failed");
         return CM_ERROR;
     }
 
     // check cert expire
     if (mes_chk_ssl_cert_expire() != CM_SUCCESS) {
         MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
-        LOG_RUN_ERR("[MEC]check ssl cert failed");
+        LOG_RUN_ERR("[mes] check ssl cert failed");
         return CM_ERROR;
     }
 
@@ -960,7 +1213,7 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
     MES_GLOBAL_INST_MSG.ssl_connector_fd = cs_ssl_create_connector_fd(ssl_cfg);
     MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
     if (MES_GLOBAL_INST_MSG.ssl_connector_fd == NULL) {
-        LOG_RUN_ERR("[MEC]create ssl connector context failed");
+        LOG_RUN_ERR("[mes] create ssl connector context failed");
         return CM_ERROR;
     }
     return CM_SUCCESS;
@@ -968,35 +1221,34 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
 
 static status_t mes_init_ssl(void)
 {
-    ssl_config_t ssl_cfg = { 0 };
+    ssl_config_t ssl_cfg = {0};
     param_value_t ca, key, crl, cert, cipher;
 
     // Required parameters
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_CA, &ca));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CA, &ca));
     ssl_cfg.ca_file = ca.ssl_ca;
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_KEY, &key));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_KEY, &key));
     ssl_cfg.key_file = key.ssl_key;
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_CERT, &cert));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT, &cert));
     ssl_cfg.cert_file = cert.ssl_cert;
 
-    if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) ||
-        CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
-        LOG_RUN_WAR("SSL disabled: certificate file or private key file or CA certificate is not available.");
+    if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) || CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
+        LOG_RUN_WAR("[mes] SSL disabled: certificate file or private key file or CA certificate is not available.");
         LOG_ALARM(WARN_SSL_DIASBLED, "}");
         return CM_SUCCESS;
     }
 
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         if (mes_ockrpc_init_ssl() != CM_SUCCESS) {
-            LOG_RUN_ERR("[MEC]init ockrpc ssl failed");
+            LOG_RUN_ERR("[mes] init ockrpc ssl failed");
             return CM_ERROR;
         }
     }
 
     // Optional parameters
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_CRL, &crl));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CRL, &crl));
     ssl_cfg.crl_file = crl.ssl_crl;
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_CIPHER, &cipher));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CIPHER, &cipher));
     ssl_cfg.cipher = cipher.ssl_cipher;
 
     /* Require no public access to key file */
@@ -1010,18 +1262,30 @@ static status_t mes_init_ssl(void)
     }
 
     g_ssl_enable = CM_TRUE;
-    LOG_RUN_INF("[MEC]mes_init_ssl: ssl enable is %u.", (uint32)g_ssl_enable);
+    LOG_RUN_INF("[mes] mes_init_ssl, ssl enable is %u.", (uint32)g_ssl_enable);
     return CM_SUCCESS;
 }
 
 void mes_uninit(void)
 {
+    MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_INPROGRESS;
     mes_close_listen_thread();
-    mes_close_work_thread();
+    mes_stop_receivers();
+    mes_close_work_thread(CM_TRUE);
+    mes_close_work_thread(CM_FALSE);
+    mes_destroy_msgitem_pool();
+    mes_destroy_all_message_pool();
     mes_stop_channels();
+    mes_stop_heartbeat_thread();
     mes_destroy_resource();
     mes_deinit_ssl();
+    MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_DONE;
     (void)memset_s(&MES_GLOBAL_INST_MSG, sizeof(mes_instance_t), 0, sizeof(mes_instance_t));
+
+#ifndef WIN32
+    delete_thread_key();
+#endif
+
     return;
 }
 
@@ -1030,11 +1294,20 @@ int mes_init(mes_profile_t *profile)
     int ret;
 
     if (profile == NULL) {
-        LOG_RUN_ERR("[mes]: profile is NULL, init failed.");
+        LOG_RUN_ERR("[mes] profile is NULL, init failed.");
         return ERR_MES_PARAM_NULL;
     }
+
+#ifndef WIN32
+    static pthread_once_t once_key = PTHREAD_ONCE_INIT;
+    if (pthread_once(&once_key, create_compress_ctx) != 0) {
+        return CM_ERROR;
+    }
+#endif
+
     mes_init_stat(profile);
 
+    MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_NOT_BEGIN;
     do {
         ret = cm_start_timer(g_timer());
         if (ret != CM_SUCCESS) {
@@ -1056,7 +1329,7 @@ int mes_init(mes_profile_t *profile)
             break;
         }
 
-        ret = mes_start_work_thread();
+        ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_event_proc);
         if (ret != CM_SUCCESS) {
             break;
         }
@@ -1065,6 +1338,12 @@ int mes_init(mes_profile_t *profile)
         if (ret != CM_SUCCESS) {
             break;
         }
+
+        ret = mes_start_heartbeat_thread();
+        if (ret != CM_SUCCESS) {
+            break;
+        }
+        
         ret = mes_connect_by_profile();
     } while (0);
 
@@ -1073,7 +1352,7 @@ int mes_init(mes_profile_t *profile)
         return ret;
     }
 
-    LOG_RUN_INF("[mes]: mes_init success.");
+    LOG_RUN_INF("[mes] mes_init success.");
     return ret;
 }
 
@@ -1092,7 +1371,7 @@ static inline void mes_reinit_room(mes_waiting_room_t* room)
     room->req_count = 0;
     room->err_code = 0;
     room->msg_buf = NULL;
-    mes_clean_recv_broadcast_msg(room);
+    mes_clean_broadcast_msg_ptr(room);
     cm_spin_unlock(&room->lock);
 }
 
@@ -1100,8 +1379,8 @@ static mes_waiting_room_t *mes_alloc_room(void)
 {
     mes_waiting_room_t *room = NULL;
     uint32 free_idx;
-    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
-    mes_room_freelist_t* freelist = NULL;
+    mes_waiting_room_pool_t *wrpool = &MES_WAITING_ROOM_POOL;
+    mes_room_freelist_t *freelist = NULL;
     while (CM_TRUE) {
         free_idx = wrpool->next_freelist++ % CM_MAX_ROOM_FREELIST_NUM;
         freelist = &wrpool->room_freelists[free_idx];
@@ -1121,9 +1400,9 @@ static mes_waiting_room_t *mes_alloc_room(void)
 
 static inline void mes_free_room(mes_waiting_room_t *room)
 {
-    mes_waiting_room_pool_t* wrpool = &MES_WAITING_ROOM_POOL;
+    mes_waiting_room_pool_t *wrpool = &MES_WAITING_ROOM_POOL;
     uint32 free_idx = MES_ROOM_ID_TO_FREELIST_ID(room->room_index);
-    mes_room_freelist_t* freelist = &wrpool->room_freelists[free_idx];
+    mes_room_freelist_t *freelist = &wrpool->room_freelists[free_idx];
 
     mes_reinit_room(room);
     cm_spin_lock(&freelist->lock, NULL);
@@ -1138,12 +1417,18 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
     va_list apcopy;
     va_copy(apcopy, args);
 
+    if ((uint32)MES_PRIORITY(head->flags) >= MES_GLOBAL_INST_MSG.profile.priority_cnt) {
+        LOG_RUN_ERR("[mes] flag priority[%u] exceeds the configured number[%d].",
+                    MES_PRIORITY(head->flags), MES_GLOBAL_INST_MSG.profile.priority_cnt);
+        return CM_ERROR;
+    }
+
     buff_list.cnt = 0;
     mes_append_bufflist(&buff_list, head, sizeof(mes_message_head_t));
     for (uint32 i = 0; i < count; i++) {
         char *msg = (char *)va_arg(apcopy, char *);
         unsigned int size = (unsigned int)va_arg(apcopy, unsigned int);
-        if (SECUREC_UNLIKELY(size > MES_MESSAGE_BUFFER_SIZE)) {
+        if (SECUREC_UNLIKELY(size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
             MES_LOG_ERR_HEAD_EX(head, "message length exceeded");
             return ERR_MES_MSG_TOO_LARGE;
         }
@@ -1153,21 +1438,25 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
     va_end(apcopy);
 
     if (count == 0 || buff_list.cnt == 0) {
-        LOG_RUN_ERR("me send data x inner failed, msg data is NULL");
+        LOG_RUN_ERR("[mes] send data x inner failed, msg data is NULL");
         return ERR_MES_PARAM_NULL;
     }
 
-    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE)) {
+    if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
         MES_LOG_ERR_HEAD_EX(head, "message length exceeded");
         return ERR_MES_MSG_TOO_LARGE;
     }
 
-    if (head->dst_inst == MES_GLOBAL_INST_MSG.profile.inst_id) {
-        return mes_send_inter_buffer_list(&buff_list);
+    mes_context_t *mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
+    if (mes_ctx->phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+        LOG_DEBUG_ERR("[mes] mes_send_data_x_inner fail, not begin now. dest[%u], priority[%u]",
+                      head->dst_inst, MES_PRIORITY(head->flags));
+        return CM_ERROR;
     }
 
+    bool32 is_send = head->dst_inst == MES_MY_ID ? CM_FALSE : CM_TRUE;
     mes_get_consume_time_start(&start_stat_time);
-    int ret = MES_SEND_BUFFLIST(&buff_list);
+    int ret = mes_put_buffer_list_queue(&buff_list, is_send);
     if (ret == CM_SUCCESS) {
         mes_send_stat(head->cmd);
         mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
@@ -1194,16 +1483,15 @@ int mes_send_data_x(inst_type dest_inst, flag_type flag, unsigned int count, ...
     va_list args;
     va_start(args, count);
     mes_message_head_t head;
-    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
-        MES_MY_ID, dest_inst, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag, MES_MY_ID, dest_inst, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
     int ret = mes_send_data_x_inner(&head, count, args);
     va_end(args);
     return ret;
 }
 
-void mes_prepare_request(ruid_type* ruid)
+void mes_prepare_request(ruid_type *ruid)
 {
-    mes_waiting_room_t* room = mes_alloc_room();
+    mes_waiting_room_t *room = mes_alloc_room();
     room->room_status = STATUS_PTP_SENT;
     *ruid = mes_room_get_ruid(room);
 }
@@ -1216,14 +1504,13 @@ int mes_forward_request_x(inst_type dest_inst, flag_type flag, ruid_type ruid, u
     va_list args;
     va_start(args, count);
     mes_message_head_t head;
-    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_FORWARD_REQ, flag,
-        MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_FORWARD_REQ, flag, MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
     int ret = mes_send_data_x_inner(&head, count, args);
     va_end(args);
     return ret;
 }
 
-int mes_send_request(inst_type dest_inst, flag_type flag, ruid_type* ruid, char* data, unsigned int size)
+int mes_send_request(inst_type dest_inst, flag_type flag, ruid_type *ruid, char *data, unsigned int size)
 {
     return mes_send_request_x(dest_inst, flag, ruid, 1, data, size);
 }
@@ -1232,7 +1519,7 @@ int mes_send_request(inst_type dest_inst, flag_type flag, ruid_type* ruid, char*
  * synchronous p2p message passing with multi-body message
  * mes_send_data is a special case with 1-body message
  */
-int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type* ruid, unsigned int count, ...)
+int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type *ruid, unsigned int count, ...)
 {
     *ruid = 0;
     MES_RETURN_IF_BAD_MSG_COUNT(count);
@@ -1245,8 +1532,7 @@ int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type* ruid, uns
 
     va_list args;
     va_start(args, count);
-    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag,
-        MES_MY_ID, dest_inst, *ruid, MES_MSG_HEAD_SIZE);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag, MES_MY_ID, dest_inst, *ruid, MES_MSG_HEAD_SIZE);
     int ret = mes_send_data_x_inner(&head, count, args);
     va_end(args);
 
@@ -1258,7 +1544,7 @@ int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type* ruid, uns
     return ret;
 }
 
-int mes_send_response(inst_type dest_inst, flag_type flag, ruid_type ruid, char* data, unsigned int size)
+int mes_send_response(inst_type dest_inst, flag_type flag, ruid_type ruid, char *data, unsigned int size)
 {
     MES_RETURN_IF_BAD_RUID(ruid);
     return mes_send_response_x(dest_inst, flag, ruid, 1, data, size);
@@ -1277,8 +1563,7 @@ int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, uns
 
     va_list args;
     va_start(args, count);
-    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_ACK, flag,
-        MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
+    MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_ACK, flag, MES_MY_ID, dest_inst, ruid, MES_MSG_HEAD_SIZE);
     int ret = mes_send_data_x_inner(&head, count, args);
     va_end(args);
 
@@ -1357,8 +1642,8 @@ int mes_broadcast_x(flag_type flag, unsigned int count, ...)
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
         mes_message_head_t head;
-        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
-            MES_MY_ID, i, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag, MES_MY_ID, inst_id, MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
         ret = mes_send_data_x_inner(&head, count, args);
         if (ret != CM_SUCCESS) {
             continue;
@@ -1383,8 +1668,8 @@ int mes_broadcast_spx(inst_type* inst_list, unsigned int inst_count, flag_type f
 
     for (uint32 i = 0; i < inst_count; i++) {
         mes_message_head_t head;
-        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag,
-            MES_MY_ID, inst_list[i], MES_INVLD_RUID, MES_MSG_HEAD_SIZE);
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_ASYNC_MSG, flag, MES_MY_ID, inst_list[i], MES_INVLD_RUID,
+                              MES_MSG_HEAD_SIZE);
         ret = mes_send_data_x_inner(&head, count, args);
         if (ret != CM_SUCCESS) {
             continue;
@@ -1415,7 +1700,8 @@ int mes_broadcast_request_x(flag_type flag, ruid_type* ruid, unsigned int count,
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
         mes_message_head_t head;
-        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag, MES_MY_ID, i, *ruid, MES_MSG_HEAD_SIZE);
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        MES_INIT_MESSAGE_HEAD(&head, 0, MES_CMD_SYNCH_REQ, flag, MES_MY_ID, inst_id, *ruid, MES_MSG_HEAD_SIZE);
         ret = mes_send_data_x_inner(&head, count, args);
         if (ret != CM_SUCCESS) {
             /* room is only freed in paired get response api */
@@ -1503,15 +1789,23 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
     return CM_SUCCESS;
 }
 
-int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
+int mes_connect(inst_type inst_id)
 {
     int ret;
     mes_conn_t *conn;
 
-    if ((inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) || (inst_id >= CM_MAX_INSTANCES)) {
-        LOG_RUN_ERR("[mes]: connect inst_id %u failed, current inst_id %u.", inst_id,
-            MES_GLOBAL_INST_MSG.profile.inst_id);
+    if ((inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) || (inst_id >= MES_MAX_INSTANCES)) {
+        LOG_RUN_ERR("[mes]: connect inst_id %u failed, current inst_id %u.",
+                    inst_id, MES_GLOBAL_INST_MSG.profile.inst_id);
         return ERR_MES_PARAM_INVALID;
+    }
+
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id &&
+            !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+            LOG_RUN_WAR("[mes] do not need create connection, inst_id %u", inst_id);
+            return CM_SUCCESS;
+        }
     }
 
     conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
@@ -1526,32 +1820,242 @@ int mes_connect(unsigned int inst_id, const char *ip, unsigned short port)
     ret = MES_CONNECT(inst_id);
     if (ret != CM_SUCCESS) {
         cm_thread_unlock(&conn->lock);
-        LOG_RUN_ERR("[mes]: MES_CONNECT failed.");
+        LOG_RUN_ERR("[mes]: MES_CONNECT failed, inst_id:%u.", inst_id);
         return ret;
     }
 
     MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect = CM_TRUE;
     cm_thread_unlock(&conn->lock);
 
-    LOG_RUN_INF("[mes]: connect to instance %u, %s:%hu.", inst_id, ip, port);
+    LOG_RUN_INF("[mes]: connect to instance %u.", inst_id);
 
     return CM_SUCCESS;
 }
 
-int mes_add_instance(inst_type inst_id, char* ip, unsigned short port)
+static int mes_stop_old_secondary_ip_lsnr(tcp_lsnr_t *lsnr, char *old_secondary_ip)
 {
-    return mes_connect_single(inst_id, ip, port);
+    uint32 i, j;
+    inst_type inst_id;
+    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        char *ip = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].ip;
+        char *secondary_ip = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].secondary_ip;
+        if (CM_IS_EMPTY_STR(ip) && !CM_IS_EMPTY_STR(secondary_ip) && cm_check_ip_valid(secondary_ip)) {
+            for (j = 0; j < MES_GLOBAL_INST_MSG.profile.channel_cnt; j++) {
+                mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][j];
+                mes_close_channel(channel);
+            }
+        }
+    }
+
+    LOG_DEBUG_INF("[mes] mes_stop_old_secondary_ip_lsnr:old_secondary_ip %s", old_secondary_ip);
+
+    // stop lsnr
+    if (CM_IS_EMPTY_STR(lsnr->host[1])) {
+        LOG_DEBUG_INF("[mes] old host is already closed");
+        return CM_SUCCESS;
+    }
+    LOG_DEBUG_INF("[mes] mes_stop_old_secondary_ip_lsnr old_secondary_ip:%s, old host:%s",
+                  old_secondary_ip, lsnr->host[1]);
+    if (CM_STR_EQUAL(lsnr->host[1], old_secondary_ip)) {
+        int32 slot_id = lsnr->slots[1];
+        int fd = (int)lsnr->socks[slot_id];
+        LOG_DEBUG_INF("[mes] try to epoll ctl del, lsnr efd:%u, slot_id:%d, socks fd:%u", lsnr->epoll_fd, slot_id, fd);
+        if (epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_DEL, fd, NULL) != 0) {
+            LOG_RUN_ERR("[mes] remove socket from lsnr epoll failed, err code %u", cm_get_sock_error());
+            return CM_ERROR;
+        }
+        cs_close_one_lsnr_sock(lsnr, slot_id);
+        lsnr->host[1][0] = '\0';
+        LOG_DEBUG_INF("[mes] old secondary ip %s closed success", old_secondary_ip);
+    }
+    return CM_SUCCESS;
+}
+
+static int mes_update_secondary_ip_lsnr(unsigned int inst_cnt, const mes_addr_t *inst_net_addrs)
+{
+    uint32 cur_node_id = MES_MY_ID;
+    uint32 index = 0;
+    char *old_secondary_ip = NULL;
+    for (index = 0; index < MES_GLOBAL_INST_MSG.profile.inst_cnt; index++) {
+        if (MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].inst_id == cur_node_id) {
+            break;
+        }
+    }
+    if (index != MES_GLOBAL_INST_MSG.profile.inst_cnt) {
+        old_secondary_ip = MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].secondary_ip;
+    }
+    char *new_secondary_ip = NULL;
+    for (uint32 i = 0; i < inst_cnt; i++) {
+        if (inst_net_addrs[i].inst_id == cur_node_id) {
+            new_secondary_ip = (char *)inst_net_addrs[i].secondary_ip;
+            break;
+        }
+    }
+
+    tcp_lsnr_t *lsnr = (tcp_lsnr_t *)&MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp;
+    if (lsnr == NULL) {
+        LOG_DEBUG_ERR("[mes] mes_update_secondary_ip_lsnr lsnr is null");
+        return CM_ERROR;
+    }
+    if (!CM_IS_EMPTY_STR(old_secondary_ip) && !CM_IS_EMPTY_STR(new_secondary_ip) &&
+        cm_str_equal(old_secondary_ip, new_secondary_ip)) {
+        LOG_DEBUG_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s is equal, does not need update",
+                      old_secondary_ip, new_secondary_ip);
+        return CM_SUCCESS;
+    }
+
+    LOG_RUN_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s", old_secondary_ip, new_secondary_ip);
+    if (!CM_IS_EMPTY_STR(old_secondary_ip)) {
+        CM_RETURN_IFERR(mes_stop_old_secondary_ip_lsnr(lsnr, old_secondary_ip));
+    }
+
+    // create new socks
+    if (!CM_IS_EMPTY_STR(new_secondary_ip)) {
+        int32 slot_id;
+        if (cs_create_one_lsnr_sock(lsnr, new_secondary_ip, &slot_id) != CM_SUCCESS) {
+            cs_close_one_lsnr_sock(lsnr, slot_id);
+            LOG_DEBUG_ERR("[mes] create one lsnr sock failed, err code:%u", cm_get_os_error());
+            return CM_ERROR;
+        }
+        lsnr->slots[1] = slot_id;
+        struct epoll_event ev;
+        ev.events = EPOLLIN;
+        ev.data.fd = (int)(lsnr->socks[slot_id]);
+        LOG_DEBUG_INF("[mes] try to epoll ctl add, lsnr efd:%u, slot_id:%u, socks fd:%u",
+                      lsnr->epoll_fd, slot_id, ev.data.fd);
+        if (epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_ADD, ev.data.fd, &ev) != 0) {
+            cs_close_one_lsnr_sock(lsnr, slot_id);
+            LOG_DEBUG_ERR("[mes] add socket to lsnr epool fd failed, err code:%u", cm_get_os_error());
+            return CM_ERROR;
+        }
+        MEMS_RETURN_IFERR(strncpy_s(lsnr->host[1], CM_MAX_IP_LEN, new_secondary_ip, strlen(new_secondary_ip)));
+    }
+    return CM_SUCCESS;
+}
+
+int mes_add_instance(const mes_addr_t *inst_net_addr)
+{
+    int ret;
+    uint32 i = 0;
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    inst_type dst_inst = inst_net_addr->inst_id;
+
+    if (dst_inst >= MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes] mes_add_instance, invalid instance id %u", dst_inst);
+        return CM_ERROR;
+    }
+
+    cm_spin_lock(&g_profile_lock, NULL);
+    for (i = 0; i < profile->inst_cnt; i++) {
+        if (profile->inst_net_addr[i].inst_id == dst_inst) {
+            break;
+        }
+    }
+    ret = mes_set_addr(i, inst_net_addr);
+    if (SECUREC_UNLIKELY(ret != EOK)) {
+        cm_spin_unlock(&g_profile_lock);
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, ret);
+        LOG_RUN_ERR("[mes] mes_add_instance, mes_set_addr failed inst_id:%u.", dst_inst);
+        return ret;
+    }
+    if (i == profile->inst_cnt) {
+        profile->inst_cnt++;
+    }
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst] == NULL) {
+        cm_spin_unlock(&g_profile_lock);
+        LOG_RUN_ERR("[mes] mes_add_instance, inst %u channel is NULL", dst_inst);
+        return CM_ERROR;
+    }
+    cm_spin_unlock(&g_profile_lock);
+
+    if (MES_GLOBAL_INST_MSG.profile.inst_id == dst_inst) {
+        ret = mes_update_secondary_ip_lsnr(profile->inst_cnt, profile->inst_net_addr);
+        if (ret != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] mes_add_instance, update secondary ip failed inst %u", dst_inst);
+            return ret;
+        }
+    }
+
+    return mes_connect_single(dst_inst);
+}
+
+status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index)
+{
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        if (MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id == inst_id) {
+            *index = i;
+            return CM_SUCCESS;
+        }
+    }
+    return CM_ERROR;
+}
+
+int mes_connect_instance(inst_type inst_id)
+{
+    uint32 index;
+    if (mes_get_inst_net_add_index(inst_id, &index) != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes_connect_instance, invalid inst_id %u", inst_id);
+        return CM_ERROR;
+    }
+    MES_GLOBAL_INST_MSG.profile.inst_net_addr[index].need_connect = CM_TRUE;
+    return mes_connect_single(inst_id);
 }
 
 int mes_del_instance(inst_type inst_id)
 {
-    mes_disconnect(inst_id);
+    int ret;
+    uint32 i, j;
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    mes_addr_t *inst_net_addrs = profile->inst_net_addr;
+    cm_spin_lock(&g_profile_lock, NULL);
+    for (i = 0; i < profile->inst_cnt; i++) {
+        if (inst_net_addrs[i].inst_id == inst_id) {
+            break;
+        }
+    }
+    if (i == profile->inst_cnt) {
+        cm_spin_unlock(&g_profile_lock);
+        LOG_DEBUG_WAR("[mes] the instance %u to be deleted does not exist.", i);
+        return CM_SUCCESS;
+    }
+
+    for (j = i; j < profile->inst_cnt - 1; j++) {
+        ret = mes_set_addr(j, &inst_net_addrs[j+1]);
+        if (ret != CM_SUCCESS) {
+            cm_spin_unlock(&g_profile_lock);
+            LOG_RUN_ERR("[mes] mes_del_instance, mes_set_addr failed.");
+            return ret;
+        }
+    }
+
+    ret = memset_sp(&inst_net_addrs[profile->inst_cnt - 1], sizeof(mes_addr_t), 0, sizeof(mes_addr_t));
+    if (ret != EOK) {
+        cm_spin_unlock(&g_profile_lock);
+        LOG_RUN_ERR("[mes] mes_del_instance, memset_sp failed.");
+        return ERR_MES_MEMORY_SET_FAIL;
+    }
+    profile->inst_cnt--;
+    cm_spin_unlock(&g_profile_lock);
+
+    mes_disconnect_nowait(inst_id);
     return CM_SUCCESS;
 }
 
-void mes_disconnect_nowait(unsigned int inst_id)
+int mes_disconnect_instance(inst_type inst_id)
+{
+    mes_disconnect_nowait(inst_id);
+    return CM_SUCCESS;
+}
+
+void mes_disconnect_nowait(inst_type inst_id)
 {
     mes_conn_t *conn;
+
+    if (inst_id >= MES_MAX_INSTANCES) {
+        LOG_RUN_WAR("[mes]: mes_disconnect: inst_id %u invalid.", inst_id);
+        return;
+    }
 
     if (!MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
         LOG_RUN_WAR("[mes]: mes_disconnect: inst_id %u already disconnect.", inst_id);
@@ -1571,9 +2075,14 @@ void mes_disconnect_nowait(unsigned int inst_id)
     LOG_RUN_INF("[mes]: disconnect node %u.", inst_id);
 }
 
-void mes_disconnect(unsigned int inst_id)
+void mes_disconnect(inst_type inst_id)
 {
     mes_conn_t *conn;
+
+    if (inst_id >= MES_MAX_INSTANCES) {
+        LOG_RUN_WAR("[mes]: mes_disconnect: inst_id %u invalid.", inst_id);
+        return;
+    }
 
     if (!MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
         LOG_RUN_WAR("[mes]: mes_disconnect: inst_id %u already disconnect.", inst_id);
@@ -1593,9 +2102,76 @@ void mes_disconnect(unsigned int inst_id)
     LOG_RUN_INF("[mes]: disconnect node %u.", inst_id);
 }
 
-unsigned int mes_connection_ready(unsigned int inst_id)
+unsigned int mes_connection_ready(inst_type inst_id)
 {
     return MES_CONNETION_READY(inst_id);
+}
+
+static inline bool32 is_node_in_new_profile(inst_type inst_id)
+{
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id) {
+            return CM_TRUE;
+        }
+    }
+    return CM_FALSE;
+}
+
+static inline bool32 is_node_in_old_insts(inst_type inst_id, const uint32 *old_insts, uint32 old_node_count)
+{
+    for (uint32 i = 0; i < old_node_count; i++) {
+        if (inst_id == old_insts[i]) {
+            return CM_TRUE;
+        }
+    }
+    return CM_FALSE;
+}
+
+int mes_update_instance(unsigned int inst_cnt, const mes_addr_t *inst_net_addrs)
+{
+    uint32 i;
+    uint32 old_insts[MES_MAX_INSTANCES];
+    uint32 old_node_count = MES_GLOBAL_INST_MSG.profile.inst_cnt;
+    int ret = mes_update_secondary_ip_lsnr(inst_cnt, inst_net_addrs);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes update cross ip lsnr failed.");
+        return ret;
+    }
+    for (i = 0; i < old_node_count; i++) {
+        old_insts[i] = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+    }
+    ret = mes_set_instance_info(MES_GLOBAL_INST_MSG.profile.inst_id, inst_cnt, inst_net_addrs);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes_update_instance_info failed.");
+        return ret;
+    }
+    LOG_RUN_INF("[mes] update profile inst ok. old_node_count=%u, inst_count=%u",
+                old_node_count, MES_GLOBAL_INST_MSG.profile.inst_cnt);
+
+    /* connect added instance's pipe */
+    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        uint32 new_inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (is_node_in_old_insts(new_inst_id, old_insts, old_node_count) == CM_FALSE) {
+            LOG_DEBUG_INF("[mes] update profile, connect to new node %u", new_inst_id);
+            if (new_inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
+                continue;
+            }
+            if (mes_connect(new_inst_id) != CM_SUCCESS) {
+                LOG_DEBUG_INF("[mes] update profile, connect to new node %u failed", new_inst_id);
+                return CM_ERROR;
+            }
+        }
+    }
+
+    /* close removed instance's pipe */
+    if (old_node_count > inst_cnt) {
+        for (i = 0; i < old_node_count; i++) {
+            if (is_node_in_new_profile(old_insts[i]) == CM_FALSE) {
+                mes_disconnect_nowait(old_insts[i]);
+            }
+        }
+    }
+    return CM_SUCCESS;
 }
 
 int mes_send_bufflist(mes_bufflist_t *buff_list)
@@ -1603,86 +2179,42 @@ int mes_send_bufflist(mes_bufflist_t *buff_list)
     return MES_SEND_BUFFLIST(buff_list);
 }
 
-void mes_get_queue_count(int *queue_count)
+static int mes_get_queue_count_internal(const mq_context_t *mq_ctx, mes_priority_t priority)
 {
-    mes_task_group_t *task_group = NULL;
-    uint8 temp_count;
-
-    *queue_count = 0;
-    for (uint8 i = 0; i < MES_TASK_GROUP_ALL; i++) {
-        task_group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[i];
-        if (!task_group->is_set) {
-            continue;
-        }
-        temp_count = (task_group->task_num < MES_GROUP_QUEUE_NUM ? task_group->task_num : MES_GROUP_QUEUE_NUM);
-        (*queue_count) += temp_count;
+    if (mq_ctx == NULL) {
+        return 0;
     }
+    const mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority];
+    if (task_priority == NULL) {
+        return 0;
+    }
+
+    uint32 start_task_index = task_priority->start_task_idx;
+    uint32 end_task_index = start_task_index + task_priority->task_num;
+    uint32 total = 0;
+    for (uint32 i = start_task_index; i < end_task_index; i++) {
+        total += mq_ctx->tasks[i].queue.count;
+    }
+    return (int)total;
 }
 
-static int mes_send_inter_msg_in_queue(mes_message_head_t *msg_head, mes_msgqueue_t *queue)
+int mes_get_queue_count(bool8 is_send, mes_priority_t priority)
 {
-    mes_message_t msg;
-    char *buffer = NULL;
-    int ret = CM_SUCCESS;
-
-    buffer = mes_alloc_buf_item(msg_head->size);
-    if (buffer == NULL) {
-        return ERR_MES_MALLOC_FAIL;
+    if (is_send) {
+        return mes_get_queue_count_internal(&MES_GLOBAL_INST_MSG.send_mq, priority);
     }
-
-    ret = memcpy_s(buffer, msg_head->size, (char *)msg_head, msg_head->size);
-    if (ret != EOK) {
-        mes_free_buf_item(buffer);
-        LOG_RUN_ERR("[mes] mes copy inter msg failed, msg_data size(%d).", msg_head->size);
-        return ERR_MES_MEMORY_SET_FAIL;
-    }
-
-    MES_MESSAGE_ATTACH(&msg, buffer);
-    ret = mes_put_inter_msg_in_queue(&msg, queue);
-    if (ret != CM_SUCCESS) {
-        mes_free_buf_item(buffer);
-        LOG_RUN_ERR("[mes]mes_put_inter_msg_in_queue failed");
-        return ret;
-    }
-
-    return CM_SUCCESS;
+    return mes_get_queue_count_internal(&MES_GLOBAL_INST_MSG.recv_mq, priority);
 }
 
-/* Not available in new MES API */
-int mes_send_inter_msg_all_queue(mes_message_head_t *msg_head)
+void mes_release_msg(mes_msg_t *mes_msg)
 {
-    mes_task_group_t *task_group = NULL;
-    mes_msgqueue_t *queue = NULL;
-    uint8 temp_count;
-    int ret = CM_SUCCESS;
-
-    for (uint8 i = 0; i < MES_TASK_GROUP_ALL; i++) {
-        task_group = &MES_GLOBAL_INST_MSG.mq_ctx.group.task_group[i];
-        if (!task_group->is_set) {
-            continue;
-        }
-        temp_count = (task_group->task_num < MES_GROUP_QUEUE_NUM ? task_group->task_num : MES_GROUP_QUEUE_NUM);
-        for (uint8 j = 0; j < temp_count; j++) {
-            queue = &task_group->queue[j];
-            ret = mes_send_inter_msg_in_queue(msg_head, queue);
-            if (ret != CM_SUCCESS) {
-                LOG_RUN_ERR("[mes]mes_send_inter_msg_all_queue failed, group: %d, queue: %d", i, j);
-                return ret;
-            }
-        }
-    }
-
-    return CM_SUCCESS;
-}
-
-void mes_release_msg(mes_msg_t *msg)
-{
-    if (msg == NULL || msg->buffer == NULL) {
+    if (mes_msg == NULL || mes_msg->buffer == NULL) {
         return;
     }
 
-    char *buffer = (char *)(msg->buffer - MES_MSG_HEAD_SIZE);
+    char *buffer = (char *)(mes_msg->buffer - MES_MSG_HEAD_SIZE);
     mes_free_buf_item(buffer);
+    mes_msg->buffer = NULL;
     return;
 }
 
@@ -1700,6 +2232,7 @@ void mes_release_message_buf(mes_message_t *msg_buf)
     }
 
     mes_free_buf_item((char *)msg_buf->buffer);
+    msg_buf->buffer = NULL;
     return;
 }
 
@@ -1798,7 +2331,7 @@ int mes_set_param(const char *param_name, const char *param_value)
 int mes_chk_ssl_cert_expire(void)
 {
     param_value_t cert_notify;
-    CM_RETURN_IFERR(md_get_param(CBB_PARAM_SSL_CERT_NOTIFY_TIME, &cert_notify));
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT_NOTIFY_TIME, &cert_notify));
     ssl_ca_cert_expire(MES_GLOBAL_INST_MSG.ssl_acceptor_fd, (int32)cert_notify.ssl_cert_notify_time);
     return CM_SUCCESS;
 }
@@ -1835,4 +2368,29 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
     if (event_time != NULL) {
         *event_time = time;
     }
+}
+
+int mes_is_different_endian(inst_type dst_inst)
+{
+    int channel_id = MES_CALLER_TID_TO_CHANNEL_ID((uint32)MES_CURR_TID);
+    mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst][channel_id];
+    if (channel == NULL) {
+        return -1;
+    }
+    return CS_DIFFERENT_ENDIAN(channel->pipe[MES_PRIORITY_ZERO].send_pipe.options);
+}
+
+int mes_get_pipe_sock(cs_pipe_t *pipe)
+{
+    if (pipe->type == CS_TYPE_TCP) {
+        return (int)pipe->link.tcp.sock;
+    } else if (pipe->type == CS_TYPE_SSL) {
+        return (int)pipe->link.ssl.tcp.sock;
+    } else if (pipe->type == CS_TYPE_DOMAIN_SCOKET) {
+        return (int)pipe->link.uds.sock;
+    } else {
+        CM_ASSERT(0);
+    }
+    
+    return CM_ERROR;
 }

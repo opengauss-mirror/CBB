@@ -85,7 +85,6 @@ status_t cs_uds_connect(const char *server_path, const char *client_path, uds_li
     }
 
     cs_uds_build_addr(&link->remote, server_path);
-    cs_set_buffer_size(link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
     if (connect(link->sock, SOCKADDR(&link->remote), link->remote.salen) != 0) {
         return CM_ERROR;
     }

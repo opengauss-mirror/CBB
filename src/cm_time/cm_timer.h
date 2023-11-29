@@ -44,10 +44,12 @@ typedef struct st_gs_timer {
     volatile int64 host_tz_offset;  // host timezone offset (us)
     thread_t thread;
     bool32 init;
+    uint64 sleep_time;              // ns
 } gs_timer_t;
 
 
 status_t cm_start_timer(gs_timer_t *timer);
+status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time);
 void cm_close_timer(gs_timer_t *timer);
 gs_timer_t *g_timer(void);
 

@@ -29,15 +29,27 @@ extern "C" {
 #endif
 
 mes_thread_init_t g_cb_thread_init = NULL;
+mes_thread_deinit_t g_cb_thread_deinit = NULL;
 
 mes_thread_init_t get_mes_worker_init_cb(void)
 {
     return g_cb_thread_init;
 }
 
+mes_thread_deinit_t get_mes_worker_deinit_cb(void)
+{
+    return g_cb_thread_deinit;
+}
+
 int set_mes_worker_init_cb(mes_thread_init_t callback)
 {
     g_cb_thread_init = callback;
+    return 0;
+}
+
+int set_mes_worker_deinit_cb(mes_thread_deinit_t callback)
+{
+    g_cb_thread_deinit = callback;
     return 0;
 }
 

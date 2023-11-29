@@ -64,6 +64,7 @@ typedef struct st_log_param {
     uint32 log_file_permissions;
     uint32 log_bak_file_permissions;
     uint32 log_path_permissions;
+    volatile uint32 log_filename_format;
     volatile uint32 log_level;
     volatile uint32 log_backup_file_count;
     volatile uint32 audit_backup_file_count;
@@ -133,13 +134,15 @@ typedef void (*cm_log_write_func_t)(log_file_handle_t *log_file_handle, char *bu
 #define CM_MAX_LOG_FILE_COUNT       128                        // this value can not be larger than 128
 #define CM_MAX_LOG_FILE_COUNT_LARGER       1024
 #define CM_MAX_LOG_CONTENT_LENGTH   CM_MESSAGE_BUFFER_SIZE
-#define CM_MAX_LOG_HEAD_LENGTH      100     // UTC+8 2019-01-16 22:40:15.292|DCF|00000|140084283451136|INFO> 65
+#define CM_MAX_LOG_HEAD_LENGTH      100     // UTC+8 2019-01-16 22:40:15.292|CM|00000|140084283451136|INFO> 65
 #define CM_MAX_LOG_NEW_BUFFER_SIZE  1048576 // (1024 * 1024)
 #define CM_MAX_LOG_PERMISSIONS      777
 #define CM_DEF_LOG_PATH_PERMISSIONS 700
 #define CM_DEF_LOG_FILE_PERMISSIONS 600
-#define CM_LOG_COMPRESS_BUFSIZE     SIZE_M(10)
+
 #define CM_MAX_TIME_STRLEN            (uint32)(48)
+
+#define CM_LOG_COMPRESS_BUFSIZE     SIZE_M(10)
 
 log_file_handle_t *cm_log_logger_file(uint32 log_count);
 status_t cm_log_init(log_type_t log_type, const char *file_name);
@@ -149,7 +152,6 @@ void cm_log_set_path_permissions(uint16 val);
 void cm_log_set_file_permissions(uint16 val);
 void cm_log_open_file(log_file_handle_t *log_file_handle);
 void cm_dump_mem_in_blackbox(void *dump_addr, uint32 dump_len);
-
 void cm_write_audit_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 void cm_write_alarm_log(uint32 warn_id, const char *format, ...) CM_CHECK_FMT(2, 3);
 
@@ -164,10 +166,10 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 
 #define LOG_BLACKBOX_INF(format, ...)                                 \
-    do {                                                          \
-        if (LOG_ON) {                                             \
-            cm_write_blackbox_log(format, ##__VA_ARGS__);              \
-        }                                                         \
+    do {                                                              \
+        if (LOG_ON) {                                                 \
+            cm_write_blackbox_log(format, ##__VA_ARGS__);             \
+        }                                                             \
     } while (0)
 
 #define LOG_DEBUG_INF(format, ...)                                                                               \
@@ -206,6 +208,31 @@ void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
+    } while (0)
+
+// 10s print 5 times
+#define LOG_DEBUG_ERR_EX(format, ...)                                                                               \
+    do {                                                                                                            \
+        static thread_local_var uint64 log_count = 0;                                                               \
+        static thread_local_var uint64 pre_log_time = 0;                                                            \
+        static thread_local_var uint64 real_log_count = 0;                                                          \
+        log_count++;                                                                                                \
+        if (g_timer()->now - pre_log_time < 10000 * 1000) {                                                         \
+            if (real_log_count < 5) {                                                                               \
+                LOG_DEBUG_ERR(format, ##__VA_ARGS__);                                                               \
+                real_log_count++;                                                                                   \
+            }                                                                                  \
+        } else {                                                                                               \
+            if (log_count - real_log_count > 0) {                                                               \
+                LOG_DEBUG_ERR("discard: %llu.", log_count - real_log_count);                                    \
+            } else {                                                                                            \
+                LOG_DEBUG_ERR(format, ##__VA_ARGS__);                                                           \
+                real_log_count++;                                                                               \
+            }                                                                                                   \
+            pre_log_time = g_timer()->now;                                                                      \
+            log_count = 0;                                                                                      \
+            real_log_count = 0;                                                                                 \
+        }                                                                                                       \
     } while (0)
 
 #define LOG_RUN_INF(format, ...)                                                                                 \
@@ -349,6 +376,32 @@ void set_trace_key(uint64 tracekey);
 uint64 get_trace_key(void);
 bool8 is_trace_key(uint64 tracekey);
 void unset_trace_key(void);
+
+#define LOG_TIME_BEGIN(name) \
+uint64 __##name##begin = g_timer()->now
+
+#define LOG_TIME_END(name) \
+do { \
+    static thread_local_var uint64 __##name##total = 0; \
+    static thread_local_var uint64 __##name##count = 0; \
+    static thread_local_var uint64 __##name##pre_total = 0; \
+    static thread_local_var uint64 __##name##pre_count = 0; \
+    static thread_local_var uint64 __##name##log_time = 0; \
+    __##name##total += (g_timer()->now - __##name##begin); \
+    __##name##count++; \
+    if (g_timer()->now - __##name##log_time > 5*1000000) \
+    { \
+        __##name##log_time = g_timer()->now; \
+        uint64 __##name##this_total = __##name##total - __##name##pre_total; \
+        uint64 __##name##this_count = __##name##count - __##name##pre_count; \
+        __##name##pre_total = __##name##total; \
+        __##name##pre_count = __##name##count; \
+        LOG_PROFILE("[TIME][%u]%-30s%10llu(us),count:%10llu,avg:%10llu(us)", \
+            cm_get_current_thread_id(), \
+            #name, __##name##this_total, __##name##this_count, \
+            __##name##this_count == 0 ? 0 :__##name##this_total / __##name##this_count); \
+    } \
+} while(0);
 
 /*
  * warning id is composed of source + module + object + code

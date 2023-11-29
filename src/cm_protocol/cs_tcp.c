@@ -76,6 +76,12 @@ status_t cs_tcp_init(void)
     return CM_SUCCESS;
 }
 
+void cs_tcp_deinit()
+{
+    g_tcp_init_lock = 0;
+    g_tcp_inlockized = 0;
+}
+
 void cs_set_io_mode(socket_t sock, bool32 nonblock, bool32 nodelay)
 {
     tcp_option_t option;
@@ -363,7 +369,6 @@ status_t cs_tcp_connect(const char *host, uint16 port, tcp_link_t *link, const c
         }
     }
 
-    cs_set_buffer_size(link->sock, CM_TCP_DEFAULT_BUFFER_SIZE, CM_TCP_DEFAULT_BUFFER_SIZE);
     cs_set_conn_timeout(link->sock, sock_attr->connect_timeout);
     if (cs_tcp_connect_core(link, sock_attr) != CM_SUCCESS) {
         (void)cs_close_socket(link->sock);
@@ -514,12 +519,10 @@ status_t cs_tcp_send_timed(tcp_link_t *link, const char *buf, uint32 size, uint3
         CM_THROW_ERROR(ERR_PEER_CLOSED, "tcp");
         return CM_ERROR;
     }
-
     /* for most cases, all data are written by the following call */
     CM_RETURN_IFERR(cs_tcp_send(link, buf, size, &writen_size));
     remain_size = size - writen_size;
     offset = (uint32)writen_size;
-
     while (remain_size > 0) {
         CM_RETURN_IFERR(cs_tcp_wait(link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready));
 

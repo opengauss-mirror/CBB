@@ -90,7 +90,7 @@ status_t get_param_password(cbb_param_t param_type, const char *param_value, par
 status_t mes_chk_md_param(const char *param_name, const char *param_value,
                           cbb_param_t *param_type, param_value_t *out_value);
 status_t mes_set_md_param(cbb_param_t param_type, const param_value_t* param_value);
-status_t md_get_param(cbb_param_t param_type, param_value_t* param_value);
+status_t mes_md_get_param(cbb_param_t param_type, param_value_t* param_value);
 status_t mes_get_md_param_by_name(const char *param_name, char *param_value, unsigned int size);
 
 #ifdef __cplusplus

@@ -764,6 +764,13 @@ static status_t cs_ssl_set_cipher(SSL_CTX *ctx, const ssl_config_t *config, bool
         *is_using_tls13 = CM_TRUE;
     }
 
+    if (tls12_cipher_str != NULL) {
+        LOG_DEBUG_INF("[mes] tls12_cipher_str=%s", tls12_cipher_str);
+    }
+    if (tls13_cipher_str != NULL) {
+        LOG_DEBUG_INF("[mes] tls13_cipher_str=%s", tls13_cipher_str);
+    }
+
     if (tls12_cipher_str != NULL && SSL_CTX_set_cipher_list(ctx, tls12_cipher_str) != 1) {
         return CM_ERROR;
     }
@@ -965,7 +972,7 @@ static bool32 cs_ssl_should_retry(ssl_link_t *link, int32 ret, uint32 *wait_even
             *wait_event = CS_WAIT_FOR_WRITE;
             break;
         default:
-            LOG_DEBUG_ERR("[MEC]SSL read/write failed. SSL error: %d", ssl_err);
+            LOG_DEBUG_ERR("[mes] SSL read/write failed. SSL error: %d", ssl_err);
             cs_ssl_throw_error(ssl_err);
             ERR_clear_error();
             retry = CM_FALSE;
@@ -1006,12 +1013,12 @@ static status_t cs_ssl_wait_on_error(ssl_link_t *link, int32 ret, int32 timeout)
             if (v_result != X509_V_OK) {
                 err_msg = X509_verify_cert_error_string(v_result);
                 CM_THROW_ERROR_INHIBIT(LOG_INHIBIT_LEVEL4, ERR_SSL_VERIFY_CERT, err_msg);
-                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[MEC]SSL verify certificate failed: result code is %ld, %s",
+                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[mes] SSL verify certificate failed: result code is %ld, %s",
                     v_result, err_msg);
             } else {
                 err_msg = cs_ssl_last_err_string(err_buf, sizeof(err_buf));
                 CM_THROW_ERROR_INHIBIT(LOG_INHIBIT_LEVEL4, ERR_SSL_CONNECT_FAILED, err_msg);
-                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[MEC]SSL connect failed: SSL error %d, %s", ssl_err, err_msg);
+                LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[mes] SSL connect failed: SSL error %d, %s", ssl_err, err_msg);
             }
             ERR_clear_error();
             cs_ssl_set_sys_error(ssl_err);
@@ -1410,12 +1417,12 @@ static void cs_ssl_show_certs(SSL *ssl)
     X509 *cert = NULL;
     X509_NAME *cert_name = NULL;
 
-    LOG_DEBUG_INF("[MEC]SSL connection succeeded");
+    LOG_DEBUG_INF("[mes] SSL connection succeeded");
 
     cipher = SSL_get_current_cipher(ssl);
-    LOG_DEBUG_INF("[MEC]Using cipher: %s", (cipher == NULL) ? "NONE" : SSL_CIPHER_get_name(cipher));
+    LOG_DEBUG_INF("[mes] Using cipher: %s", (cipher == NULL) ? "NONE" : SSL_CIPHER_get_name(cipher));
 
-    LOG_DEBUG_INF("[MEC]Peer certificate:");
+    LOG_DEBUG_INF("[mes] Peer certificate:");
     cert = SSL_get_peer_certificate(ssl);
     if (cert != NULL) {
         cert_name = X509_get_subject_name(cert);
@@ -1428,7 +1435,7 @@ static void cs_ssl_show_certs(SSL *ssl)
         }
         X509_free(cert);
     } else {
-        LOG_DEBUG_INF("[MEC]Peer does not have certificate.");
+        LOG_DEBUG_INF("[mes] Peer does not have certificate.");
     }
     LOG_DEBUG_INF("\tSRV_TLS_VERSION: %s", SSL_get_version(ssl));
 #endif
@@ -1440,17 +1447,13 @@ status_t cs_ssl_accept_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     int32 tv = 0;
     SSL_CTX *ctx = NULL;
     SSL *ssl = NULL;
-    status_t status = CM_SUCCESS;
+    status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    if (ctx == NULL) {
-        return CM_ERROR;
-    }
+    CM_CHECK_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    if (ssl == NULL) {
-        return CM_ERROR;
-    }
+    CM_CHECK_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 
@@ -1489,17 +1492,13 @@ status_t cs_ssl_connect_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     int32 tv = 0;
     SSL_CTX *ctx = NULL;
     SSL *ssl = NULL;
-    status_t status = CM_SUCCESS;
+    status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    if (ctx == NULL) {
-        return CM_ERROR;
-    }
+    CM_CHECK_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    if (ssl == NULL) {
-        return CM_ERROR;
-    }
+    CM_CHECK_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 
@@ -1547,6 +1546,11 @@ status_t cs_ssl_send(ssl_link_t *link, const char *buf, uint32 size, int32 *send
 {
     int32 ret, err;
     uint32 wait_event;
+
+    if (link->ssl_sock == NULL) {
+        CM_THROW_ERROR(ERR_PEER_CLOSED_REASON, "ssl");
+        return CM_ERROR;
+    }
     SSL *ssl = SSL_SOCK(link->ssl_sock);
 
     if (size == 0) {
@@ -1631,6 +1635,11 @@ status_t cs_ssl_send_timed(ssl_link_t *link, const char *buf, uint32 size, uint3
 status_t cs_ssl_recv(ssl_link_t *link, char *buf, uint32 size, int32 *recv_size, uint32 *wait_event)
 {
     int32 ret, err;
+
+    if (link->ssl_sock == NULL) {
+        CM_THROW_ERROR(ERR_PEER_CLOSED_REASON, "ssl");
+        return CM_ERROR;
+    }
     SSL *ssl = SSL_SOCK(link->ssl_sock);
 
     if (size == 0) {

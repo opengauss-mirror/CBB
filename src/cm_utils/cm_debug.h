@@ -64,6 +64,12 @@ static inline void cm_assert(bool32 condition)
 #define CM_ASSERT(expr) ((void)(expr))
 #endif
 
+#ifdef WIN32
+#define CM_STATIC_ASSERT(cond) typedef char __static_assert_t[!!(cond)]
+#else
+#define CM_STATIC_ASSERT(cond) typedef char __static_assert_t[1 - 2*(!!!(cond))]
+#endif
+
 static inline void cm_exit(int32 exitcode)
 {
     _exit(exitcode);
@@ -76,7 +82,7 @@ static inline void cm_exit(int32 exitcode)
 #define CM_MAGIC_CHECK(obj_declare, obj_struct)                                         \
     do {                                                                                \
         if ((obj_declare) == NULL || ((obj_declare)->cm_magic != obj_struct##_MAGIC)) { \
-            LOG_RUN_ERR("[FATAL] DCF Halt!");                                    \
+            LOG_RUN_ERR("[FATAL] COMMON Halt!");                                    \
             CM_ASSERT(0);                                                               \
         }                                                                               \
     } while (0);
@@ -84,7 +90,7 @@ static inline void cm_exit(int32 exitcode)
 #define CM_MAGIC_CHECK_EX(obj_declare, obj_struct)                                      \
     do {                                                                                \
         if ((obj_declare) != NULL && ((obj_declare)->cm_magic != obj_struct##_MAGIC)) { \
-            LOG_RUN_ERR("[FATAL] DCF Halt!");                                    \
+            LOG_RUN_ERR("[FATAL] COMMON Halt!");                                    \
             CM_ASSERT(0);                                                               \
         }                                                                               \
     } while (0);

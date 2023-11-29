@@ -26,18 +26,39 @@
 
 #define RECV_MSG_POOL_FC_THRESHOLD 10
 
-static mes_buf_chunk_t *mes_get_buffer_chunk(uint32 len)
+static mes_buf_chunk_t *mes_get_buffer_chunk(uint32 len, bool32 is_send, uint32 inst_id, mes_priority_t priority)
 {
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
     mes_buf_chunk_t *chunk;
 
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.count; i++) {
-        chunk = &MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.chunk[i];
+    if (inst_id >= MES_MAX_INSTANCES || priority >= MES_PRIORITY_CEIL) {
+        LOG_RUN_ERR("[mes] mes_get_buffer_chunk failed, invalid inst_id[%u] or priority[%u], is_send:%u",
+                    inst_id, priority, is_send);
+        return NULL;
+    }
+
+    if (mq_ctx->msg_pool[inst_id][priority] == NULL) {
+        cm_spin_lock(&mq_ctx->msg_pool_init_lock, NULL);
+        if (mq_ctx->msg_pool[inst_id][priority] == NULL) {
+            if (mes_init_message_pool(is_send, inst_id, priority) != CM_SUCCESS) {
+                cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
+                LOG_RUN_ERR("[mes] mes_init_message_pool failed, inst_id:%u, priority:%u, is_send:%u",
+                            inst_id, priority, is_send);
+                return NULL;
+            }
+        }
+        cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
+    }
+
+    for (uint32 i = 0; i < mq_ctx->msg_pool[inst_id][priority]->count; i++) {
+        chunk = &mq_ctx->msg_pool[inst_id][priority]->chunk[i];
         if (len <= chunk->buf_size) {
             return chunk;
         }
     }
 
-    LOG_RUN_ERR("[mes]: There is not long enough buffer pool for %u.", len);
+    LOG_RUN_ERR("[mes] There is not long enough buffer pool for %u, is_send:%u, inst_id:%u, priority:%u.",
+                len, is_send, inst_id, priority);
     return NULL;
 }
 
@@ -59,7 +80,8 @@ void mes_init_buf_queue(mes_buf_queue_t *queue)
     queue->addr = NULL;
 }
 
-int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_no, uint32 buf_size, uint32 buf_count)
+int mes_create_buffer_queue(
+    mes_buf_queue_t *queue, mes_chunk_info_t chunk_info, uint8 queue_no, uint32 buf_size, uint32 buf_count)
 {
     uint64 mem_size;
     mes_buffer_item_t *buf_node;
@@ -74,7 +96,7 @@ int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_
 
     // init queue
     mes_init_buf_queue(queue);
-    queue->chunk_no = chunk_no;
+    queue->chunk_no = chunk_info.chunk_no;
     queue->queue_no = queue_no;
     queue->buf_size = buf_size;
     queue->count = buf_count;
@@ -95,12 +117,12 @@ int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_
     for (uint32 i = 1; i < buf_count; i++) {
         temp_buffer += buf_item_size;
         buf_node_next = (mes_buffer_item_t *)temp_buffer;
-        buf_node->chunk_no = chunk_no;
+        buf_node->chunk_info = chunk_info;
         buf_node->queue_no = queue_no;
         buf_node->next = buf_node_next;
         buf_node = buf_node_next;
     }
-    buf_node->chunk_no = chunk_no;
+    buf_node->chunk_info = chunk_info;
     buf_node->queue_no = queue_no;
     buf_node->next = NULL;
     queue->last = buf_node;
@@ -127,7 +149,7 @@ static void mes_set_buffer_queue_count(mes_buf_chunk_t *chunk, uint32 queue_num,
     return;
 }
 
-int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queue_num,
+int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, mes_chunk_info_t chunk_info, uint32 queue_num,
     const mes_buffer_attr_t *buf_attr)
 {
     errno_t ret;
@@ -151,7 +173,7 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
         return ERR_MES_MEMORY_SET_FAIL;
     }
 
-    chunk->chunk_no = (uint8)chunk_no;
+    chunk->chunk_no = (uint8)chunk_info.chunk_no;
     chunk->buf_size = buf_attr->size;
     chunk->queue_num = (uint8)queue_num;
     chunk->current_no = 0;
@@ -159,11 +181,11 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
     mes_set_buffer_queue_count(chunk, queue_num, buf_attr->count);
 
     for (uint32 i = 0; i < queue_num; i++) {
-        ret = mes_create_buffer_queue(&chunk->queues[i], (uint8)chunk_no, (uint8)i, buf_attr->size,
+        ret = mes_create_buffer_queue(&chunk->queues[i], chunk_info, (uint8)i, buf_attr->size,
             chunk->queues[i].count);
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes]: create buf queue failed.");
-            mes_destory_buffer_chunk(chunk);
+            mes_destroy_buffer_chunk(chunk);
             return ret;
         }
     }
@@ -171,7 +193,7 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queu
     return CM_SUCCESS;
 }
 
-void mes_destory_buffer_queue(mes_buf_queue_t *queue)
+void mes_destroy_buffer_queue(mes_buf_queue_t *queue)
 {
     if (queue == NULL || queue->addr == NULL) {
         return;
@@ -181,14 +203,14 @@ void mes_destory_buffer_queue(mes_buf_queue_t *queue)
     queue->addr = NULL;
 }
 
-void mes_destory_buffer_chunk(mes_buf_chunk_t *chunk)
+void mes_destroy_buffer_chunk(mes_buf_chunk_t *chunk)
 {
     if (chunk == NULL || chunk->queues == NULL) {
         return;
     }
 
     for (uint32 i = 0; i < chunk->queue_num; i++) {
-        mes_destory_buffer_queue(&chunk->queues[i]);
+        mes_destroy_buffer_queue(&chunk->queues[i]);
     }
 
     free(chunk->queues);
@@ -197,54 +219,97 @@ void mes_destory_buffer_chunk(mes_buf_chunk_t *chunk)
     return;
 }
 
-int mes_init_message_pool(void)
+int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority)
 {
     int ret;
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
 
-    if ((MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count == 0) ||
-        (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count > MES_MAX_BUFFPOOL_NUM)) {
-        LOG_RUN_ERR("[mes]: pool_count %u is invalid, legal scope is [1, %d].",
-            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count, MES_MAX_BUFFPOOL_NUM);
+    if (inst_id >= MES_MAX_INSTANCES || priority >= MES_PRIORITY_CEIL) {
+        LOG_RUN_ERR("[mes] mes_init_message_pool failed, invalid inst_id[%u] or priority[%u], is_send:%u.",
+                    inst_id, priority, is_send);
         return ERR_MES_PARAM_INVALID;
     }
 
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count; i++) {
-        ret = mes_create_buffer_chunk(&MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.chunk[i], i,
-            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.queue_count,
-            &MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.buf_attr[i]);
+    if ((MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count == 0) ||
+        (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count > MES_MAX_BUFFPOOL_NUM)) {
+        LOG_RUN_ERR("[mes] pool_count %u is invalid, legal scope is [1, %d], priority:%u, inst_id:%u, is_send:%u.",
+            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count, MES_MAX_BUFFPOOL_NUM, priority, inst_id,
+            is_send);
+        return ERR_MES_PARAM_INVALID;
+    }
+
+    size_t ctrl_size = sizeof(mes_pool_t);
+    mes_pool_t *cur_pool = (mes_pool_t *)malloc(ctrl_size);
+    if (cur_pool == NULL) {
+        LOG_RUN_ERR("[mes] malloc message pool ctrl failed.");
+        return CM_ERROR;
+    }
+    errno_t err = memset_s(cur_pool, ctrl_size, 0, ctrl_size);
+    if (err != EOK) {
+        CM_FREE_PTR(cur_pool);
+        LOG_RUN_ERR("[mes] memset message pool ctrl failed.");
+        return CM_ERROR;
+    }
+
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count; i++) {
+        mes_chunk_info_t chunk_info = {.inst_id = inst_id, .priority = priority, .chunk_no = i, .is_send = is_send};
+        ret = mes_create_buffer_chunk(&cur_pool->chunk[i], chunk_info,
+                                      MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].queue_count,
+                                      &MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i]);
         if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes]: create buf chunk failed.");
+            CM_FREE_PTR(cur_pool);
+            LOG_RUN_ERR("[mes] create buf chunk failed, priority:%u.", priority);
             return ret;
         }
     }
+    cur_pool->count = MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count;
+    mq_ctx->msg_pool[inst_id][priority] = cur_pool;
 
-    MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.count = MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count;
-    MES_GLOBAL_INST_MSG.mes_ctx.creatMsgPool = CM_TRUE;
     return CM_SUCCESS;
 }
 
-void mes_destory_message_pool(void)
+void mes_destroy_all_message_pool()
 {
-    if (!MES_GLOBAL_INST_MSG.mes_ctx.creatMsgPool) {
-        return;
-    }
+    uint32 i;
+    uint32 priority;
 
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.pool_count; i++) {
-        mes_destory_buffer_chunk(&MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.chunk[i]);
+    for (i = 0; i < MES_MAX_INSTANCES; i++) {
+        uint32 inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (inst_id >= MES_MAX_INSTANCES) {
+            continue;
+        }
+        for (priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
+            mes_destroy_message_pool(CM_TRUE, inst_id, priority);
+            mes_destroy_message_pool(CM_FALSE, inst_id, priority);
+        }
     }
-
-    MES_GLOBAL_INST_MSG.mes_ctx.creatMsgPool = CM_FALSE;
-    return;
 }
 
-char *mes_alloc_buf_item(uint32 len)
+void mes_destroy_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority)
+{
+    if (inst_id >= MES_MAX_INSTANCES || priority >= MES_PRIORITY_CEIL) {
+        LOG_RUN_WAR("[mes] mes_destroy_message_pool invalid inst_id[%u] or priority[%u]", inst_id, priority);
+        return;
+    }
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    mes_pool_t *msg_pool = mq_ctx->msg_pool[inst_id][priority];
+    if (msg_pool == NULL) {
+        return;
+    }
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count; i++) {
+        mes_destroy_buffer_chunk(&msg_pool->chunk[i]);
+    }
+    CM_FREE_PTR(mq_ctx->msg_pool[inst_id][priority]);
+}
+
+char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority)
 {
     mes_buf_chunk_t *chunk = NULL;
     mes_buf_queue_t *queue = NULL;
     mes_buffer_item_t *buf_node = NULL;
     uint32 find_times = 0;
 
-    chunk = mes_get_buffer_chunk(len);
+    chunk = mes_get_buffer_chunk(len, is_send, dst_inst, priority);
     if (chunk == NULL) {
         LOG_RUN_ERR("[mes]: Get buffer failed.");
         return NULL;
@@ -262,6 +327,7 @@ char *mes_alloc_buf_item(uint32 len)
             } else {
                 queue->first = buf_node->next;
             }
+            CM_ASSERT(buf_node != NULL);
             buf_node->next = NULL;
             cm_spin_unlock(&queue->lock);
             break;
@@ -278,20 +344,21 @@ char *mes_alloc_buf_item(uint32 len)
     return buf_node->data;
 }
 
-char *mes_alloc_buf_item_fc(uint32 len)
+char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority)
 {
     mes_buf_chunk_t *chunk = NULL;
     mes_buf_queue_t *queue = NULL;
     mes_buffer_item_t *buf_node = NULL;
     uint32 find_times = 0;
 
-    chunk = mes_get_buffer_chunk(len);
+    chunk = mes_get_buffer_chunk(len, is_send, dst_inst, priority);
     if (chunk == NULL) {
         LOG_RUN_ERR("[mes]: Get buffer failed.");
         return NULL;
     }
 
-    uint32_t count = MES_GLOBAL_INST_MSG.profile.buffer_pool_attr.buf_attr[chunk->chunk_no].count / chunk->queue_num;
+    uint32_t count =
+        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[chunk->chunk_no].count / chunk->queue_num;
 
     do {
         queue = mes_get_buffer_queue(chunk);
@@ -321,14 +388,13 @@ char *mes_alloc_buf_item_fc(uint32 len)
     return buf_node->data;
 }
 
-static void mes_release_buf_stat(const char *msg_buf)
+static void mes_release_buf_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        mes_message_head_t *head = (mes_message_head_t *)msg_buf;
-        cm_spin_lock(&(g_mes_stat.mes_command_stat[head->cmd].lock), NULL);
-        cm_atomic32_dec(&(g_mes_stat.mes_command_stat[head->cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_command_stat[head->cmd].lock));
-        mes_elapsed_stat(head->cmd, MES_TIME_PUT_BUF);
+        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
+        cm_atomic32_dec(&(g_mes_stat.mes_command_stat[cmd].occupy_buf));
+        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
+        mes_elapsed_stat(cmd, MES_TIME_PUT_BUF);
     }
     return;
 }
@@ -340,10 +406,27 @@ void mes_free_buf_item(char *buffer)
     }
 
     mes_buffer_item_t *buf_item = (mes_buffer_item_t *)(buffer - MES_BUFFER_ITEM_SIZE);
-    mes_buf_chunk_t *chunk = &MES_GLOBAL_INST_MSG.mes_ctx.msg_pool.chunk[buf_item->chunk_no];
+    mes_chunk_info_t chunk_info = buf_item->chunk_info;
+    mq_context_t *mq_ctx = chunk_info.is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    mes_pool_t *msg_pool = mq_ctx->msg_pool[chunk_info.inst_id][chunk_info.priority];
+    if (msg_pool == NULL) {
+        return;
+    }
+    mes_buf_chunk_t *chunk = &msg_pool->chunk[chunk_info.chunk_no];
+    if (chunk == NULL || chunk->queues == NULL) {
+        return;
+    }
     mes_buf_queue_t *queue = &chunk->queues[buf_item->queue_no];
+    if (queue == NULL) {
+        return;
+    }
 
+    uint32 cmd = 0;
     cm_spin_lock(&queue->lock, NULL);
+    if (buffer == NULL) {
+        cm_spin_unlock(&queue->lock);
+        return;
+    }
     if (queue->count > 0) {
         queue->last->next = buf_item;
         queue->last = buf_item;
@@ -354,7 +437,9 @@ void mes_free_buf_item(char *buffer)
 
     buf_item->next = NULL;
     queue->count++;
+    cmd = ((mes_message_head_t *)buffer)->cmd;
+    buffer = NULL;
     cm_spin_unlock(&queue->lock);
-    mes_release_buf_stat(buffer);
+    mes_release_buf_stat(cmd);
     return;
 }

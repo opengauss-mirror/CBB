@@ -161,7 +161,7 @@ status_t get_param_password(cbb_param_t param_type, const char *param_value, par
     return cm_encrypt_pwd((uchar *)param_value, (uint32)strlen(param_value), &out_value->inter_pwd);
 }
 
-status_t md_get_param(cbb_param_t param_type, param_value_t *param_value)
+status_t mes_md_get_param(cbb_param_t param_type, param_value_t *param_value)
 {
     if (param_type >= CBB_PARAM_CEIL) {
         return CM_ERROR;

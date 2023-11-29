@@ -14,11 +14,13 @@ include $(BASE_BUILD_PATH)/common.mk
 LDFLAGS += $(addprefix -L,$(3RD_LIB_PATH))
 LDFLAGS += -L${SECURE_LIB}
 LDFLAGS += -L${SSL_LIB}
-LIBS = -lpthread -ldl -lrt -Wl,--whole-archive -lsecurec -Wl,--no-whole-archive -lssl -lcrypto
+LDFLAGS += -L${LZ4_LIB}
+LIBS = -lpthread -ldl -lrt -llz4 -Wl,--whole-archive -lsecurec -Wl,--no-whole-archive -lssl -lcrypto
 
 
 SOURCE=$(wildcard ./*c ./cm_concurrency/*.c ./cm_defines/*.c ./cm_mes/*.c ./cm_network/*.c ./cm_protocol/*.c \
-./cm_security/*.c ./cm_struct/*.c ./cm_time/*.c ./cm_types/*.c ./cm_utils/*.c ./cm_utils/protocol/*.c ./cm_res/*.c ./ddes_json/*.c ./ddes_lexer/*.c ./ddes_perctrl/interface/*.c)
+./cm_security/*.c ./cm_struct/*.c ./cm_time/*.c ./cm_types/*.c ./cm_utils/*.c ./cm_utils/protocol/*.c ./cm_res/*.c \
+./ddes_json/*.c ./ddes_lexer/*.c ./ddes_perctrl/interface/*.c ./cm_compress/*.c ./cm_mec_adapter/*.c)
 
 OBJS = $(patsubst %.c,%.o,$(SOURCE))
 

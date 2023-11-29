@@ -102,6 +102,7 @@ status_t cs_tcp_recv(const tcp_link_t *link, char *buf, uint32 size, int32 *recv
 status_t cs_tcp_recv_timed(tcp_link_t *link, char *buf, uint32 size, uint32 timeout);
 status_t cs_tcp_wait(tcp_link_t *link, uint32 wait_for, int32 timeout, bool32 *ready);
 status_t cs_tcp_init(void);
+void cs_tcp_deinit();
 void cs_set_conn_timeout(socket_t sock, int32 time_out);
 
 #ifdef __cplusplus

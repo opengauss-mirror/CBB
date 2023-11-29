@@ -45,6 +45,8 @@ extern "C" {
 #define EPOLL_CTL_MOD 1
 #define EPOLL_CTL_DEL 2
 
+#define epoll_create epoll_create1
+
 typedef union epoll_data {
     void *ptr;
     int fd;

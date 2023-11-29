@@ -37,11 +37,18 @@ extern "C" {
 
 #define MES_MAX_BUFFER_QUEUE_NUM (0xFF)
 
+typedef struct st_mes_chunk_info {
+    inst_type inst_id;
+    mes_priority_t priority;
+    uint8 chunk_no;
+    bool8 is_send;
+} mes_chunk_info_t;
+
 typedef struct st_mes_buffer_item {
     struct st_mes_buffer_item *next;
-    uint8 chunk_no;
+    mes_chunk_info_t chunk_info;
     uint8 queue_no;
-    uint8 reserved[2];
+    uint8 reserved[1];
     char data[0];
 } mes_buffer_item_t;
 
@@ -72,6 +79,11 @@ typedef struct st_mes_buf_chunk {
     mes_buf_queue_t *queues;
 } mes_buf_chunk_t;
 
+typedef struct st_mes_pool {
+    uint32 count;
+    mes_buf_chunk_t chunk[MES_MAX_BUFFPOOL_NUM];
+} mes_pool_t;
+
 typedef struct st_message_pool {
     spinlock_t lock;
     spinlock_t *lock_arr;
@@ -84,16 +96,18 @@ typedef struct st_message_pool {
     int mr_id; // used for xnet register id
 } message_pool_t;
 
-int mes_init_message_pool(void);
-void mes_destory_message_pool(void);
+int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
+void mes_destroy_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
+void mes_destroy_all_message_pool(void);
 void mes_init_buf_queue(mes_buf_queue_t *queue);
-int mes_create_buffer_queue(mes_buf_queue_t *queue, uint8 chunk_no, uint8 queue_no, uint32 buf_size, uint32 buf_count);
-void mes_destory_buffer_queue(mes_buf_queue_t *queue);
-int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, uint32 chunk_no, uint32 queue_num,
+int mes_create_buffer_queue(
+    mes_buf_queue_t *queue, mes_chunk_info_t chunk_info, uint8 queue_no, uint32 buf_size, uint32 buf_count);
+void mes_destroy_buffer_queue(mes_buf_queue_t *queue);
+int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, mes_chunk_info_t chunk_info, uint32 queue_num,
     const mes_buffer_attr_t *buf_attr);
-void mes_destory_buffer_chunk(mes_buf_chunk_t *chunk);
-char *mes_alloc_buf_item(uint32 len);
-char *mes_alloc_buf_item_fc(uint32 len);
+void mes_destroy_buffer_chunk(mes_buf_chunk_t *chunk);
+char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
+char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 void mes_free_buf_item(char *buffer);
 
 #ifdef __cplusplus

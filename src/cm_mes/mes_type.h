@@ -96,16 +96,22 @@ typedef struct st_mes_bufflist {
     mes_buffer_t buffers[MES_MAX_BUFFERLIST];
 } mes_bufflist_t;
 
+#ifndef WIN32
+#define MES_CURR_TID (syscall(__NR_gettid))
+#else
+#define MES_CURR_TID (GetCurrentThreadId())
+#endif
+
 #define MES_INIT_MESSAGE_HEAD(head, v_version, v_cmd, v_flags, v_src_inst, v_dst_inst, v_ruid, v_size)      \
     do {                                                                                                    \
-        (head)->cmd = (uint8)(v_cmd);                                                                       \
+        (head)->cmd = (uint32)(v_cmd);                                                                       \
         (head)->version = (uint32)(v_version);                                                              \
         (head)->flags = (uint32)(v_flags);                                                                  \
-        (head)->src_inst = (uint16)(v_src_inst);                                                            \
-        (head)->dst_inst = (uint16)(v_dst_inst);                                                            \
+        (head)->src_inst = (uint32)(v_src_inst);                                                            \
+        (head)->dst_inst = (uint32)(v_dst_inst);                                                            \
         (head)->ruid = (uint64)(v_ruid);                                                                    \
-        (head)->size = (uint64)(v_size);                                                                    \
-        (head)->caller_tid = (uint32)(syscall(__NR_gettid));                                                \
+        (head)->size = (uint32)(v_size);                                                                    \
+        (head)->caller_tid = (uint32)MES_CURR_TID;                                                          \
         securec_check_panic(memset_s((head)->reserved, MES_MSGHEAD_RESERVED, 0, MES_MSGHEAD_RESERVED));     \
     } while (0)
 
