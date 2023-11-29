@@ -279,9 +279,11 @@ num_errno_t cm_numpart2size(const num_part_t *np, int64 *value);
 num_errno_t cm_split_num_text(const text_t *num_text, num_part_t *np);
 status_t cm_str2uint16(const char *str, uint16 *value);
 status_t cm_str2uint32(const char *str, uint32 *value);
+status_t cm_str2int32(const char *str, int32 *value);
 status_t cm_text2uint16(const text_t *text_src, uint16 *value);
 status_t cm_text2uint32(const text_t *text_src, uint32 *value);
 status_t cm_str2uint64(const char *str, uint64 *value);
+status_t cm_check_is_signed_number(const char *str);
 status_t cm_check_is_number(const char *str);
 
 static inline void cm_text2digitext(const text_t *num_text, digitext_t *dig_text)

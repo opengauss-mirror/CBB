@@ -31,6 +31,9 @@
 #include "cm_spinlock.h"
 #include "cm_error.h"
 #include "cm_thread.h"
+#include "cm_sync.h"
+#include "cm_compress.h"
+#include "mes_msg_pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +44,7 @@ extern "C" {
 #define INIT_MSGITEM_BUFFER_SIZE 8192
 #define MAX_POOL_BUFFER_COUNT 8192
 #define MES_MSG_QUEUE_NUM (1)
+#define MES_MAX_SERIAL_ARRAY_NUM 32
 
 typedef struct st_mes_msgitem {
     mes_message_t msg;
@@ -74,54 +78,92 @@ typedef struct st_mes_task_context {
     uint8 choice;
     uint8 reserved[3];
     mes_msgqueue_t queue;
+    atomic_t serial_array[MES_MAX_SERIAL_ARRAY_NUM];
 } mes_task_context_t;
 
-#define MES_GROUP_QUEUE_NUM CM_MES_MAX_CHANNEL_NUM
-typedef struct st_mes_task_group {
+#define MES_PRIORITY_TASK_QUEUE_NUM CM_MES_MAX_TASK_NUM
+typedef struct st_mes_task_priority {
     uint8 is_set;
     uint8 task_num;
     uint8 start_task_idx;
     uint8 reserved;
-    mes_task_group_id_t group_id;
-    mes_msgqueue_t queue[MES_GROUP_QUEUE_NUM];
-    uint32_t push_cursor;
-    uint32_t pop_cursor;
-} mes_task_group_t;
+    mes_priority_t priority;
+    uint32 push_cursor;
+    uint32 pop_cursor;
+} mes_task_priority_t;
 
-typedef struct st_mes_mq_group {
-    uint32 assign_task_idx; // task index assigned to group.
-    mes_task_group_t task_group[MES_TASK_GROUP_ALL];
-} mes_mq_group_t;
+typedef struct st_mes_mq_priority {
+    uint32 assign_task_idx;  // task index assigned to priority.
+    mes_task_priority_t task_priority[MES_PRIORITY_CEIL];
+} mes_mq_priority_t;
 
 typedef struct st_mes_command_attr {
-    mes_task_group_id_t group_id;
+    mes_priority_t priority;
 } mes_command_attr_t;
+
+typedef struct st_task_arg {
+    spinlock_t lock;
+    struct {
+        bool32 is_start : 1;
+        bool32 is_send : 1;
+        bool32 reserved : 30;
+    };
+    void *mq_ctx;
+    uint32 index;
+    cm_event_t event;
+} task_arg_t;
 
 typedef struct st_mq_context_t {
     uint32 task_num;
-    mes_task_context_t tasks[CM_MES_MAX_TASK_NUM]; // mes task thread
-    mes_command_attr_t command_attr[CM_MAX_MES_MSG_CMD];
+    mes_task_context_t tasks[MES_MAX_TASK_NUM];  // mes task thread
+    task_arg_t work_thread_idx[MES_MAX_TASK_NUM];
     mes_msgitem_pool_t pool;
-    mes_mq_group_t group;
-    mes_msgqueue_t local_queue; // used for local message
+    mes_msgqueue_t **channel_private_queue;
+    mes_profile_t *profile;
+    void *mes_ctx;
+    mes_mq_priority_t priority;
+    spinlock_t msg_pool_init_lock;
+    mes_pool_t *msg_pool[MES_MAX_INSTANCES][MES_PRIORITY_CEIL];
 } mq_context_t;
+
+#define PROC_DIFF_ENDIAN(head)                                      \
+    do {                                                            \
+        (head)->version = cs_reverse_uint32((head)->version);       \
+        (head)->cmd = cs_reverse_uint32((head)->cmd);               \
+        (head)->flags = cs_reverse_uint32((head)->flags);           \
+        (head)->caller_tid = cs_reverse_uint32((head)->caller_tid); \
+        (head)->ruid = cs_reverse_int64((head)->ruid);              \
+        (head)->src_inst = cs_reverse_uint32((head)->src_inst);     \
+        (head)->dst_inst = cs_reverse_uint32((head)->dst_inst);     \
+        (head)->size = cs_reverse_uint32((head)->size);             \
+    } while (0)
+
+#ifndef WIN32
+void delete_thread_key();
+void create_compress_ctx();
+#endif
 
 void mes_init_msgitem_pool(mes_msgitem_pool_t *pool);
 void mes_free_msgitem_pool(mes_msgitem_pool_t *pool);
 void mes_init_msgqueue(mes_msgqueue_t *queue);
+void mes_put_msgitem_nolock(mes_msgqueue_t *queue, mes_msgitem_t *msgitem);
 void mes_put_msgitem(mes_msgqueue_t *queue, mes_msgitem_t *msgitem);
 
 void mes_task_proc(thread_t *thread);
-void mes_init_msg_queue(void);
-void mes_free_msg_queue(void);
-int mes_put_inter_msg(mes_message_t *msg);
-int mes_put_inter_msg_in_queue(mes_message_t *msg, mes_msgqueue_t *queue);
-void mes_put_msgitem_enqueue(mes_msgitem_t *msgitem);
-mes_msgitem_t *mes_alloc_msgitem_nolock(mes_msgqueue_t *queue);
-mes_msgitem_t *mes_alloc_msgitem(mes_msgqueue_t *queue);
-mes_msgqueue_t *mes_get_command_task_queue(const mes_message_head_t *head);
-mes_task_group_t *mes_get_task_group(uint32 task_index);
+status_t mes_start_task_dynamically(bool32 is_send, uint32 index);
+int mes_put_msg_queue(mes_message_t *msg, bool32 is_send);
+void mes_put_msgitem_enqueue(mes_msgitem_t *msgitem, bool32 is_send, uint32 *work_index);
+mes_msgitem_t *mes_alloc_msgitem_nolock(mes_msgqueue_t *queue, bool32 is_send);
+mes_msgitem_t *mes_alloc_msgitem(mes_msgqueue_t *queue, bool32 is_send);
+mes_task_priority_t *mes_get_task_priority(uint32 task_index, bool32 is_send);
 int mes_alloc_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems);
+mes_msgitem_t *mes_get_msgitem(mes_msgqueue_t *queue);
+int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send);
+status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level);
+int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level);
+int mes_decompress(mes_message_t *msg);
+status_t mes_alloc_channel_msg_queue(bool32 is_send);
+void mes_free_channel_msg_queue(bool32 is_send);
 
 #ifdef __cplusplus
 }

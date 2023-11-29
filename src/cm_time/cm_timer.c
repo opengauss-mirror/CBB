@@ -26,6 +26,7 @@
 #include "cm_log.h"
 
 #define DAY_USECS (uint64)86400000000
+#define MES_DEFAULT_SLEEP_TIME 100000  // 0.1ms
 
 static gs_timer_t g_timer_t;
 
@@ -62,7 +63,7 @@ static void timer_proc(thread_t *thread)
 #ifndef _WIN32
     struct timespec tq, tr;
     tq.tv_sec = 0;
-    tq.tv_nsec = 100000; // 0.1ms
+    tq.tv_nsec = timer_temp->sleep_time;
 #endif
 
     while (!thread->closed) {
@@ -85,9 +86,15 @@ static void timer_proc(thread_t *thread)
 
 status_t cm_start_timer(gs_timer_t *timer)
 {
+    return cm_start_timer_ex(timer, MES_DEFAULT_SLEEP_TIME);
+}
+
+status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time)
+{
     if (timer->init) {
         return CM_SUCCESS;
     }
+    LOG_RUN_INF("[mes] start timer, sleep_time:%llu", sleep_time);
     cm_now_detail((date_detail_t *)&timer->detail);
     timer->now = cm_encode_date((const date_detail_t *)&timer->detail);
     timer->today = (date_t)(timer->now / (int64)DAY_USECS) * (int64)DAY_USECS;
@@ -96,6 +103,7 @@ status_t cm_start_timer(gs_timer_t *timer)
     timer->tz = tz_min / (int32)SECONDS_PER_MIN;
     timer->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
     timer->init = CM_TRUE;
+    timer->sleep_time = sleep_time;
     return cm_create_thread(timer_proc, 0, timer, &timer->thread);
 }
 

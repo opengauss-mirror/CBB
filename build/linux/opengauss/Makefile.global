@@ -70,12 +70,16 @@ SECURE_LIB = $(SECURE_HOME)/lib
 SSL_HOME = $(3RD_LIB_PATH)/openssl
 SSL_INC = $(SSL_HOME)/include
 SSL_LIB = $(SSL_HOME)/lib
+LZ4_HOME = $(3RD_LIB_PATH)/lz4
+LZ4_INC = $(LZ4_HOME)/include
+LZ4_LIB = $(LZ4_HOME)/lib
 
 $(info "-----------------------------------")
 $(info $(CBB_TOP_BUILDDIR))
 
 COMM_INC = $(SECURE_INC) \
            $(SSL_INC) \
+           $(LZ4_INC) \
            $(PROJECT_SOURCE_DIR)/src \
            $(PROJECT_SOURCE_DIR)/src/cm_concurrency \
            $(PROJECT_SOURCE_DIR)/src/cm_defines \
@@ -90,7 +94,9 @@ COMM_INC = $(SECURE_INC) \
            $(PROJECT_SOURCE_DIR)/src/cm_res \
            $(PROJECT_SOURCE_DIR)/src/ddes_json \
            $(PROJECT_SOURCE_DIR)/src/ddes_lexer \
-           $(PROJECT_SOURCE_DIR)/src/ddes_perctrl/interface
+           $(PROJECT_SOURCE_DIR)/src/ddes_perctrl/interface \
+           $(PROJECT_SOURCE_DIR)/src/cm_compress \
+           $(PROJECT_SOURCE_DIR)/src/cm_mec_adapter
 
 # third part
 ifeq (x$(GCC_VERSION), x)

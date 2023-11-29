@@ -37,6 +37,8 @@ typedef enum en_status {
     CM_PIPECLOSED = 2,
 } status_t;
 
+#define CM_ERROR_COUNT 3000
+
 /*
  * @Note
  * Attention1: add error code to the corresponding range
@@ -107,7 +109,10 @@ typedef enum en_cm_errno {
     ERR_SCSI_REG_CONFLICT = 137,
 
     /* invalid configuration errors: 200 - 299 */
-    ERR_PARSE_CFG_STR = 200,
+    ERR_INIT_LOGGER = 200,
+    ERR_PARAMETERS = 201,
+    ERR_PARSE_CFG_STR = 202,
+    ERR_READ_BY_KEY = 203,
 
     /* network errors: 300 - 399 */
     ERR_INIT_NETWORK_ENV = 301,
@@ -175,10 +180,10 @@ typedef enum en_cm_errno {
     ERR_MES_START_LSRN_FAIL = 608,
     ERR_MES_IS_CONNECTED = 609,
     ERR_MES_CONNTYPE_ERR = 610,
-    ERR_MES_THE_GROUP_SETED = 611,
+    ERR_MES_THE_PRIORITY_SETED = 611,
     ERR_MES_CHANNEL_THREAD_FAIL = 612,
     ERR_MES_ALLOC_MSGITEM_FAIL = 613,
-    ERR_MES_SENDPIPE_NO_REDAY = 614,
+    ERR_MES_SENDPIPE_NO_READY = 614,
     ERR_MES_SEND_MSG_FAIL = 615,
     ERR_MES_MSG_TOO_LARGE = 616,
     ERR_MES_WAIT_OVERTIME = 617,

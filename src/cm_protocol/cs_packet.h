@@ -42,7 +42,7 @@ typedef enum en_cs_minor_version {
     MIN_VERSION_2 = 2,
     MIN_VERSION_3 = 3,
     MIN_VERSION_4 = 4,
-    MIN_VERSION_5 = 5,
+    MIN_VERSION_5 = 5,     /* send version and proto_code when tcp connect */
 } cs_minor_version_t;
 
 typedef enum en_cs_major_version {
@@ -72,17 +72,6 @@ typedef enum en_cs_major_version {
 #define CS_CMD_LOGOUT        (uint8)4
 #define CS_CMD_CEIL          (uint8)5 /* the ceil of cmd */
 
-
-/* every option use one bit of flags in cs_packet_head_t */
-#define CS_FLAG_NONE                 0x0000
-#define CS_FLAG_MORE_DATA            0x0001  // continue to recv more data
-#define CS_FLAG_END_DATA             0x0002  // end to last packet
-#define CS_FLAG_PEER_CLOSED          0x0004
-#define CS_FLAG_COMPRESS             0x0008
-#define CS_FLAG_PRIV_LOW             0x0010
-#define CS_FLAG_BATCH                0x0020
-
-
 #define CS_ALIGN_SIZE 4
 
 #define CS_WAIT_FOR_READ 1
@@ -95,11 +84,6 @@ typedef enum en_cs_option {
 } cs_option_t;
 
 #define CS_DIFFERENT_ENDIAN(options) ((options) & CSO_DIFFERENT_ENDIAN)
-#define CS_MORE_DATA(flag) ((flag) & CS_FLAG_MORE_DATA)
-#define CS_END_DATA(flag) ((flag) & CS_FLAG_END_DATA)
-#define CS_COMPRESS(flag) ((flag) & CS_FLAG_COMPRESS)
-#define CS_PRIV_LOW(flag) ((flag) & CS_FLAG_PRIV_LOW)
-#define CS_BATCH(flag) ((flag) & CS_FLAG_BATCH)
 
 typedef struct st_cs_packet_head {
     uint32 size;

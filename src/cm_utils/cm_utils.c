@@ -128,7 +128,7 @@ const static uint64 RAND_P1 = 0x5DEECE66DL;
 const static uint64 RAND_P2 = 0xBL;
 const static uint64 RAND_P3 = 0XFFFFFFFFFFFFL;
 
-static inline uint32 cm_rand_next(int64 *seed, uint32 bits)
+uint32 cm_rand_next(int64 *seed, uint32 bits)
 {
     int64 old_seed, next_seed;
     atomic_t cur_seed = *seed;
@@ -320,7 +320,7 @@ void cm_dump_mem(void *dump_addr, uint32 dump_len)
         return;
     }
 
-    build_mec_head(buf, CM_MAX_LOG_HEAD_LENGTH, "DCF");
+    build_mec_head(buf, CM_MAX_LOG_HEAD_LENGTH, LOG_MODULE_NAME);
     LOG_MEC("\r\n%s [DUMP] dump_len %u", buf, dump_len);
     if ((dump_addr == NULL) || (dump_len == 0)) {
         LOG_MEC("[DUMP] dump memory Fail, dump_addr or dump_len equal zero\r\n");

@@ -24,6 +24,7 @@
 
 #ifndef __MES_FUNC_H__
 #define __MES_FUNC_H__
+
 #include "cm_utils.h"
 #include "cm_defs.h"
 #include "cm_thread.h"
@@ -34,11 +35,11 @@
 #include "cs_listener.h"
 #include "mes_queue.h"
 #include "mes_tcp.h"
-#include "mes_type.h"
 #include "mes_msg_pool.h"
 #include "mes_rdma_rpc.h"
 #include "cm_rwlock.h"
 #include "mes_interface.h"
+#include "mes_type.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,12 +49,12 @@ extern "C" {
 #define MES_INST_SENT_SUCCESS(bits, id) ((bits) |= ((uint64)0x1 << (id)))
 #define MEG_GET_BUF_ID(msg_buf) (*(uint32 *)((char *)(msg_buf) - sizeof(uint32)))
 #define MES_MESSAGE_TINY_SIZE (256) /* app head(64) + mes head(64) + reserved(128) */
-#define MES_MESSAGE_BUFFER_SIZE \
-    (uint32)(SIZE_K(32) + MES_MESSAGE_TINY_SIZE) /* heads + data */
-#define MES_CHANNEL_MAX_SEND_BUFFER_SIZE SIZE_K(64)
-#define MES_MIN_TASK_NUM (1)
-#define MES_MAX_TASK_NUM (128)
+#define MES_BUFFER_RESV_SIZE     (SIZE_K(2))
+#define MES_MESSAGE_BUFFER_SIZE(profile) \
+    (uint64)((profile)->frag_size + MES_BUFFER_RESV_SIZE + MES_MESSAGE_TINY_SIZE) /* heads + data */
+#define MES_CHANNEL_MAX_SEND_BUFFER_SIZE(profile) MES_MESSAGE_BUFFER_SIZE(profile)
 #define MES_WAIT_TIMEOUT (5) // ms
+#define MES_MIN_COMPRESS_SIZE 256
 
 #define MES_ROOM_ID_TO_FREELIST_ID(rid) ((rid) / CM_MES_ROOMS_PER_FREELIST)
 #define MES_INVLD_RUID (0)
@@ -63,19 +64,20 @@ extern "C" {
 #define MES_RUID_IS_INVALID(ruid) ((ruid) == MES_INVLD_RUID)
 #define MES_RUID_IS_ILLEGAL(ruid) (MES_RUID_GET_RID(ruid) >= CM_MAX_MES_ROOMS)
 
-#define MES_LOG_WAR_HEAD_EX(head, message, room)                                                                 \
-    do {                                                                                                         \
-        LOG_RUN_WAR("[mes]%s: %s. cmd=%hhu, ruid->rid=%llu, ruid->rsn=%llu, "                                    \
-            "room-rsn=%llu, src_inst=%hhu, dst_inst=%hhu.",                                                      \
-            (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                    \
-            (uint64)MES_RUID_GET_RSN((head)->ruid), (uint64)(room)->rsn, (head)->src_inst, (head)->dst_inst);    \
+#define MES_LOG_WAR_HEAD_EX(head, message, room)                                                              \
+    do {                                                                                                      \
+        LOG_RUN_WAR("[mes]%s: %s. cmd=%u, ruid->rid=%llu, ruid->rsn=%llu, "                                   \
+            "room-rsn=%llu, src_inst=%u, dst_inst=%u, size=%u.",                                              \
+            (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                 \
+            (uint64)MES_RUID_GET_RSN((head)->ruid), (uint64)(room)->rsn, (head)->src_inst, (head)->dst_inst,  \
+            (head)->size);                                                                                    \
     } while (0);
 
-#define MES_LOG_ERR_HEAD_EX(head, message)                                                                  \
-    do {                                                                                                    \
-        LOG_RUN_ERR("[mes]%s: %s. cmd=%hhu, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%hhu, dst_inst=%hhu.", \
-            (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                       \
-            (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst);                            \
+#define MES_LOG_ERR_HEAD_EX(head, message)                                                                     \
+    do {                                                                                                       \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%u, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, dst_inst=%u, size=%u.", \
+            (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                  \
+            (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size);         \
     } while (0);
 
 #define MES_RETURN_IF_BAD_RUID(ruid)                                                            \
@@ -89,7 +91,7 @@ extern "C" {
 
 #define MES_RETURN_IF_BAD_INST_COUNT(inst_count)                                                \
     do {                                                                                        \
-        if ((inst_count) > CM_MAX_INSTANCES || (inst_count) == 0) {                                 \
+        if ((inst_count) > MES_MAX_INSTANCES || (inst_count) == 0) {                                 \
             LOG_DEBUG_ERR("[mes] invalid inst_count=%d", inst_count);                           \
             return ERR_MES_PARAM_INVALID;                                                        \
         }                                                                                       \
@@ -142,7 +144,7 @@ typedef void (*mes_release_buf_t)(const char *buffer);
 
 typedef bool32 (*mes_connection_ready_t)(uint32 inst_id);
 
-typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue);
+typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue, bool32 is_send);
 
 typedef struct rdma_rpc_lsnr_t {
     OckRpcServer server_handle;
@@ -154,21 +156,26 @@ typedef struct st_mes_lsnr {
     rdma_rpc_lsnr_t rdma;
 } mes_lsnr_t;
 
-typedef struct st_mes_channel {
+typedef struct st_mes_pipe {
     rwlock_t recv_lock;
     rwlock_t send_lock;
     cs_pipe_t send_pipe;
     cs_pipe_t recv_pipe;
     rdma_rpc_client_t rdma_client;
     thread_t thread;
-    uint16 id;
     volatile bool8 recv_pipe_active;
     volatile bool8 send_pipe_active;
     atomic_t send_count;
     atomic_t recv_count;
-    mes_msgqueue_t msg_queue;
     date_t last_send_time;
+    mes_priority_t priority;
+    struct st_mes_channel *channel;
     char *msgbuf;
+} mes_pipe_t;
+
+typedef struct st_mes_channel {
+    uint16 id;
+    mes_pipe_t pipe[MES_PRIORITY_CEIL];
 } mes_channel_t;
 
 typedef struct st_mes_waiting_room {
@@ -177,7 +184,7 @@ typedef struct st_mes_waiting_room {
     mes_mutex_t broadcast_mutex; // broadcast acks wake up mes_wait_acks
     spinlock_t lock;             // protect rsn
     void *msg_buf;
-    void *broadcast_msg[CM_MAX_INSTANCES];
+    void *broadcast_msg[MES_MAX_INSTANCES];
     uint32 err_code;
     atomic32_t req_count;
     atomic32_t ack_count;
@@ -196,15 +203,16 @@ typedef enum en_bcast_flag {
     STATUS_PTP_SENT,
 } bcast_flag_e;
 
+typedef enum en_shutdown_phase {
+    SHUTDOWN_PHASE_NOT_BEGIN = 0,
+    SHUTDOWN_PHASE_INPROGRESS,
+    SHUTDOWN_PHASE_DONE
+} shutdown_phase_t;
+
 typedef struct st_mes_conn {
     thread_lock_t lock;
     bool8 is_connect;
 } mes_conn_t;
-
-typedef struct st_mes_pool {
-    uint32 count;
-    mes_buf_chunk_t chunk[MES_MAX_BUFFPOOL_NUM];
-} mes_pool_t;
 
 typedef struct st_room_freelist {
     uint32 list_id;
@@ -221,26 +229,24 @@ typedef struct st_mes_waiting_room_pool {
 typedef struct st_mes_context {
     mes_lsnr_t lsnr;
     mes_channel_t **channels;
-    mes_pool_t msg_pool;
-    mes_conn_t conn_arr[CM_MAX_INSTANCES];
+    mes_conn_t conn_arr[MES_MAX_INSTANCES];
     mes_waiting_room_pool_t wr_pool;
-    uint32 work_thread_idx[CM_MES_MAX_TASK_NUM];
+    shutdown_phase_t phase;
 
     uint32 startLsnr : 1;
     uint32 startChannelsTh : 1;
-    uint32 creatMsgPool : 1;
     uint32 creatWaitRoom : 1;
-    uint32 startWorkTh : 1;
-    uint32 reserve : 27;
+    uint32 reserve : 29;
 } mes_context_t;
 
 typedef struct st_mes_instance {
     mes_profile_t profile;
     mes_context_t mes_ctx;
-    mq_context_t mq_ctx;
+    mq_context_t send_mq;
+    mq_context_t recv_mq;
     mes_message_proc_t proc;
-    ssl_ctx_t  *ssl_acceptor_fd;
-    ssl_ctx_t  *ssl_connector_fd;
+    ssl_ctx_t *ssl_acceptor_fd;
+    ssl_ctx_t *ssl_connector_fd;
 } mes_instance_t;
 
 #define INST_ID_MOVE_LEFT_BIT_CNT 8
@@ -273,16 +279,18 @@ typedef struct st_mes_callback {
 
 // Do not modify
 extern mes_instance_t g_cbb_mes;
+extern mes_callback_t g_cbb_mes_callback;
 #define MES_GLOBAL_INST_MSG g_cbb_mes
 #define MES_CALLER_TID_TO_CHANNEL_ID(tid) (uint8)((tid) % MES_GLOBAL_INST_MSG.profile.channel_cnt)
 #define MES_MY_ID (MES_GLOBAL_INST_MSG.profile.inst_id)
+#define MES_SEND_DATA(msg_data) g_cbb_mes_callback.send_func(msg_data)
 
 #define MES_WAITING_ROOM_POOL MES_GLOBAL_INST_MSG.mes_ctx.wr_pool
 
 bool32 mes_connection_ready(uint32 inst_id);
 int mes_send_bufflist(mes_bufflist_t *buff_list);
 
-void mes_process_message(mes_msgqueue_t *my_queue, uint32 recv_idx, mes_message_t *msg);
+void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg);
 
 typedef struct st_mes_command_stat {
     uint32 cmd;
@@ -354,12 +362,17 @@ static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
     }
     return;
 }
-int mes_connect(unsigned int inst_id, const char *ip, unsigned short port);
-void mes_disconnect_nowait(unsigned int inst_id);
-void mes_disconnect(unsigned int inst_id);
+int mes_connect(inst_type inst_id);
+void mes_disconnect_nowait(inst_type inst_id);
+void mes_disconnect(inst_type inst_id);
 void mes_release_message_buf(mes_message_t *msg_buf);
-int mes_send_inter_msg(const void *msg_data);
 void mes_notify_msg_recv(mes_message_t *msg);
+void mes_close_channel(mes_channel_t *channel);
+void mes_close_send_pipe(mes_pipe_t *pipe);
+void mes_close_recv_pipe(mes_pipe_t *pipe);
+int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority);
+status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
+int mes_get_pipe_sock(cs_pipe_t *pipe);
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus

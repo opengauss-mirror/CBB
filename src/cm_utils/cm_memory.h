@@ -153,6 +153,11 @@ static inline uint64 mem_used_threshold(const mem_pool_t *mem)
     return (3 * mem->max_size / 4);
 }
 
+static inline uint64 mem_max_size(const mem_pool_t *mem)
+{
+    return mem->max_size;
+}
+
 extern mem_pool_t g_buddy_pool;
 
 #ifdef __cplusplus

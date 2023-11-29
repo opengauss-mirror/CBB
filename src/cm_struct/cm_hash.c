@@ -168,7 +168,7 @@ bool32 cm_hmap_insert(hash_map_t *hmap, hash_funcs_t *hfuncs, hash_node_t *node)
     }
 
     hash_node_t *curr = first;
-    hash_node_t *last;
+    hash_node_t *last = NULL;
     while (curr) {
         void *rkey = F_KEY(hfuncs, curr);
         if (F_EQUAL(hfuncs, key, rkey)) {

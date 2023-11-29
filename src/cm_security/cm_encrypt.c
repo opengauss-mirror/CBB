@@ -271,6 +271,7 @@ uint32 cm_random(uint32 range)
     (void)cm_rand((uchar *)&seed, sizeof(int64));
     return cm_rand_int32(&seed, range);
 }
+
 #ifdef __cplusplus
 }
 #endif

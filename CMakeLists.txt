@@ -99,26 +99,31 @@ set(CBB_JSON_PATH				${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_json)
 set(CBB_LEXER_PATH				${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_lexer)
 set(CBB_INTERFACE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/interface)
 set(CBB_SERVICE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/service)
+set(CBB_MEC_PATH			    ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_mec_adapter)
+set(CBB_COMPRESS_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/cm_compress)
 
 ## other dependency include
 set(CBB_SECUREC_INC_PATH        "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/include/")
 set(CBB_OPENSSL_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/openssl/include/")
 set(ZLIB_INC_PATH               "${CMAKE_CURRENT_SOURCE_DIR}/library/zlib/include/")
+set(LZ4_INC_PATH                "${CMAKE_CURRENT_SOURCE_DIR}/library/lz4/include/")
 
 ## lib
 set(SECUREC_LIB_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/lib/")
 set(OPENSSL_LIB_PATH            "${CMAKE_CURRENT_SOURCE_DIR}/library/openssl/lib/")
 set(ZLIB_PATH                   "${CMAKE_CURRENT_SOURCE_DIR}/library/zlib/lib/")
+set(LZ4_LIB_PATH                "${CMAKE_CURRENT_SOURCE_DIR}/library/lz4/lib/")
 
 ## output path
 set (LIBRARY_OUTPUT_PATH        ${CMAKE_CURRENT_SOURCE_DIR}/output/lib)
 set (EXECUTABLE_OUTPUT_PATH     ${CMAKE_CURRENT_SOURCE_DIR}/output/bin)
 
-link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH} ${ZLIB_PATH} ${CJSON_LIB_PATH})
+link_directories(${LIBRARY_OUTPUT_PATH} ${SECUREC_LIB_PATH} ${OPENSSL_LIB_PATH} ${ZLIB_PATH} ${CJSON_LIB_PATH} ${LZ4_LIB_PATH})
 
 set(vpp_libsecurec "securec")
 set(3rd_libssl "ssl")
 set(sdp "sdp")
 set(zlib "z")
+set(3rd_liblz4 "lz4")
 
 add_subdirectory(src)

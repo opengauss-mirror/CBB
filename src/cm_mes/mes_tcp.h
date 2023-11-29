@@ -30,6 +30,7 @@
 #include "cm_thread.h"
 #include "cs_pipe.h"
 #include "cs_listener.h"
+#include "mes_interface.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +53,12 @@ int mes_alloc_channels(void);
 int mes_tcp_send_bufflist(mes_bufflist_t *buff_list);
 bool32 mes_tcp_connection_ready(uint32 inst_id);
 
-int mes_connect_single(inst_type inst_id, char* ip, unsigned short port);
+int mes_connect_single(inst_type inst_id);
+status_t mes_get_pipe_version(cs_pipe_t *pipe, uint32 *version);
+void cs_disconnect_ex(cs_pipe_t *pipe, bool8 is_send, inst_type inst_id);
+void mes_event_proc(uint32 channel_id, uint32 priority, uint32 event);
+int mes_start_heartbeat_thread();
+void mes_stop_heartbeat_thread();
 
 #ifdef __cplusplus
 }
