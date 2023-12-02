@@ -324,6 +324,13 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms);
 void mes_release_msg(mes_msg_t* msg);
 
 /*
+ * @brief mes_interrupt_get_response cancels all response waits,
+ * until mes_resume_get_response restores them
+ */
+void mes_interrupt_get_response(void);
+void mes_resume_get_response(void);
+
+/*
  * @brief Broadcast Message
  * @return
  */
