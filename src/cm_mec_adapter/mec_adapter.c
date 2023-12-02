@@ -134,6 +134,8 @@ int mec_accept(cs_pipe_t *pipe)
         return CM_ERROR;
     }
     cm_rwlock_unlock(&mes_pipe->recv_lock);
+
+    (void)mes_connect(mec_head.src_inst);  //Trigger send pipe to be connected
     LOG_RUN_INF("[mes_mec] mec_accept: channel id %u receive ok, src_inst:%d, dst_inst:%d, flags:%u",
         (uint32)channel->id, mec_head.src_inst, mec_head.dst_inst, mec_head.flags);
     return CM_SUCCESS;

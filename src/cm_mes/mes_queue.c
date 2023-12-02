@@ -842,19 +842,12 @@ void mes_task_proc(thread_t *thread)
     uint32 queue_id = 0;
     bool32 is_empty = CM_FALSE;
     uint32 queue_num = task_num > MES_PRIORITY_TASK_QUEUE_NUM ? MES_PRIORITY_TASK_QUEUE_NUM : task_num;
-    while (!thread->closed) {
+    while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         is_empty = mes_is_empty_queue_count(mq_ctx, priority);
-        for (;;) {
-            // event will be set after put queue
-            if (!is_empty || cm_event_timedwait(&arg->event, CM_SLEEP_1_FIXED) == CM_SUCCESS) {
-                break;
+        if (is_empty) {
+            if (cm_event_timedwait(&arg->event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
+                continue;
             }
-            if (thread->closed || mes_ctx->phase != SHUTDOWN_PHASE_NOT_BEGIN) {
-                break;
-            }
-        }
-        if (thread->closed || mes_ctx->phase != SHUTDOWN_PHASE_NOT_BEGIN) {
-            break;
         }
 
         if (!need_serial) {

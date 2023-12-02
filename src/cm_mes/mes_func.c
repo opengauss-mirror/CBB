@@ -1813,8 +1813,8 @@ int mes_connect(inst_type inst_id)
     cm_thread_lock(&conn->lock);
     if (MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
         cm_thread_unlock(&conn->lock);
-        LOG_RUN_INF("[mes]: dst instance %u has connected.", inst_id);
-        return ERR_MES_IS_CONNECTED;
+        LOG_RUN_WAR("[mes] dst instance %u has connected.", inst_id);
+        return CM_SUCCESS;
     }
 
     ret = MES_CONNECT(inst_id);
