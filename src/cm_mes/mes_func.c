@@ -1308,6 +1308,7 @@ int mes_init(mes_profile_t *profile)
     mes_init_stat(profile);
 
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_NOT_BEGIN;
+    MES_WAITS_INTERRUPTED = CM_FALSE;
     do {
         ret = cm_start_timer(g_timer());
         if (ret != CM_SUCCESS) {
@@ -1596,10 +1597,11 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     for (;;) {
         if (!mes_mutex_timed_lock(&room->mutex, MES_WAIT_TIMEOUT)) {
             wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout_ms) {
+            if (wait_time >= timeout_ms || MES_WAITS_INTERRUPTED) {
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_timeout(room);
-                LOG_DEBUG_WAR("[mes]room wait timeout, rid=%llu, rsn=%llu", (uint64)room->room_index, room->rsn);
+                LOG_DEBUG_WAR("[mes]room wait timeout, ruid=%llu(%llu-%llu), INT=%u",
+                              (uint64)ruid, (uint64)room->room_index, room->rsn, MES_WAITS_INTERRUPTED);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;
             }
@@ -2352,6 +2354,16 @@ void mes_discard_response(ruid_type ruid)
         mes_mutex_unlock(&room->mutex);
     }
     cm_spin_unlock(&room->lock);
+}
+
+void mes_interrupt_get_response(void)
+{
+    MES_WAITS_INTERRUPTED = CM_TRUE;
+}
+
+void mes_resume_get_response(void)
+{
+    MES_WAITS_INTERRUPTED = CM_FALSE;
 }
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time)
