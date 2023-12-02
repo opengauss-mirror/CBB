@@ -113,6 +113,7 @@ enum MesRpcServiceId {
     DEFAULT_RPC_SERVICE_ID = 0,
     RPC_CONNECTION_REQ,
     RPC_CONNECTION_CMD,
+    RPC_CONNECTION_HEARTBEAT,
 };
 
 static inline void mes_clear_rdma_rpc_server(void)
@@ -506,6 +507,11 @@ static void mes_rdma_rpc_connection_cmd_func(OckRpcServerContext handle, OckRpcM
     cm_rwlock_unlock(&pipe->recv_lock);
 }
 
+static void mes_rdma_rpc_connection_heartbeat_func(OckRpcServerContext handle, OckRpcMessage msg)
+{
+    /* pass */
+}
+
 int mes_register_rdma_rpc_proc_func(void)
 {
     OckRpcServer server = MES_GLOBAL_INST_MSG.mes_ctx.lsnr.rdma.server_handle;
@@ -532,6 +538,15 @@ int mes_register_rdma_rpc_proc_func(void)
     ret = OckRpcServerAddService(server, &conncmdService);
     if (ret != OCK_RPC_OK) {
         LOG_RUN_WAR("add service RPC_CONNECTION_CMD failed, server handle(%p), ret(%d)", (void*)server, ret);
+        return CM_ERROR;
+    }
+
+    OckRpcService conn_heartbeat_service = {.id = RPC_CONNECTION_HEARTBEAT,
+        .handler = mes_rdma_rpc_connection_heartbeat_func};
+    ret = OckRpcServerAddService(server, &conn_heartbeat_service);
+    if (ret != OCK_RPC_OK) {
+        LOG_RUN_WAR("add service conn_heartbeat_service failed, server handle(%p), ret(%d)",
+            (void *)server, ret);
         return CM_ERROR;
     }
 
@@ -715,6 +730,20 @@ static int mes_rdma_rpc_connect(uint32 inst_id, uint32_t channel_id, mes_priorit
     return CM_SUCCESS;
 }
 
+static void mes_rdma_rpc_heartbeat(mes_pipe_t *pipe)
+{
+    if (g_timer()->now - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
+        return;
+    }
+
+    mes_message_head_t head = { 0 };
+    head.cmd = RPC_CONNECTION_HEARTBEAT;
+    head.dst_inst = MES_INSTANCE_ID(pipe->channel->id);
+    head.caller_tid = MES_CHANNEL_ID(pipe->channel->id);
+    head.size = (uint16)sizeof(mes_message_head_t);
+    (void)mes_rdma_rpc_send_data((void *)&head);
+}
+
 static void mes_rdma_rpc_channel_entry(thread_t *thread)
 {
     mes_pipe_t *mes_pipe = (mes_pipe_t *)thread->argument;
@@ -736,6 +765,8 @@ static void mes_rdma_rpc_channel_entry(thread_t *thread)
     while (!thread->closed) {
         if (!mes_pipe->send_pipe_active) {
             (void)mes_rdma_rpc_connect(inst_id, channel_id, mes_pipe->priority);
+        } else {
+            mes_rdma_rpc_heartbeat(mes_pipe);
         }
         cm_sleep(RECONNECT_SLEEP_TIME);
     }
@@ -752,6 +783,7 @@ int mes_rdma_rpc_connect_handle(uint32 inst_id)
         channel->id = (uint16)((inst_id << INST_ID_MOVE_LEFT_BIT_CNT) | i);
         for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
             pipe = &channel->pipe[j];
+            cm_close_thread(&pipe->thread);
             if (cm_create_thread(mes_rdma_rpc_channel_entry, 0, (void *)pipe, &pipe->thread) != CM_SUCCESS) {
                 LOG_RUN_ERR("create thread channel entry failed, node id %u channel id %u priority %u", inst_id, i, j);
                 return ERR_MES_CHANNEL_THREAD_FAIL;
