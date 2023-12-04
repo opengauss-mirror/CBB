@@ -21,9 +21,10 @@
  *
  * -------------------------------------------------------------------------
  */
-#include "cm_system.h"
+#include <signal.h>
 #include "cm_spinlock.h"
 #include "cm_text.h"
+#include "cm_system.h"
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -254,20 +255,21 @@ static time_t cm_convert_filetime(FILETIME *ft)
 }
 #endif
 
-int64 cm_sys_process_start_time(uint64 pid)
+status_t cm_sys_process_start_time(uint64 pid, int64 *process_time)
 {
 #ifdef WIN32
     FILETIME create_time, exit_time, kernel_time, user_time;
     HANDLE handle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
     if (handle == 0) {
-        return 0;
+        return CM_ERROR;
     }
     if (GetProcessTimes(handle, &create_time, &exit_time, &kernel_time, &user_time) != 0) {
         CloseHandle(handle);
-        return 0;
+        return CM_ERROR;
     }
     CloseHandle(handle);
-    return (int64)cm_convert_filetime(&create_time);
+    *process_time = (int64)cm_convert_filetime(&create_time);
+    return CM_SUCCESS;
 #else
     char path[32] = {0};
     char stat_buf[2048];
@@ -279,21 +281,21 @@ int64 cm_sys_process_start_time(uint64 pid)
     }
     int32 fd = open(path, O_RDONLY);
     if (fd == -1) {
-        LOG_DEBUG_INF("failed to open file with handle %d, error code %d, the client process is not alive", fd, errno);
-        return 0;
+        LOG_RUN_INF("[PROCESS]failed to open file with handle %d, error code %d, can not get process stat", fd, errno);
+        return CM_ERROR;
     }
     size = (int32)read(fd, stat_buf, sizeof(stat_buf) - 1);
     if (size == -1) {
-        LOG_RUN_ERR("failed to read file with handle %d, error code %d", fd, errno);
+        LOG_RUN_ERR("[PROCESS]failed to read file with handle %d, error code %d, can not read process stat", fd, errno);
         ret = close(fd);
         if (ret != 0) {
-            LOG_RUN_ERR("failed to close file with handle %d, error code %d", fd, errno);
+            LOG_RUN_ERR("[PROCESS]failed to close file with handle %d, error code %d", fd, errno);
         }
-        return 0;
+        return CM_ERROR;
     }
     ret = close(fd);
     if (ret != 0) {
-        LOG_RUN_ERR("failed to close file with handle %d, error code %d", fd, errno);
+        LOG_RUN_ERR("[PROCESS]failed to close file with handle %d, error code %d", fd, errno);
     }
     stat_buf[size] = '\0';
     cm_str2text(stat_buf, &stat_text);
@@ -306,17 +308,29 @@ int64 cm_sys_process_start_time(uint64 pid)
      * The value is expressed in clock ticks.
      */
     (void)cm_text2bigint(&ticks_text, &ticks);
-    return ticks;
+    *process_time = ticks;
+    return CM_SUCCESS;
 #endif
 }
 
 bool32 cm_sys_process_alived(uint64 pid, int64 start_time)
 {
-    int64 process_time = cm_sys_process_start_time(pid);
+    int ret = kill(pid, 0);
+    if (ret != CM_SUCCESS && cm_get_os_error() == ESRCH) {
+        LOG_RUN_INF("[PROCESS]pid %llu start_time %lld status %d, errno %d is not alived", pid, start_time,
+            ret, cm_get_os_error());
+        return CM_FALSE;
+    }
 
+    int64 process_time = 0;
+    status_t status = cm_sys_process_start_time(pid, &process_time);
+    if (status != CM_SUCCESS) {
+        LOG_RUN_INF("[PROCESS]pid %llu start_time %lld, process is alive but can not get start time, maybe "
+                    "process is exitting", pid, start_time);
+        return CM_TRUE;
+    }
 #ifdef WIN32
     return (llabs(start_time - process_time) <= 1);
-
 #else
     return (start_time == process_time);
 #endif
