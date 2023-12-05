@@ -150,10 +150,8 @@ void mes_close_recv_pipe(mes_pipe_t *pipe)
     pipe->recv_pipe_active = CM_FALSE;
     cm_rwlock_unlock(&pipe->recv_lock);
 
-    LOG_DEBUG_INF("[mes] mes_close_recv_pipe priority=%u, inst_id=%d,channel_id=%u",
-        pipe->priority,
-        MES_INSTANCE_ID(pipe->channel->id),
-        MES_CHANNEL_ID(pipe->channel->id));
+    LOG_RUN_INF("[mes] mes_close_recv_pipe priority=%u, inst_id=%d, channel_id=%u",
+        pipe->priority, MES_INSTANCE_ID(pipe->channel->id), MES_CHANNEL_ID(pipe->channel->id));
 
     return;
 }
@@ -216,7 +214,11 @@ static int mes_process_event(mes_pipe_t *pipe)
     }
 
     errno_t errcode = memcpy_s(msg.buffer, sizeof(mes_message_head_t), &head, sizeof(mes_message_head_t));
-    securec_check_ret(errcode);
+    if (errcode != EOK) {
+        mes_release_message_buf(&msg);
+        LOG_RUN_ERR("[mes] memcpy_s failed.");
+        return CM_ERROR;
+    }
 
     ret = cs_read_fixed_size(&pipe->recv_pipe, msg.buffer + sizeof(mes_message_head_t),
                              msg.head->size - sizeof(mes_message_head_t));
@@ -281,10 +283,7 @@ static void mes_tcp_try_connect(mes_pipe_t *pipe)
                                                           : MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.host[1];
     bind_host = CM_IS_EMPTY_STR(bind_host) ? MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.host[0] : bind_host;
     LOG_DEBUG_INF("[mes] try connect bind host is %s, inst id %u, channel_id=%u,priority=%u", 
-        bind_host, 
-        inst_id,
-        MES_CHANNEL_ID(pipe->channel->id),
-        pipe->priority);
+        bind_host, inst_id, MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
 
     if (cs_connect(peer_url, &send_pipe, bind_host) != CM_SUCCESS) {
         mes_show_connect_error_info(peer_url);
@@ -303,7 +302,8 @@ static void mes_tcp_try_connect(mes_pipe_t *pipe)
         }
     }
 
-    LOG_RUN_INF("[mes] mes_tcp_try_connect version:%u, inst_id:%u", send_pipe.version, inst_id);
+    LOG_RUN_INF("[mes] mes_tcp_try_connect version:%u, inst_id:%u, channel_id=%u, priority=%u", 
+                send_pipe.version, inst_id, MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
     if (is_old_mec_version(send_pipe.version)) {
         mec_tcp_try_connect(pipe, &send_pipe);
         return;
@@ -381,10 +381,8 @@ void mes_close_send_pipe(mes_pipe_t *pipe)
     CM_FREE_PTR(pipe->msgbuf);
     cm_rwlock_unlock(&pipe->send_lock);
 
-    LOG_DEBUG_INF("[mes] mes_close_send_pipe priority=%u,inst_id=%u,channel_id=%u",
-        pipe->priority,
-        MES_INSTANCE_ID(pipe->channel->id),
-        MES_CHANNEL_ID(pipe->channel->id));
+    LOG_RUN_INF("[mes] mes_close_send_pipe priority=%u, inst_id=%u, channel_id=%u",
+        pipe->priority, MES_INSTANCE_ID(pipe->channel->id), MES_CHANNEL_ID(pipe->channel->id));
     return;
 }
 
@@ -392,10 +390,8 @@ static void mes_close_pipe(mes_pipe_t *pipe)
 {
     mes_close_recv_pipe(pipe);
     mes_close_send_pipe(pipe);
-    LOG_DEBUG_INF("[mes] mes_close_pipe:inst_id=%u,channel_id=%u, prio=%u, recv pipe closed",
-        MES_INSTANCE_ID(pipe->channel->id),
-        MES_CHANNEL_ID(pipe->channel->id),
-        pipe->priority);
+    LOG_RUN_INF("[mes] mes_close_pipe:inst_id=%u,channel_id=%u, prio=%u, recv pipe closed",
+        MES_INSTANCE_ID(pipe->channel->id), MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
 }
 
 void mes_close_channel(mes_channel_t *channel)
@@ -567,12 +563,8 @@ void mes_tcp_disconnect(uint32 inst_id, bool32 wait)
     }
 }
 
-void mes_stop_channels(void)
+void mes_tcp_stop_channels(void)
 {
-    if (!MES_GLOBAL_INST_MSG.mes_ctx.startChannelsTh) {
-        return;
-    }
-
     if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
         LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
         return;
@@ -582,7 +574,6 @@ void mes_stop_channels(void)
         mes_disconnect(inst_id);
     }
 
-    MES_GLOBAL_INST_MSG.mes_ctx.startChannelsTh = CM_FALSE;
     return;
 }
 

@@ -1231,3 +1231,22 @@ void mes_ockrpc_tls_get_CA_verify(const char **caPath, const char **crlPath,
     *crlPath = g_ockrpc_ssl_cfg.crl_file;
     *verify = mes_ockrpc_tls_cert_verify;
 }
+
+void mes_rdma_stop_channels(void)
+{
+    if (!MES_GLOBAL_INST_MSG.mes_ctx.startChannelsTh) {
+        return;
+    }
+
+    if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
+        LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
+        return;
+    }
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        uint32 inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        mes_disconnect(inst_id);
+    }
+
+    MES_GLOBAL_INST_MSG.mes_ctx.startChannelsTh = CM_FALSE;
+    return;
+}

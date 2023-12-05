@@ -208,7 +208,7 @@ int mes_remove_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int s
         return CM_ERROR;
     }
 
-    LOG_RUN_INF("[mes] mes_remove_pipe_from_epoll:priority=%d, sock=%d", priority, sock);
+    LOG_RUN_INF("[mes] mes_remove_pipe_from_epoll:priority=%d, sock=%d, channel_id=%u", priority, sock, channel_id);
 
     return CM_SUCCESS;
 }

@@ -147,6 +147,8 @@ typedef bool32 (*mes_connection_ready_t)(uint32 inst_id);
 
 typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue, bool32 is_send);
 
+typedef void (*mes_stop_channels_t)(void);
+
 typedef struct rdma_rpc_lsnr_t {
     OckRpcServer server_handle;
     rwlock_t server_lock;

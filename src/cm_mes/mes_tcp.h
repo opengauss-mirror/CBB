@@ -44,7 +44,7 @@ extern "C" {
 
 int mes_init_tcp_resource(void);
 void mes_free_channels(void);
-void mes_stop_channels(void);
+void mes_tcp_stop_channels(void);
 void mes_tcp_disconnect(uint32 inst_id, bool32 wait);
 int mes_tcp_connect(uint32 inst_id);
 int mes_tcp_send_data(const void *msg_data);

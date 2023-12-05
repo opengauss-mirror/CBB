@@ -1266,6 +1266,15 @@ static status_t mes_init_ssl(void)
     return CM_SUCCESS;
 }
 
+static void mes_stop_channels(void)
+{
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        mes_tcp_stop_channels();
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
+        mes_rdma_stop_channels();
+    }
+}
+
 void mes_uninit(void)
 {
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_INPROGRESS;
@@ -1769,12 +1778,12 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
         }
         if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
             wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout_ms) {
+            if (wait_time >= timeout_ms || MES_WAITS_INTERRUPTED) {
                 room->ack_count = 0; // invalid broadcast ack
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_brcast_timeout(room);
-                LOG_DEBUG_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast",
-                    room->room_index, room->rsn - 1);
+                LOG_DEBUG_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast, INT=%u",
+                    room->room_index, room->rsn - 1, MES_WAITS_INTERRUPTED);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;
             }
