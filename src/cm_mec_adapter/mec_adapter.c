@@ -204,9 +204,17 @@ int mec_process_event(mes_pipe_t *pipe)
         MES_INVLD_RUID, MES_MSG_HEAD_SIZE + mec_head.size);
 
     errno_t errcode = memcpy_s(msg.buffer, MES_MSG_HEAD_SIZE, &mes_head, MES_MSG_HEAD_SIZE);
-    securec_check_ret(errcode);
+    if (errcode != EOK) {
+        mes_release_message_buf(&msg);
+        LOG_RUN_ERR("[mes_mec] memcpy_s failed.");
+        return CM_ERROR;
+    }
     errcode = memcpy_s(msg.buffer + MES_MSG_HEAD_SIZE, MEC_MSG_HEAD_SIZE_ADAPTER, &mec_head, MEC_MSG_HEAD_SIZE_ADAPTER);
-    securec_check_ret(errcode);
+    if (errcode != EOK) {
+        mes_release_message_buf(&msg);
+        LOG_RUN_ERR("[mes_mec] memcpy_s failed.");
+        return CM_ERROR;
+    }
 
     ret = cs_read_fixed_size(&pipe->recv_pipe, msg.buffer + MES_MSG_HEAD_SIZE + MEC_MSG_HEAD_SIZE_ADAPTER,
         mec_head.size - MEC_MSG_HEAD_SIZE_ADAPTER);
