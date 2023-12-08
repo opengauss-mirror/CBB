@@ -99,6 +99,8 @@ export OUT_PACKAGE=cbb
 # gcc version
 if [[ -d "${binarylib_dir}/buildtools/gcc10.3" ]]; then
     gcc_version="10.3"
+elif [[ -d "${binarylib_dir}/buildtools/gcc8.3" ]];then
+    gcc_version="8.3"
 else
     gcc_version="7.3"
 fi

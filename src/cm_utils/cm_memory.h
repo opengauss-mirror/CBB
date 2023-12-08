@@ -57,10 +57,15 @@ extern "C" {
         __asm__ volatile("dmb ish" ::     \
                              : "memory"); \
     }
-#else
+#elif defined(__i386__) || defined(__x86_64__)
 #define CM_MFENCE                         \
     {                                     \
         __asm__ volatile("mfence" ::      \
+                             : "memory"); \
+    }
+#elif defined(__loongarch__)
+    {                                     \
+        __asm__ volatile("" ::      \
                              : "memory"); \
     }
 #endif
