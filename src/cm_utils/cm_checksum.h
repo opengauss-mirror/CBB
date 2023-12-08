@@ -44,7 +44,6 @@
 #include <cpuid.h>
 #define CM_HAVE__GET_CPUID
 #endif
-#endif
 
 #ifdef __cplusplus
 extern "C" {
