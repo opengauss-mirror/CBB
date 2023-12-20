@@ -77,7 +77,7 @@ typedef struct st_spin_statis_instance {
     uint64 ss_wait_usecs;
 } spin_statis_instance_t;
 
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(__arm__) || defined(__aarch64__) || defined(__loongarch__)
 #define fas_cpu_pause()          \
     {                            \
         __asm__ volatile("nop"); \
