@@ -94,7 +94,6 @@ status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time)
     if (timer->init) {
         return CM_SUCCESS;
     }
-    LOG_RUN_INF("[mes] start timer, sleep_time:%llu", sleep_time);
     cm_now_detail((date_detail_t *)&timer->detail);
     timer->now = cm_encode_date((const date_detail_t *)&timer->detail);
     timer->today = (date_t)(timer->now / (int64)DAY_USECS) * (int64)DAY_USECS;
@@ -104,6 +103,7 @@ status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time)
     timer->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
     timer->init = CM_TRUE;
     timer->sleep_time = sleep_time;
+    LOG_RUN_INF("[mes] start timer, sleep_time:%llu", sleep_time);
     return cm_create_thread(timer_proc, 0, timer, &timer->thread);
 }
 
