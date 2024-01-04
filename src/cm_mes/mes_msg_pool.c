@@ -391,9 +391,7 @@ char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_pri
 static void mes_release_buf_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
         cm_atomic32_dec(&(g_mes_stat.mes_command_stat[cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
         mes_elapsed_stat(cmd, MES_TIME_PUT_BUF);
     }
     return;

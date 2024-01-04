@@ -211,7 +211,6 @@ static void mes_init_stat(const mes_profile_t *profile)
         g_mes_stat.mes_command_stat[i].recv_count = 0;
         g_mes_stat.mes_command_stat[i].local_count = 0;
         g_mes_stat.mes_command_stat[i].occupy_buf = 0;
-        GS_INIT_SPIN_LOCK(g_mes_stat.mes_command_stat[i].lock);
     }
     mes_consume_time_init(profile);
     return;
@@ -220,9 +219,7 @@ static void mes_init_stat(const mes_profile_t *profile)
 static inline void mes_send_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
         (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[cmd].send_count));
-        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
     }
     return;
 }
@@ -230,10 +227,8 @@ static inline void mes_send_stat(uint32 cmd)
 void mes_local_stat(uint32 cmd)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_command_stat[cmd].lock), NULL);
         (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[cmd].local_count));
         (void)cm_atomic32_inc(&(g_mes_stat.mes_command_stat[cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_command_stat[cmd].lock));
     }
     return;
 }
@@ -241,10 +236,8 @@ void mes_local_stat(uint32 cmd)
 static inline void mes_recv_message_stat(const mes_message_t *msg)
 {
     if (g_mes_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_stat.mes_command_stat[msg->head->cmd].lock), NULL);
         (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[msg->head->cmd].recv_count));
         (void)cm_atomic32_inc(&(g_mes_stat.mes_command_stat[msg->head->cmd].occupy_buf));
-        cm_spin_unlock(&(g_mes_stat.mes_command_stat[msg->head->cmd].lock));
     }
     return;
 }
@@ -1438,11 +1431,11 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
     for (uint32 i = 0; i < count; i++) {
         char *msg = (char *)va_arg(apcopy, char *);
         unsigned int size = (unsigned int)va_arg(apcopy, unsigned int);
-        if (SECUREC_UNLIKELY(size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
+        head->size += size;
+        if (SECUREC_UNLIKELY(head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
             MES_LOG_ERR_HEAD_EX(head, "message length exceeded");
             return ERR_MES_MSG_TOO_LARGE;
         }
-        head->size += size;
         mes_append_bufflist(&buff_list, msg, size);
     }
     va_end(apcopy);
