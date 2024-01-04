@@ -54,7 +54,6 @@ extern "C" {
     (uint64)((profile)->frag_size + MES_BUFFER_RESV_SIZE + MES_MESSAGE_TINY_SIZE) /* heads + data */
 #define MES_CHANNEL_MAX_SEND_BUFFER_SIZE(profile) MES_MESSAGE_BUFFER_SIZE(profile)
 #define MES_WAIT_TIMEOUT (5) // ms
-#define MES_MIN_COMPRESS_SIZE 256
 
 #define MES_ROOM_ID_TO_FREELIST_ID(rid) ((rid) / CM_MES_ROOMS_PER_FREELIST)
 #define MES_INVLD_RUID (0)

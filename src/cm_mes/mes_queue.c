@@ -339,7 +339,7 @@ int mes_decompress(mes_message_t *msg)
                   priority:%u", 
                   head->src_inst, head->dst_inst, algorithm, level, head->size, MES_PRIORITY(head->flags));
 
-    if (!MES_COMPRESS_ALGORITHM(head->flags) || head->size <= MES_MIN_COMPRESS_SIZE) {
+    if (!MES_COMPRESS_ALGORITHM(head->flags) || head->size == MES_MSG_HEAD_SIZE) {
         return CM_SUCCESS;
     }
 
@@ -626,7 +626,7 @@ static status_t mes_send_compress(mes_message_head_t *head)
                   enable_compress_priority);
 
     if (!cm_bitmap8_exist(&enable_compress_priority, priority) || algorithm == COMPRESS_NONE ||
-        algorithm >= COMPRESS_CEIL || head->size <= MES_MIN_COMPRESS_SIZE) {
+        algorithm >= COMPRESS_CEIL || head->size == MES_MSG_HEAD_SIZE) {
         return CM_SUCCESS;
     }
 
