@@ -53,7 +53,8 @@ void mes_init_channels_param(mes_channel_t *channel)
         pipe->msgbuf = NULL;
     }
 
-    LOG_DEBUG_INF("[mes] mes_init_channels_param");
+    LOG_DEBUG_INF("[mes] mes_init_channels_param, channel_id:%u, instance_id:%u",
+                  MES_CHANNEL_ID(channel->id), MES_INSTANCE_ID(channel->id));
 }
 
 // channel

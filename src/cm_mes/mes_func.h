@@ -351,8 +351,8 @@ static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint6
         uint64 elapsed_time = cm_get_time_usec() - start_time;
         cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]), NULL);
         g_mes_elapsed_stat.time_consume_stat[cmd].time[type] += elapsed_time;
-        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].count[type]));
         cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]));
+        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].count[type]));
     }
     return;
 }
@@ -360,9 +360,7 @@ static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint6
 static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
 {
     if (g_mes_elapsed_stat.mes_elapsed_switch) {
-        cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]), NULL);
         cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].count[type]));
-        cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]));
     }
     return;
 }
