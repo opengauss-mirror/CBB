@@ -342,6 +342,10 @@ int mes_decompress(mes_message_t *msg)
         return CM_SUCCESS;
     }
 
+    if(algorithm >= COMPRESS_CEIL) {
+        return CM_ERROR;
+    }
+
     if (level < MES_DEFAULT_COMPRESS_LEVEL || level > MES_MAX_COMPRESS_LEVEL) {
         return CM_ERROR;
     }
@@ -864,8 +868,7 @@ void mes_task_proc(thread_t *thread)
         if (msgitem == NULL) {
             continue;
         }
-        task_priority->pop_cursor = need_serial ? 0 : (queue_id + 1);
-        
+        task_priority->pop_cursor = queue_id + 1;
         mes_message_head_t *head = msgitem->msg.head;
         LOG_DEBUG_INF("[mes] mes_task_proc, cmd=%u, is_send=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, "
                       "src_inst=%u, dst_inst=%u, size=%u, flag=%u, index=%u, queue_count=%u, is_empty=%u",

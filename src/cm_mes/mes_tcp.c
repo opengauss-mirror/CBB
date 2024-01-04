@@ -202,6 +202,11 @@ static int mes_process_event(mes_pipe_t *pipe)
         return CM_SUCCESS;
     }
 
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request) && (head.cmd != MES_CMD_ASYNC_MSG)) {
+        LOG_RUN_ERR("[mes] mes_process_event, disable_request = 1, no support send request and get response");
+        return ERR_MES_SOCKET_FAIL;
+    }
+
     CM_RETURN_IFERR(check_recv_head_info(&head, pipe->priority));
     if (g_cb_convert_inst_id != NULL) {
         g_cb_convert_inst_id(&head.src_inst, &head.dst_inst);

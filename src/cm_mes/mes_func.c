@@ -1527,6 +1527,11 @@ int mes_send_response(inst_type dest_inst, flag_type flag, ruid_type ruid, char 
  */
 int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, unsigned int count, ...)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_send_response_x");
+        return CM_ERROR;
+    }
+
     MES_RETURN_IF_BAD_RUID(ruid);
     MES_RETURN_IF_BAD_MSG_COUNT(count);
     mes_message_head_t head;
@@ -1893,7 +1898,9 @@ static int mes_update_secondary_ip_lsnr(unsigned int inst_cnt, const mes_addr_t 
         return CM_SUCCESS;
     }
 
-    LOG_RUN_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s", old_secondary_ip, new_secondary_ip);
+    LOG_RUN_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s",
+                CM_IS_EMPTY_STR(old_secondary_ip) ? "NULL" : old_secondary_ip,
+                CM_IS_EMPTY_STR(new_secondary_ip) ? "NULL" : new_secondary_ip);
     if (!CM_IS_EMPTY_STR(old_secondary_ip)) {
         CM_RETURN_IFERR(mes_stop_old_secondary_ip_lsnr(lsnr, old_secondary_ip));
     }
