@@ -52,7 +52,7 @@ static mes_global_ptr_t g_mes_ptr = {
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
-#define MES_CONNETION_READY(inst_id) g_cbb_mes_callback.conn_ready_func(inst_id)
+#define MES_CONNETION_READY(inst_id, ready_count) g_cbb_mes_callback.conn_ready_func(inst_id, ready_count)
 #define MES_ALLOC_MSGITEM(queue, is_send) g_cbb_mes_callback.alloc_msgitem_func(queue, is_send)
 
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
@@ -2092,7 +2092,8 @@ void mes_disconnect(inst_type inst_id)
 
 unsigned int mes_connection_ready(inst_type inst_id)
 {
-    return MES_CONNETION_READY(inst_id);
+    uint32 ready_count;
+    return MES_CONNETION_READY(inst_id, &ready_count);
 }
 
 static inline bool32 is_node_in_new_profile(inst_type inst_id)

@@ -143,7 +143,7 @@ typedef int (*mes_send_bufflist_t)(mes_bufflist_t *buff_list);
 
 typedef void (*mes_release_buf_t)(const char *buffer);
 
-typedef bool32 (*mes_connection_ready_t)(uint32 inst_id);
+typedef bool32 (*mes_connection_ready_t)(uint32 inst_id, uint32 *ready_count);
 
 typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue, bool32 is_send);
 

@@ -51,7 +51,7 @@ int mes_tcp_send_data(const void *msg_data);
 int mes_start_lsnr(void);
 int mes_alloc_channels(void);
 int mes_tcp_send_bufflist(mes_bufflist_t *buff_list);
-bool32 mes_tcp_connection_ready(uint32 inst_id);
+bool32 mes_tcp_connection_ready(uint32 inst_id, uint32 *ready_count);
 
 int mes_connect_single(inst_type inst_id);
 status_t mes_get_pipe_version(cs_pipe_t *pipe, uint32 *version);

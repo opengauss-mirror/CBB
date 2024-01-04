@@ -944,26 +944,26 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
     return CM_SUCCESS;
 }
 
-bool32 mes_rdma_rpc_connection_ready(uint32 inst_id)
+bool32 mes_rdma_rpc_connection_ready(uint32 inst_id, uint32 *ready_count)
 {
     uint32 i, j;
     if (inst_id >= MES_MAX_INSTANCES) {
         LOG_RUN_ERR("check rdma connection is failed, inst id:%u", inst_id);
         return CM_FALSE;
     }
-
+    *ready_count = 0;
     mes_channel_t *channel = NULL;
     mes_pipe_t *pipe = NULL;
     for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
             pipe = &channel->pipe[j];
-            if (!pipe->recv_pipe_active || !pipe->send_pipe_active) {
-                return CM_FALSE;
+            if (pipe->recv_pipe_active && pipe->send_pipe_active) {
+                (*ready_count)++;
             }
         }
     }
-    return CM_TRUE;
+    return (*ready_count) == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt;
 }
 
 void stop_rdma_rpc_lsnr(void)

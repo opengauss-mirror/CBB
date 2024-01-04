@@ -499,9 +499,11 @@ static int mes_diag_proto_type(cs_pipe_t *pipe)
         }
         proto_code = version_proto_code.proto_code;
         pipe->version = version_proto_code.version;
+        LOG_RUN_INF("[mes] mes_diag_proto_type proto_code=%u, version=%u.", proto_code, pipe->version);
     } else if (size == sizeof(proto_code)) {
         proto_code = *(uint32 *)buffer;
         pipe->version = CS_VERSION_0;
+        LOG_RUN_INF("[mes] mes_diag_proto_type proto_code=%u.", proto_code);
     } else {
         LOG_RUN_ERR("[mes] invalid size[%u].", size);
     }
@@ -520,6 +522,8 @@ static int mes_diag_proto_type(cs_pipe_t *pipe)
         LOG_RUN_ERR("[mes]:cs_read_bytes failed.");
         return ERR_MES_SEND_MSG_FAIL;
     }
+
+    LOG_RUN_INF("[mes] mes_diag_proto_type: send ack[endian=%u].", (uint32)ack.endian);
     return CM_SUCCESS;
 }
 
@@ -626,10 +630,16 @@ int mes_connect_single(inst_type inst_id)
     }
 
     uint32 wait_time = 0;
-    while (!mes_connection_ready(inst_id)) {
+    uint32 ready_count = 0;
+    uint32 pre_ready_count = 0;
+    while (!mes_connection_ready(inst_id, &ready_count)) {
         const uint8 once_wait_time = 10;
         cm_sleep(once_wait_time);
-        wait_time += once_wait_time;
+        if (ready_count == pre_ready_count) {
+            wait_time += once_wait_time;
+        }
+        pre_ready_count = ready_count;
+
         if (wait_time > MES_CONNECT_TIMEOUT) {
             LOG_RUN_INF("[mes] connect to instance %u timeout.", inst_id);
             return ERR_MES_CONNECT_TIMEOUT;
@@ -853,7 +863,7 @@ int mes_start_lsnr(void)
     return CM_SUCCESS;
 }
 
-bool32 mes_tcp_connection_ready(uint32 inst_id)
+bool32 mes_tcp_connection_ready(uint32 inst_id, uint32 *ready_count)
 {
     uint32 i, j;
     if (inst_id >= MES_MAX_INSTANCES) {
@@ -861,18 +871,19 @@ bool32 mes_tcp_connection_ready(uint32 inst_id)
         return CM_FALSE;
     }
 
+    *ready_count = 0;
     mes_channel_t *channel = NULL;
     mes_pipe_t *pipe = NULL;
     for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
             pipe = &channel->pipe[j];
-            if (!pipe->recv_pipe_active || !pipe->send_pipe_active) {
-                return CM_FALSE;
+            if (pipe->recv_pipe_active && pipe->send_pipe_active) {
+                (*ready_count)++;
             }
         }
     }
-    return CM_TRUE;
+    return *ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt;
 }
 
 int mes_init_tcp_resource(void)

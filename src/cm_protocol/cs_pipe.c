@@ -135,6 +135,9 @@ static status_t cs_send_proto_code(cs_pipe_t *pipe, link_ready_ack_t *ack, bool3
         LOG_RUN_ERR("[MES] cs_send_proto_code, cs_tcp_recv_timed failed");
         return CM_ERROR;
     }
+
+    LOG_RUN_INF("[MES] cs_send_proto_code:recv ack:endian=%u, version=%u, flag=%u",
+                (uint32)ack->endian, (uint32)ack->version, (uint32)ack->flags);
     return CM_SUCCESS;
 }
 
@@ -176,10 +179,14 @@ static status_t cs_open_tcp_link(
             ack->flags = cs_reverse_int16(ack->flags);
             ack->version = cs_reverse_int32(ack->version);
             pipe->options |= CSO_DIFFERENT_ENDIAN;
+            LOG_RUN_INF("[mes] cs_open_tcp_link:set CSO_DIFFERENT_ENDIAN flag");
+        } else {
+            pipe->options &= ~CSO_DIFFERENT_ENDIAN;
+            LOG_RUN_INF("[mes] cs_open_tcp_link:clear CSO_DIFFERENT_ENDIAN flag");
         }
 
         LOG_RUN_INF(
-            "[mes] cs_open_tcp_link, send_version:%s, ack version:%u", send_version ? "TRUE" : "FALSE", ack->version);
+            "[mes] cs_open_tcp_link: send_version:%s, ack version:%u", send_version ? "TRUE" : "FALSE", ack->version);
         if ((send_version && ack->version < CS_VERSION_5) || (!send_version && ack->version >= CS_VERSION_5)) {
             LOG_RUN_ERR("[mes] the sent version does not match the received version, send_version:%u, ack version:%u",
                 send_version, ack->version);
