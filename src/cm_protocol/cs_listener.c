@@ -53,7 +53,7 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
     /* set default options of sock */
     cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
     cs_set_keep_alive(link->sock, CM_TCP_KEEP_IDLE, CM_TCP_KEEP_INTERVAL, CM_TCP_KEEP_COUNT);
-    cs_set_linger(link->sock, 1, 1);
+    cs_set_linger(link->sock, pipe->l_onoff, pipe->l_linger);
 
     link->closed = CM_FALSE;
     return CM_TRUE;
