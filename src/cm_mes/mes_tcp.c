@@ -821,7 +821,7 @@ static int mes_accept(cs_pipe_t *recv_pipe)
     mes_pipe->recv_pipe = *recv_pipe;
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
-    mes_pipe->recv_pipe.socket_timeout = (int32)CM_INVALID_INT32;
+    mes_pipe->recv_pipe.socket_timeout = MES_GLOBAL_INST_MSG.profile.socket_timeout;
     if (mes_add_pipe_to_epoll(channel->id, priority, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
         cm_rwlock_unlock(&mes_pipe->recv_lock);
         return CM_ERROR;
@@ -1016,8 +1016,10 @@ int mes_tcp_send_data(const void *msg_data)
     if (ret != CM_SUCCESS) {
         cm_rwlock_unlock(&pipe->send_lock);
         mes_close_send_pipe(pipe);
-        LOG_RUN_ERR("[mes] mes_tcp_send_data, cs_send_fixed_size failed. instance %d, send pipe closed",
-                    MES_INSTANCE_ID(pipe->channel->id));
+        LOG_RUN_ERR("[mes] mes_tcp_send_data, cs_send_fixed_size failed. instance %d, send pipe closed, "
+                    "os error %d, msg error %d %s.",
+                    MES_INSTANCE_ID(pipe->channel->id), cm_get_os_error(), cm_get_error_code(),
+                    cm_get_errormsg(cm_get_error_code()));
         return ERR_MES_SEND_MSG_FAIL;
     }
 

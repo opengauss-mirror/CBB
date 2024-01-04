@@ -544,8 +544,7 @@ void mes_free_msgitem_pool(mes_msgitem_pool_t *pool)
     }
 
     for (uint16 i = 0; i <= pool->buf_idx; i++) {
-        free(pool->buffer[i]);
-        pool->buffer[i] = NULL;
+        CM_FREE_PTR(pool->buffer[i]);
     }
 }
 

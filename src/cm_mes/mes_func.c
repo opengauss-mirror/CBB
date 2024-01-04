@@ -537,8 +537,10 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.pipe_type = profile->pipe_type;
     MES_GLOBAL_INST_MSG.profile.conn_created_during_init = profile->conn_created_during_init;
     MES_GLOBAL_INST_MSG.profile.frag_size = profile->frag_size;
-    MES_GLOBAL_INST_MSG.profile.connect_timeout = profile->connect_timeout;
-    MES_GLOBAL_INST_MSG.profile.socket_timeout = profile->socket_timeout;
+    MES_GLOBAL_INST_MSG.profile.connect_timeout =
+        profile->connect_timeout == 0 ? CM_INVALID_INT32 : profile->connect_timeout;
+    MES_GLOBAL_INST_MSG.profile.socket_timeout =
+        profile->socket_timeout == 0 ? CM_INVALID_INT32 : profile->socket_timeout;
     MES_GLOBAL_INST_MSG.profile.need_serial = profile->need_serial;
     MES_GLOBAL_INST_MSG.profile.send_directly = profile->send_directly;
     MES_GLOBAL_INST_MSG.profile.disable_request = profile->disable_request;
@@ -1260,6 +1262,7 @@ int mes_init(mes_profile_t *profile)
         LOG_RUN_ERR("[mes] profile is NULL, init failed.");
         return ERR_MES_PARAM_NULL;
     }
+    LOG_RUN_INF("[mes] mes_init start");
 
 #ifndef WIN32
     static pthread_once_t once_key = PTHREAD_ONCE_INIT;
