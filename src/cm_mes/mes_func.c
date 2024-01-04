@@ -1233,6 +1233,7 @@ static void mes_stop_channels(void)
 
 void mes_uninit(void)
 {
+    LOG_RUN_INF("[mes] mes_uninit start");
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_INPROGRESS;
     mes_close_listen_thread();
     mes_stop_receivers();
@@ -1251,6 +1252,7 @@ void mes_uninit(void)
     delete_thread_key();
 #endif
 
+    LOG_RUN_INF("[mes] mes_uninit success");
     return;
 }
 
@@ -1820,7 +1822,7 @@ int mes_connect(inst_type inst_id)
     cm_thread_lock(&conn->lock);
     if (MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
         cm_thread_unlock(&conn->lock);
-        LOG_RUN_WAR("[mes] dst instance %u has connected.", inst_id);
+        LOG_RUN_WAR("[mes] dst instance %u has trigger connect.", inst_id);
         return CM_SUCCESS;
     }
 

@@ -123,8 +123,8 @@ int mec_accept(cs_pipe_t *pipe)
     channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[mec_head.src_inst][mec_head.stream_id];
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head.flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
     mes_pipe_t *mes_pipe = &channel->pipe[priority];
-    mes_close_recv_pipe(mes_pipe);
     cm_rwlock_wlock(&mes_pipe->recv_lock);
+    mes_close_recv_pipe_nolock(mes_pipe);
     mes_pipe->recv_pipe = *pipe;
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
@@ -188,7 +188,7 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
     return CM_SUCCESS;
 }
 
-// receive
+// mec adapter receive
 int mec_process_event(mes_pipe_t *pipe)
 {
     LOG_DEBUG_INF("[mes_mec] mec_process_event start");
@@ -215,6 +215,11 @@ int mec_process_event(mes_pipe_t *pipe)
     }
 
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head.flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
+    if (priority != pipe->priority) {
+        mes_release_message_buf(&msg);
+        LOG_RUN_ERR("[mes_mec] flag priority %u not equal with pipe priority %u", priority, pipe->priority);
+        return CM_ERROR;
+    }
 
     // The MES head is assembled in a unified manner
     // to ensure that the subsequent enqueue and receive processes are consistent.
@@ -238,7 +243,8 @@ int mec_process_event(mes_pipe_t *pipe)
         mec_head.size - MEC_MSG_HEAD_SIZE_ADAPTER);
     if (ret != CM_SUCCESS) {
         mes_release_message_buf(&msg);
-        LOG_RUN_ERR("[mes_mec] mec read message body failed.");
+        LOG_RUN_ERR("[mes_mec] mec read message body failed, size:%u, src:%u, dst:%u, flags:%u.",
+                    mec_head.size, mec_head.src_inst, mec_head.dst_inst, mec_head.flags);
         return ERR_MES_SOCKET_FAIL;
     }
 

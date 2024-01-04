@@ -907,7 +907,8 @@ void mes_task_proc(thread_t *thread)
 status_t mes_start_task_dynamically(bool32 is_send, uint32 index)
 {
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
-    if (!mq_ctx->work_thread_idx[index].is_start) {
+    bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
+    if (need_serial && !mq_ctx->work_thread_idx[index].is_start) {
         cm_spin_lock(&mq_ctx->work_thread_idx[index].lock, NULL);
         if (!mq_ctx->work_thread_idx[index].is_start) {
             if (cm_event_init(&mq_ctx->work_thread_idx[index].event) != CM_SUCCESS) {
@@ -927,7 +928,9 @@ status_t mes_start_task_dynamically(bool32 is_send, uint32 index)
         }
         cm_spin_unlock(&mq_ctx->work_thread_idx[index].lock);
     }
-    cm_event_notify(&mq_ctx->work_thread_idx[index].event);
+    if (mq_ctx->work_thread_idx[index].is_start) {
+        cm_event_notify(&mq_ctx->work_thread_idx[index].event);
+    }
     return CM_SUCCESS;
 }
 

@@ -373,7 +373,9 @@ void mes_release_message_buf(mes_message_t *msg_buf);
 void mes_notify_msg_recv(mes_message_t *msg);
 void mes_close_channel(mes_channel_t *channel);
 void mes_close_send_pipe(mes_pipe_t *pipe);
+void mes_close_send_pipe_nolock(mes_pipe_t *pipe);
 void mes_close_recv_pipe(mes_pipe_t *pipe);
+void mes_close_recv_pipe_nolock(mes_pipe_t *pipe);
 int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority);
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
 
