@@ -678,6 +678,14 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
         return MES_SEND_DATA(msg->buffer);
     }
 
+    mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg->head->dst_inst][channel_id];
+    mes_priority_t priority = MES_PRIORITY(msg->head->flags);
+    mes_pipe_t *pipe = &channel->pipe[priority];
+    if (is_send && !pipe->send_pipe_active) {
+        LOG_RUN_ERR("[mes] mes send data to dst_inst[%u] priority[%u] is not ready.", msg->head->dst_inst, priority);
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
+
     uint32 inst_id = is_send ? msg->head->dst_inst : msg->head->src_inst;
     my_queue = &mq_ctx->channel_private_queue[inst_id][channel_id];
     msgitem = mes_alloc_msgitem(my_queue, is_send);
@@ -693,6 +701,7 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
     uint32 work_index = 0;
     mes_put_msgitem_enqueue(msgitem, is_send, &work_index);
     if (work_index == CM_INVALID_ID32 || work_index >= MES_MAX_TASK_NUM) {
+        LOG_RUN_ERR("[mes] work index invalid.");
         return CM_ERROR;
     }
 
