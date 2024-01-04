@@ -847,6 +847,8 @@ int mes_rdma_rpc_send_data(const void* msg_data)
 {
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
+    CM_RETURN_IFERR(mes_check_send_head_info(head));
+
     uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
     uint32 priority = MES_PRIORITY(head->flags);
@@ -906,6 +908,7 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
 {
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)((void*)buff_list->buffers[0].buf);
+    CM_RETURN_IFERR(mes_check_send_head_info(head));
 
     uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];

@@ -164,6 +164,7 @@ int mes_decompress(mes_message_t *msg);
 status_t mes_alloc_channel_msg_queue(bool32 is_send);
 void mes_free_channel_msg_queue(bool32 is_send);
 int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send);
+status_t mes_check_send_head_info(const mes_message_head_t *head);
 
 #ifdef __cplusplus
 }

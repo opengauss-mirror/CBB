@@ -335,8 +335,9 @@ int mes_decompress(mes_message_t *msg)
     mes_message_head_t *head = msg->head;
     compress_algorithm_t algorithm = MES_COMPRESS_ALGORITHM(head->flags);
     uint32 level = MES_COMPRESS_LEVEL(head->flags);
-    LOG_DEBUG_INF("[mes] mes_decompress, src_inst:%u, dst_inst:%u, compress algorithm:%u, compress level:%u, size:%u",
-                  head->src_inst, head->dst_inst, algorithm, level, head->size);
+    LOG_DEBUG_INF("[mes] mes_decompress, src_inst:%u, dst_inst:%u, compress algorithm:%u, compress level:%u, size:%u, 
+                  priority:%u", 
+                  head->src_inst, head->dst_inst, algorithm, level, head->size, MES_PRIORITY(head->flags));
 
     if (!MES_COMPRESS_ALGORITHM(head->flags) || head->size <= MES_MIN_COMPRESS_SIZE) {
         return CM_SUCCESS;
@@ -989,6 +990,11 @@ int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priorit
 
 long long mes_get_mem_capacity(bool8 is_send, mes_priority_t priority)
 {
+    if (SECUREC_UNLIKELY(priority >= MES_PRIORITY_CEIL)) {
+        LOG_RUN_ERR("[mes] mes_get_mem_capacity invalid priority %u.", priority);
+        return -1;
+    }
+
     if (is_send) {
         return mes_get_mem_capacity_internal(&MES_GLOBAL_INST_MSG.send_mq, priority);
     }
@@ -1007,6 +1013,7 @@ int mes_get_started_task_count(bool8 is_send)
     return count;
 }
 
+
 int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
 {
     int ret;
@@ -1020,7 +1027,7 @@ int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
     compress_algorithm_t algorithm = MES_GLOBAL_INST_MSG.profile.algorithm;
 
     if (is_send && send_directly && (!cm_bitmap8_exist(&enable_compress_priority, priority) ||
-        algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL || head->size <= MES_MIN_COMPRESS_SIZE)) {
+        algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL || head->size == MES_MSG_HEAD_SIZE)) {
         return MES_SEND_BUFFLIST(buff_list);
     }
 
@@ -1062,4 +1069,30 @@ int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
     }
 
     return ret;
+}
+
+status_t mes_check_send_head_info(const mes_message_head_t *head)
+{
+    if (SECUREC_UNLIKELY(head->size < sizeof(mes_message_head_t) || 
+        head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
+        MES_LOG_ERR_HEAD_EX(head, "message head size invalid or message length excced");
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(head->dst_inst >= MES_MAX_INSTANCES || head->src_inst >= MES_MAX_INSTANCES)) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(mec_head->cmd >= MES_CMD_MAX)) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid cmd");
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(MES_PRIORITY(head->flags) >= MES_PRIORITY_CEIL)) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid priority");
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
 }

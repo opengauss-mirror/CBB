@@ -121,6 +121,17 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return ERR_MES_INVALID_MSG_HEAD;
     }
+
+    if (SECUREC_UNLIKELY(head->cmd >= MES_CMD_MAX)) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid cmd");
+        return ERR_MES_CMD_TYPE_ERR;
+    }
+
+    if (SECUREC_UNLIKELY(MES_PRIORITY(head->flags >= MES_PRIORITY_CEIL))) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid priority");
+        return ERR_MES_INVALID_MSG_HEAD;
+    }
+
     return CM_SUCCESS;
 }
 
@@ -159,7 +170,7 @@ void mes_close_recv_pipe(mes_pipe_t *pipe)
 static status_t check_recv_head_info(const mes_message_head_t *head, mes_priority_t priority)
 {
     mes_priority_t flag_priority = MES_PRIORITY(head->flags);
-    if (flag_priority != priority) {
+    if (SECUREC_UNLIKELY(flag_priority != priority)) {
         LOG_DEBUG_ERR("[mes] rcvhead:flag_priority %u not equal with priority %u", flag_priority, priority);
         return CM_ERROR;
     }
@@ -951,6 +962,8 @@ int mes_tcp_send_data(const void *msg_data)
     uint64 stat_time = 0;
     int ret;
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
+    CM_RETURN_IFERR(mes_check_send_head_info(head));
+
     uint32 channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_priority_t priority = MES_PRIORITY(head->flags);
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
@@ -1025,6 +1038,8 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     uint64 stat_time = 0;
     bool32 merged = CM_TRUE;
     mes_message_head_t *head = (mes_message_head_t *)(buff_list->buffers[0].buf);
+    CM_RETURN_IFERR(mes_check_send_head_info(head));
+
     mes_channel_t *channel =
             &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
     mes_priority_t priority = MES_PRIORITY(head->flags);

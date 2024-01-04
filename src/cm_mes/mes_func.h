@@ -68,17 +68,19 @@ extern "C" {
 #define MES_LOG_WAR_HEAD_EX(head, message, room)                                                              \
     do {                                                                                                      \
         LOG_RUN_WAR("[mes]%s: %s. cmd=%u, ruid->rid=%llu, ruid->rsn=%llu, "                                   \
-            "room-rsn=%llu, src_inst=%u, dst_inst=%u, size=%u.",                                              \
+            "room-rsn=%llu, src_inst=%u, dst_inst=%u, size=%u, flags=%u.",                                    \
             (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                 \
             (uint64)MES_RUID_GET_RSN((head)->ruid), (uint64)(room)->rsn, (head)->src_inst, (head)->dst_inst,  \
-            (head)->size);                                                                                    \
+            (head)->size, (head)->flags);                                                                     \
     } while (0);
 
 #define MES_LOG_ERR_HEAD_EX(head, message)                                                                     \
     do {                                                                                                       \
-        LOG_RUN_ERR("[mes]%s: %s. cmd=%u, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, dst_inst=%u, size=%u.", \
+        LOG_RUN_ERR("[mes]%s: %s. cmd=%u, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, dst_inst=%u, size=%u, " \
+            "flags=%u.",                                                                                       \
             (char *)__func__, (message), (head)->cmd, (uint64)MES_RUID_GET_RID((head)->ruid),                  \
-            (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size);         \
+            (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,          \
+            (head)->flags);                                                                                    \
     } while (0);
 
 #define MES_RETURN_IF_BAD_RUID(ruid)                                                            \
