@@ -22,35 +22,33 @@
  * -------------------------------------------------------------------------
  */
 #include <stdio.h>
-#include "mes_cb.h"
+#include "mes_interface.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-mes_thread_init_t g_cb_thread_init = NULL;
-mes_thread_deinit_t g_cb_thread_deinit = NULL;
+static mes_thread_init_t g_cb_thread_init = NULL;
+static mes_thread_deinit_t g_cb_thread_deinit = NULL;
 
-mes_thread_init_t get_mes_worker_init_cb(void)
+mes_thread_init_t mes_get_worker_init_cb(void)
 {
     return g_cb_thread_init;
 }
 
-mes_thread_deinit_t get_mes_worker_deinit_cb(void)
+mes_thread_deinit_t mes_get_worker_deinit_cb(void)
 {
     return g_cb_thread_deinit;
 }
 
-int set_mes_worker_init_cb(mes_thread_init_t callback)
+void mes_set_worker_init_cb(mes_thread_init_t callback)
 {
     g_cb_thread_init = callback;
-    return 0;
 }
 
-int set_mes_worker_deinit_cb(mes_thread_deinit_t callback)
+void mes_set_worker_deinit_cb(mes_thread_deinit_t callback)
 {
     g_cb_thread_deinit = callback;
-    return 0;
 }
 
 #ifdef __cplusplus

@@ -51,7 +51,6 @@ static mes_global_ptr_t g_mes_ptr = {
 
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
-#define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
 #define MES_CONNETION_READY(inst_id) g_cbb_mes_callback.conn_ready_func(inst_id)
 #define MES_ALLOC_MSGITEM(queue, is_send) g_cbb_mes_callback.alloc_msgitem_func(queue, is_send)
@@ -264,63 +263,6 @@ static inline void mes_copy_recv_broadcast_msg(mes_waiting_room_t *room, mes_msg
             responses->count++;
         }
     }
-}
-
-int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
-{
-    int ret;
-    char *buffer = NULL;
-    uint32 pos = 0;
-    uint32 total_len = 0;
-    mes_message_head_t *head = (mes_message_head_t *)((void*)buff_list->buffers[0].buf);
-    mes_priority_t priority = MES_PRIORITY(head->flags);
-    uint8 enable_compress_priority = MES_GLOBAL_INST_MSG.profile.enable_compress_priority;
-    bool32 send_directly = MES_GLOBAL_INST_MSG.profile.send_directly;
-    compress_algorithm_t algorithm = MES_GLOBAL_INST_MSG.profile.algorithm;
-
-    if (is_send && send_directly && (!cm_bitmap8_exist(&enable_compress_priority, priority) ||
-        algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL || head->size <= MES_MIN_COMPRESS_SIZE)) {
-        return MES_SEND_BUFFLIST(buff_list);
-    }
-
-    for (int i = 0; i < buff_list->cnt; i++) {
-        total_len += buff_list->buffers[i].len;
-    }
-
-    inst_type inst_id = is_send ? head->dst_inst : head->src_inst;
-    buffer = mes_alloc_buf_item(total_len, is_send, inst_id, priority);
-    if (buffer == NULL) {
-        LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, alloc buf item failed, is_send:%u, src_inst:%u, dst_inst:%u, "
-                      "priority:%u",
-                      is_send, head->src_inst, head->dst_inst, priority);
-        return ERR_MES_MALLOC_FAIL;
-    }
-
-    for (int i = 0; i < buff_list->cnt; i++) {
-        ret = memcpy_s(buffer + pos, total_len - pos, buff_list->buffers[i].buf, buff_list->buffers[i].len);
-        if (ret != EOK) {
-            mes_free_buf_item(buffer);
-            LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, memcpy_s failed, is_send:%u, src_inst:%u, dst_inst:%u, "
-                          "total_len:%u, priority:%u, ret:%d",
-                          is_send, head->src_inst, head->dst_inst, total_len, priority, ret);
-            return ERR_MES_MEMORY_COPY_FAIL;
-        }
-        pos += buff_list->buffers[i].len;
-        if (total_len == pos) {
-            break;
-        }
-    }
-
-    mes_message_t msg;
-    MES_MESSAGE_ATTACH(&msg, buffer);
-
-    ret = mes_put_msg_queue(&msg, is_send);
-    if (ret != CM_SUCCESS || (MES_GLOBAL_INST_MSG.profile.send_directly && is_send)) {
-        mes_free_buf_item(buffer);
-        return ret;
-    }
-
-    return ret;
 }
 
 static inline void mes_append_bufflist(mes_bufflist_t *buff_list, const void *buff, uint32 len)
@@ -594,6 +536,7 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.socket_timeout = profile->socket_timeout;
     MES_GLOBAL_INST_MSG.profile.need_serial = profile->need_serial;
     MES_GLOBAL_INST_MSG.profile.send_directly = profile->send_directly;
+    MES_GLOBAL_INST_MSG.profile.disable_request = profile->disable_request;
     mes_set_channel_num(profile->channel_cnt);
     mes_set_priority_num(profile->priority_cnt);
     MES_GLOBAL_INST_MSG.profile.enable_compress_priority = profile->enable_compress_priority;
@@ -641,6 +584,11 @@ static int mes_set_profile(mes_profile_t *profile)
 
 static int mes_init_session_room(void)
 {
+    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
+    if (profile->disable_request) {
+        LOG_RUN_INF("[mes]no need init mes session room");
+        return CM_SUCCESS;
+    }
     uint32 i;
     uint32 freelist_idx;
     mes_waiting_room_t *room = NULL;
@@ -907,7 +855,7 @@ static int mes_init_resource(void)
     ret = mes_init_pipe_resource();
     if (ret != CM_SUCCESS) {
         mes_clean_session_mutex(CM_MAX_MES_ROOMS);
-        LOG_RUN_ERR("[mes] mes_init_session_room failed.");
+        LOG_RUN_ERR("[mes] mes_init_pipe_room failed.");
         return ret;
     }
 
@@ -942,8 +890,16 @@ static void mes_destroy_resource(void)
 
 static inline mes_waiting_room_t *mes_ruid_get_room(unsigned long long ruid)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_ruid_get_room");
+        return NULL;
+    }
     unsigned long long rid = ((ruid_t *)(&ruid))->room_id;
-    return (rid >= CM_MAX_MES_ROOMS) ? NULL : &MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[rid];
+    if (rid >= CM_MAX_MES_ROOMS) {
+        LOG_RUN_ERR("[mes]invalid rid = %llu, room = NULL", rid);
+        return NULL;
+    }
+    return &MES_GLOBAL_INST_MSG.mes_ctx.wr_pool.waiting_rooms[rid];
 }
 
 static inline bool8 ruid_matches_room_rsn(unsigned long long *ruid, unsigned long long room_rsn)
@@ -1494,7 +1450,15 @@ int mes_send_data_x(inst_type dest_inst, flag_type flag, unsigned int count, ...
 
 void mes_prepare_request(ruid_type *ruid)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_prepare_request");
+        return;
+    }
     mes_waiting_room_t *room = mes_alloc_room();
+    if (room == NULL) {
+        LOG_RUN_ERR("[mes]mes_alloc_room failed");
+        return;
+    }
     room->room_status = STATUS_PTP_SENT;
     *ruid = mes_room_get_ruid(room);
 }
@@ -1524,6 +1488,10 @@ int mes_send_request(inst_type dest_inst, flag_type flag, ruid_type *ruid, char 
  */
 int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type *ruid, unsigned int count, ...)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_send_request_x");
+        return CM_ERROR;
+    }
     *ruid = 0;
     MES_RETURN_IF_BAD_MSG_COUNT(count);
     mes_message_head_t head;
@@ -1575,6 +1543,10 @@ int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, uns
 
 int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_get_response");
+        return CM_ERROR;
+    }
     MES_RETURN_IF_BAD_RUID(ruid);
     uint64 start_stat_time = cm_get_time_usec();
     int32 wait_time = 0;
@@ -1691,6 +1663,10 @@ int mes_broadcast_sp(inst_type* inst_list, unsigned int inst_count, flag_type fl
 
 int mes_broadcast_request_x(flag_type flag, ruid_type* ruid, unsigned int count, ...)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_broadcast_request_x");
+        return CM_ERROR;
+    }
     *ruid = 0;
     MES_RETURN_IF_BAD_MSG_COUNT(count);
     va_list args;
@@ -1726,6 +1702,10 @@ int mes_broadcast_request(flag_type flag, ruid_type* ruid, char* msg_data, unsig
 int mes_broadcast_request_spx(inst_type* inst_list, unsigned int inst_count,
     flag_type flag, ruid_type* ruid, unsigned int count, ...)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request, func:mes_broadcast_request_spx");
+        return CM_ERROR;
+    }
     *ruid = 0;
     MES_RETURN_IF_BAD_INST_COUNT(inst_count);
     MES_RETURN_IF_BAD_MSG_COUNT(count);
@@ -1761,6 +1741,10 @@ int mes_broadcast_request_sp(inst_type* inst_list, unsigned int inst_count,
 
 int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request, func:mes_broadcast_get_response");
+        return CM_ERROR;
+    }
     MES_RETURN_IF_BAD_RUID(ruid);
     int32 wait_time = 0;
     mes_waiting_room_t *room = mes_ruid_get_room(ruid);
@@ -2347,6 +2331,10 @@ void* mes_get_global_inst(void)
 
 void mes_discard_response(ruid_type ruid)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_discard_response");
+        return;
+    }
     mes_waiting_room_t *room = mes_ruid_get_room(*(unsigned long long *)(&ruid));
     cm_spin_lock(&room->lock, NULL);
     if (room->rsn == ((ruid_t *)(&ruid))->rsn && room->check_rsn != ((ruid_t *)(&ruid))->rsn) {
@@ -2392,19 +2380,4 @@ int mes_is_different_endian(inst_type dst_inst)
         return -1;
     }
     return CS_DIFFERENT_ENDIAN(channel->pipe[MES_PRIORITY_ZERO].send_pipe.options);
-}
-
-int mes_get_pipe_sock(cs_pipe_t *pipe)
-{
-    if (pipe->type == CS_TYPE_TCP) {
-        return (int)pipe->link.tcp.sock;
-    } else if (pipe->type == CS_TYPE_SSL) {
-        return (int)pipe->link.ssl.tcp.sock;
-    } else if (pipe->type == CS_TYPE_DOMAIN_SCOKET) {
-        return (int)pipe->link.uds.sock;
-    } else {
-        CM_ASSERT(0);
-    }
-    
-    return CM_ERROR;
 }

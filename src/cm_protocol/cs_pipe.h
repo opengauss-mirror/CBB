@@ -100,6 +100,7 @@ status_t cs_write(cs_pipe_t *pipe, cs_packet_t *pack);
 status_t cs_call(cs_pipe_t *pipe, cs_packet_t *req, cs_packet_t *ack);
 status_t cs_call_timed(cs_pipe_t *pipe, cs_packet_t *req, cs_packet_t *ack);
 void cm_get_remote_host(cs_pipe_t *pipe, char *os_host);
+int cs_get_pipe_sock(cs_pipe_t *pipe);
 
 #ifdef __cplusplus
 }

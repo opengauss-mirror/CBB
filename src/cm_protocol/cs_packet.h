@@ -384,7 +384,7 @@ static inline status_t cs_get_int64(cs_packet_t *pack, int64 *value)
     }
     temp_value = *(int64 *)cs_read_addr(pack);
     temp_value = (int64)(CS_DIFFERENT_ENDIAN(pack->options) ?
-        cs_reverse_int64((uint64)temp_value) : temp_value);
+        (int64)cs_reverse_int64((uint64)temp_value) : temp_value);
     pack->offset += (uint32)sizeof(int64);
     if (value != NULL) {
         *value = temp_value;

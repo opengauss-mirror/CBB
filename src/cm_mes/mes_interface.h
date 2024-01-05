@@ -162,12 +162,14 @@ typedef struct st_mes_profile {
     struct {
         // Indicates whether to connected to other instances during MES initialization
         unsigned int conn_created_during_init : 1;
+        // 0:support send request and get response 1:no support send request and get response
+        unsigned int disable_request : 1;
         // Indicates whether to maintain the message execution sequence at the thread level between instances.
         unsigned int need_serial : 1;
         // Indicates whether a message needs to be added to the sending queue or directly sent.
         // 1: send directly; 0: added to the sending queue
         unsigned int send_directly : 1;
-        unsigned int reserved : 29;
+        unsigned int reserved : 28;
     };
 } mes_profile_t;
 
@@ -487,6 +489,32 @@ long long mes_get_mem_capacity(unsigned char is_send, mes_priority_t priority);
  * @return the count of started work thread task
  */
 int mes_get_started_task_count(unsigned char is_send);
+
+/*
+* @brief get mes worker init variable.
+* @return mes worker init variable
+*/
+mes_thread_init_t mes_get_worker_init_cb(void);
+
+/*
+* @brief get mes worker deinit variable.
+* @return mes worker deinit variable
+*/
+mes_thread_deinit_t mes_get_worker_deinit_cb(void);
+
+/*
+* @brief set mes worker init variable.
+* @param callback - mes worker init variable
+* @return
+*/
+void mes_set_worker_init_cb(mes_thread_init_t callback);
+
+/*
+* @brief set mes worker deinit variable.
+* @param callback - mes worker deinit variable
+* @return
+*/
+void mes_set_worker_deinit_cb(mes_thread_deinit_t callback);
 
 #ifdef __cplusplus
 }

@@ -29,7 +29,6 @@
 #include "cm_spinlock.h"
 #include "cm_rwlock.h"
 #include "cs_tcp.h"
-#include "mes_cb.h"
 #include "mec_adapter.h"
 #include "mes_recv.h"
 
@@ -146,7 +145,7 @@ void mes_close_recv_pipe(mes_pipe_t *pipe)
         cm_rwlock_unlock(&pipe->recv_lock);
         return;
     }
-    (void)mes_remove_pipe_from_epoll(pipe->priority, pipe->channel->id, mes_get_pipe_sock(&pipe->recv_pipe));
+    (void)mes_remove_pipe_from_epoll(pipe->priority, pipe->channel->id, cs_get_pipe_sock(&pipe->recv_pipe));
     cs_disconnect(&pipe->recv_pipe);
     pipe->recv_pipe_active = CM_FALSE;
     cm_rwlock_unlock(&pipe->recv_lock);
@@ -797,7 +796,7 @@ static int mes_accept(cs_pipe_t *recv_pipe)
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
     mes_pipe->recv_pipe.socket_timeout = (int32)CM_INVALID_INT32;
-    if (mes_add_pipe_to_epoll(channel->id, priority, mes_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
+    if (mes_add_pipe_to_epoll(channel->id, priority, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
         cm_rwlock_unlock(&mes_pipe->recv_lock);
         return CM_ERROR;
     }

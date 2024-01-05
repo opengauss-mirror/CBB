@@ -25,7 +25,7 @@
 #include "mes_queue.h"
 #include "mes_func.h"
 #include "cm_memory.h"
-#include "mes_cb.h"
+#include "mes_interface.h"
 #include "mec_adapter.h"
 #include "cm_hash.h"
 
@@ -827,7 +827,7 @@ void mes_task_proc(thread_t *thread)
     }
     cm_set_thread_name(thread_name);
 
-    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (!is_send && cb_thread_init != NULL) {
         cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
         LOG_RUN_INF("[mes] mes_task_proc thread init callback: cb_thread_init done");
@@ -864,11 +864,8 @@ void mes_task_proc(thread_t *thread)
         if (msgitem == NULL) {
             continue;
         }
-
-        if (!need_serial) {
-            task_priority->pop_cursor = queue_id + 1;
-        }
-
+        task_priority->pop_cursor = need_serial ? 0 : (queue_id + 1);
+        
         mes_message_head_t *head = msgitem->msg.head;
         LOG_DEBUG_INF("[mes] mes_task_proc, cmd=%u, is_send=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, "
                       "src_inst=%u, dst_inst=%u, size=%u, flag=%u, index=%u, queue_count=%u, is_empty=%u",
@@ -887,7 +884,7 @@ void mes_task_proc(thread_t *thread)
         }
     }
 
-    mes_thread_deinit_t cb_thread_deinit = get_mes_worker_deinit_cb();
+    mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
     if (!is_send && cb_thread_deinit != NULL) {
         cb_thread_deinit();
         LOG_RUN_INF("[mes] mes_task_proc thread deinit callback: cb_thread_deinit done");
@@ -1005,4 +1002,61 @@ int mes_get_started_task_count(bool8 is_send)
         }
     }
     return count;
+}
+
+int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
+{
+    int ret;
+    char *buffer = NULL;
+    uint32 pos = 0;
+    uint32 total_len = 0;
+    mes_message_head_t *head = (mes_message_head_t *)((void*)buff_list->buffers[0].buf);
+    mes_priority_t priority = MES_PRIORITY(head->flags);
+    uint8 enable_compress_priority = MES_GLOBAL_INST_MSG.profile.enable_compress_priority;
+    bool32 send_directly = MES_GLOBAL_INST_MSG.profile.send_directly;
+    compress_algorithm_t algorithm = MES_GLOBAL_INST_MSG.profile.algorithm;
+
+    if (is_send && send_directly && (!cm_bitmap8_exist(&enable_compress_priority, priority) ||
+        algorithm == COMPRESS_NONE || algorithm >= COMPRESS_CEIL || head->size <= MES_MIN_COMPRESS_SIZE)) {
+        return MES_SEND_BUFFLIST(buff_list);
+    }
+
+    for (int i = 0; i < buff_list->cnt; i++) {
+        total_len += buff_list->buffers[i].len;
+    }
+
+    inst_type inst_id = is_send ? head->dst_inst : head->src_inst;
+    buffer = mes_alloc_buf_item(total_len, is_send, inst_id, priority);
+    if (buffer == NULL) {
+        LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, alloc buf item failed, is_send:%u, src_inst:%u, dst_inst:%u, "
+                      "priority:%u",
+                      is_send, head->src_inst, head->dst_inst, priority);
+        return ERR_MES_MALLOC_FAIL;
+    }
+
+    for (int i = 0; i < buff_list->cnt; i++) {
+        ret = memcpy_s(buffer + pos, total_len - pos, buff_list->buffers[i].buf, buff_list->buffers[i].len);
+        if (ret != EOK) {
+            mes_free_buf_item(buffer);
+            LOG_DEBUG_ERR("[mes] mes_put_buffer_list_queue, memcpy_s failed, is_send:%u, src_inst:%u, dst_inst:%u, "
+                          "total_len:%u, priority:%u, ret:%d",
+                          is_send, head->src_inst, head->dst_inst, total_len, priority, ret);
+            return ERR_MES_MEMORY_COPY_FAIL;
+        }
+        pos += buff_list->buffers[i].len;
+        if (total_len == pos) {
+            break;
+        }
+    }
+
+    mes_message_t msg;
+    MES_MESSAGE_ATTACH(&msg, buffer);
+
+    ret = mes_put_msg_queue(&msg, is_send);
+    if (ret != CM_SUCCESS || (MES_GLOBAL_INST_MSG.profile.send_directly && is_send)) {
+        mes_free_buf_item(buffer);
+        return ret;
+    }
+
+    return ret;
 }

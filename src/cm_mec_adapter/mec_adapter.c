@@ -129,7 +129,7 @@ int mec_accept(cs_pipe_t *pipe)
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
     mes_pipe->recv_pipe.socket_timeout = (int32)CM_INVALID_INT32;
-    if (mes_add_pipe_to_epoll(channel->id, priority, mes_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
+    if (mes_add_pipe_to_epoll(channel->id, priority, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
         cm_rwlock_unlock(&mes_pipe->recv_lock);
         return CM_ERROR;
     }
