@@ -288,6 +288,7 @@ extern mes_callback_t g_cbb_mes_callback;
 #define MES_CALLER_TID_TO_CHANNEL_ID(tid) (uint8)((tid) % MES_GLOBAL_INST_MSG.profile.channel_cnt)
 #define MES_MY_ID (MES_GLOBAL_INST_MSG.profile.inst_id)
 #define MES_SEND_DATA(msg_data) g_cbb_mes_callback.send_func(msg_data)
+#define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 
 #define MES_WAITING_ROOM_POOL MES_GLOBAL_INST_MSG.mes_ctx.wr_pool
 
@@ -374,7 +375,6 @@ void mes_close_send_pipe(mes_pipe_t *pipe);
 void mes_close_recv_pipe(mes_pipe_t *pipe);
 int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority);
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
-int mes_get_pipe_sock(cs_pipe_t *pipe);
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus

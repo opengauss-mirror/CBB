@@ -26,7 +26,7 @@
 #include "cm_log.h"
 #include "cm_debug.h"
 #include "mes_recv.h"
-#include "mes_cb.h"
+#include "mes_interface.h"
 
 typedef struct st_receiver {
     int epfd;
@@ -226,7 +226,7 @@ static void mes_recv_proc(thread_t *thread)
         sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_recv_prio_%u_%u", argument.priority, argument.id));
     cm_set_thread_name(thread_name);
 
-    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (cb_thread_init != NULL) {
         cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
         LOG_DEBUG_INF("[mes]: mes_recv_proc thread init callback: mes recv proc cb_thread_init done");
@@ -249,7 +249,7 @@ static void mes_recv_proc(thread_t *thread)
         }
     }
 
-    mes_thread_deinit_t cb_thread_deinit = get_mes_worker_deinit_cb();
+    mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
     if (cb_thread_deinit != NULL) {
         cb_thread_deinit();
         LOG_RUN_INF("[mes] mes_recv_proc thread deinit callback: cb_thread_deinit done");

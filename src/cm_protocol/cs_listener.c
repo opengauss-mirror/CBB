@@ -26,7 +26,6 @@
 #include "cm_epoll.h"
 #include "cm_file.h"
 #include "mes_interface.h"
-#include "mes_cb.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,7 +103,7 @@ static void srv_tcp_lsnr_proc(thread_t *thread)
     pipe.type = CS_TYPE_TCP;
     cm_set_thread_name("tcp_lsnr");
 
-    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (cb_thread_init != NULL) {
         cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
         LOG_RUN_INF("[mes]: tcp lsnr thread init callback done");
@@ -117,7 +116,7 @@ static void srv_tcp_lsnr_proc(thread_t *thread)
         }
     }
 
-    mes_thread_deinit_t cb_thread_deinit = get_mes_worker_deinit_cb();
+    mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
     if (cb_thread_deinit != NULL) {
         cb_thread_deinit();
         LOG_RUN_INF("[mes] tcp lsnr thread deinit callback: cb_thread_deinit done");

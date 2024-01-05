@@ -667,6 +667,23 @@ void cm_get_remote_host(cs_pipe_t *pipe, char *os_host)
     }
     return;
 }
+
+
+int mes_get_pipe_sock(cs_pipe_t *pipe)
+{
+    if (pipe->type == CS_TYPE_TCP) {
+        return (int)pipe->link.tcp.sock;
+    } else if (pipe->type == CS_TYPE_SSL) {
+        return (int)pipe->link.ssl.tcp.sock;
+    } else if (pipe->type == CS_TYPE_DOMAIN_SCOKET) {
+        return (int)pipe->link.uds.sock;
+    } else {
+        CM_ASSERT(0);
+    }
+    
+    return CM_ERROR;
+}
+
 #ifdef __cplusplus
 }
 #endif

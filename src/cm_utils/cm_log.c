@@ -27,6 +27,8 @@
 #include "cm_thread.h"
 #include "cm_timer.h"
 #include "cm_hash.h"
+#include "cm_atomic.h"
+#include "cm_date.h"
 #include "zlib.h"
 
 #ifndef _WIN32
@@ -121,7 +123,7 @@ log_file_handle_t *cm_log_logger_file(uint32 log_count)
 {
     return &g_logger[log_count];
 }
-static log_param_t g_log_param;
+static log_param_t g_log_param = {0};
 inline log_param_t *cm_log_param_instance(void)
 {
     return &g_log_param;
@@ -1096,7 +1098,11 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
     errcode = snprintf_s(new_format, CM_MAX_LOG_CONTENT_LENGTH, CM_MAX_LOG_CONTENT_LENGTH - 1, "%s [%s:%u]",
                          format, code_file_name, code_line_num);
     if (log_param->log_suppress_enable && (log_type == LOG_RUN || log_type == LOG_DEBUG)) {
+        cm_spin_lock(&log_param->lock, NULL);
+        (void)cm_atomic32_inc(&log_param->reference_count);
+        cm_spin_unlock(&log_param->lock);
         log_suppress_status suppress_status = check_log_suppress(log_type, code_file_name, code_line_num);
+        (void)cm_atomic32_dec(&log_param->reference_count);
         if (suppress_status == LOG_SUPPRESS) {
             return;
         }
@@ -1192,6 +1198,54 @@ void cm_write_oper_log(const char *format, ...)
     va_end(args);
 }
 
+status_t cm_log_suppress_array_free(void)
+{
+    log_param_t *log_param = cm_log_param_instance();
+    cm_spin_lock(&log_param->lock, NULL);
+    while (cm_atomic32_get(&log_param->reference_count) != 0) {
+        cm_sleep(CM_SLEEP_5_FIXED);
+    }
+    CM_FREE_PTR(g_log_suppress_array);
+    cm_spin_unlock(&log_param->lock);
+    return CM_SUCCESS;
+}
+
+status_t cm_log_suppress_array_alloc(void)
+{
+    if (g_log_suppress_array != NULL) {
+        return CM_SUCCESS;
+    }
+    LOG_RUN_INF("[LOG]Start allocating memory for g_log_suppress_array");
+    log_suppress_entry_t* tem_log_suppress_array =
+            (log_suppress_entry_t *)malloc(MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
+    if (tem_log_suppress_array == NULL) {
+        LOG_RUN_ERR("[LOG]Memory allocation for g_log_suppress_array failed");
+        return CM_ERROR;
+    }
+    errno_t errcode = memset_s(tem_log_suppress_array,
+                               MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t),
+                               0,
+                               MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
+    if (errcode != EOK) {
+        LOG_RUN_ERR("Secure C lib has thrown an error %d", errcode);
+        CM_FREE_PTR(tem_log_suppress_array);
+        return CM_ERROR;
+    }
+    g_log_suppress_array = tem_log_suppress_array;
+    LOG_RUN_INF("[LOG]Memory allocation for g_log_suppress_array succeeded");
+    return CM_SUCCESS;
+}
+
+status_t cm_log_suppress_array_verify(bool32 log_suppress_enable)
+{
+    if (log_suppress_enable) {
+        CM_RETURN_IFERR(cm_log_suppress_array_alloc());
+    } else {
+        CM_RETURN_IFERR(cm_log_suppress_array_free());
+    }
+    return CM_SUCCESS;
+}
+
 status_t cm_log_init(log_type_t log_type, const char *file_name)
 {
     log_file_handle_t *log_file = &g_logger[log_type];
@@ -1209,20 +1263,7 @@ status_t cm_log_init(log_type_t log_type, const char *file_name)
     log_file->file_handle = CM_INVALID_FD;
     log_file->file_inode = 0;
     log_file->log_type = log_type;
-    if (g_log_suppress_array == NULL) {
-        g_log_suppress_array = (log_suppress_entry_t *)malloc(MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
-        if (g_log_suppress_array == NULL) {
-            CM_THROW_ERROR(ERR_ALLOC_MEMORY, "");
-            return CM_ERROR;
-        }
-        errcode = memset_s(g_log_suppress_array, MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t), 0,
-            MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
-        if (errcode != EOK) {
-            CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
-            CM_FREE_PTR(g_log_suppress_array);
-            return CM_ERROR;
-        }
-    }
+    CM_RETURN_IFERR(cm_log_suppress_array_verify(cm_log_param_instance()->log_suppress_enable));
     return CM_SUCCESS;
 }
 
@@ -1234,7 +1275,7 @@ void cm_log_open_compress(log_type_t log_type, bool8 log_compressed)
 
 void cm_log_uninit(void)
 {
-    CM_FREE_PTR(g_log_suppress_array);
+    (void)cm_log_suppress_array_free();
 }
 
 // if val = 700, log_file_permissions is (S_IRUSR | S_IWUSR | S_IXUSR)

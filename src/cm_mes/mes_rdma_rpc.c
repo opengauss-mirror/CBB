@@ -42,7 +42,6 @@
 #include "mes_rpc_ulog4c.h"
 #include "mes_rpc_openssl_dl.h"
 #include "mes_rpc_dl.h"
-#include "mes_cb.h"
 #include "openssl/x509.h"
 #include "openssl/x509v3.h"
 #include "openssl/pem.h"
@@ -439,7 +438,7 @@ static void mes_rdma_rpc_connection_proc_func(OckRpcServerContext handle, OckRpc
 {
     static thread_local_var bool32 init_flag = CM_FALSE;
     char *reg_data = NULL;
-    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (!init_flag && cb_thread_init != NULL) {
 #ifdef WIN32
         cb_thread_init(CM_FALSE, &reg_data);
@@ -756,7 +755,7 @@ static void mes_rdma_rpc_channel_entry(thread_t *thread)
     cm_set_thread_name(thread_name_ptr);
 
     char *reg_data = NULL;
-    mes_thread_init_t cb_thread_init = get_mes_worker_init_cb();
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (cb_thread_init != NULL) {
         cb_thread_init(CM_FALSE, &reg_data);
         LOG_DEBUG_INF("[mes]: status_notify thread init callback: rpc channel entry cb_thread_init done");
