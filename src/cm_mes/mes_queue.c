@@ -335,15 +335,15 @@ int mes_decompress(mes_message_t *msg)
     mes_message_head_t *head = msg->head;
     compress_algorithm_t algorithm = MES_COMPRESS_ALGORITHM(head->flags);
     uint32 level = MES_COMPRESS_LEVEL(head->flags);
-    LOG_DEBUG_INF("[mes] mes_decompress, src_inst:%u, dst_inst:%u, compress algorithm:%u, compress level:%u, size:%u, 
-                  priority:%u", 
+    LOG_DEBUG_INF("[mes] mes_decompress, src_inst:%u, dst_inst:%u, compress algorithm:%u, compress level:%u, size:%u, "
+                  "priority:%u",
                   head->src_inst, head->dst_inst, algorithm, level, head->size, MES_PRIORITY(head->flags));
 
     if (!MES_COMPRESS_ALGORITHM(head->flags) || head->size == MES_MSG_HEAD_SIZE) {
         return CM_SUCCESS;
     }
 
-    if(algorithm >= COMPRESS_CEIL) {
+    if (algorithm >= COMPRESS_CEIL) {
         return CM_ERROR;
     }
 
@@ -429,6 +429,7 @@ int mes_alloc_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
             return ERR_MES_MALLOC_FAIL;
         }
         if (memset_sp(pool->buffer[pool->buf_idx], size, 0, size) != EOK) {
+            CM_FREE_PTR(pool->buffer[pool->buf_idx]);
             cm_spin_unlock(&pool->lock);
             return CM_ERROR;
         }
@@ -1084,18 +1085,18 @@ int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
 
 status_t mes_check_send_head_info(const mes_message_head_t *head)
 {
-    if (SECUREC_UNLIKELY(head->size < sizeof(mes_message_head_t) || 
-        head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
+    if (SECUREC_UNLIKELY(head->size < sizeof(mes_message_head_t) ||
+                         head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
         MES_LOG_ERR_HEAD_EX(head, "message head size invalid or message length excced");
         return CM_ERROR;
     }
 
-    if (SECUREC_UNLIKELY(head->dst_inst >= MES_MAX_INSTANCES || head->src_inst >= MES_MAX_INSTANCES)) {
+    if (SECUREC_UNLIKELY(head->dst_inst >= MES_MAX_INSTANCES || head->src_inst == head->dst_inst)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return CM_ERROR;
     }
 
-    if (SECUREC_UNLIKELY(mec_head->cmd >= MES_CMD_MAX)) {
+    if (SECUREC_UNLIKELY(head->cmd >= MES_CMD_MAX)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid cmd");
         return CM_ERROR;
     }

@@ -127,7 +127,7 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
         return ERR_MES_CMD_TYPE_ERR;
     }
 
-    if (SECUREC_UNLIKELY(MES_PRIORITY(head->flags >= MES_PRIORITY_CEIL))) {
+    if (SECUREC_UNLIKELY(MES_PRIORITY(head->flags) >= MES_PRIORITY_CEIL)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid priority");
         return ERR_MES_INVALID_MSG_HEAD;
     }
@@ -497,7 +497,6 @@ void mes_event_proc(uint32 channel_id, uint32 priority, uint32 event)
     cm_rwlock_wlock(&pipe->recv_lock);
     if (event & EPOLLIN) {
         ret = mes_process_event(pipe);
-
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes] instance %d, recv pipe closed", MES_INSTANCE_ID(pipe->channel->id));
             mes_close_recv_pipe_nolock(pipe);
@@ -664,7 +663,7 @@ int mes_connect_single(inst_type inst_id)
     uint32 wait_time = 0;
     uint32 ready_count = 0;
     uint32 pre_ready_count = 0;
-    while (!mes_connection_ready(inst_id, &ready_count)) {
+    while (!mes_tcp_connection_ready(inst_id, &ready_count)) {
         const uint8 once_wait_time = 10;
         cm_sleep(once_wait_time);
         if (ready_count == pre_ready_count) {

@@ -163,14 +163,14 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
         return CM_ERROR;
     }
 
-    if (SECUREC_UNLIKELY(mec_head->size < sizeof(mec_message_head_adapter_t) || 
-        mec_head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
+    if (SECUREC_UNLIKELY(mec_head->size < sizeof(mec_message_head_adapter_t) ||
+                         mec_head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:recv message length %u exceed min", mec_head->size);
         return CM_ERROR;
     }
 
-    if (SECUREC_UNLIKELY(mec_head->src_inst >= MEC_MAX_NODE_COUNT_ADAPTER || 
-        mec_head->dst_inst >= MEC_MAX_NODE_COUNT_ADAPTER)) {
+    if (SECUREC_UNLIKELY(mec_head->src_inst >= MEC_MAX_NODE_COUNT_ADAPTER ||
+                         mec_head->dst_inst >= MEC_MAX_NODE_COUNT_ADAPTER)) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:invalid src_inst %u or dst_inst %u", mec_head->src_inst, mec_head->dst_inst);
         return CM_ERROR;
     }
@@ -180,7 +180,8 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
         return CM_ERROR;
     }
 
-    if (SECUREC_UNLIKELY((MEC_BATCH_ADAPTER(mec_head->flags) && mec_head->batch_size <= 1) || (mec_head->batch_size == 0))) {
+    if (SECUREC_UNLIKELY((MEC_BATCH_ADAPTER(mec_head->flags) && mec_head->batch_size <= 1) ||
+                         (mec_head->batch_size == 0))) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:batch_flag 0x%x or batch_size %u exceed error",
                       mec_head->flags, mec_head->batch_size);
         return CM_ERROR;

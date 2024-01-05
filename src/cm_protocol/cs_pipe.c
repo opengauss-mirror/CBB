@@ -676,7 +676,7 @@ void cm_get_remote_host(cs_pipe_t *pipe, char *os_host)
 }
 
 
-int mes_get_pipe_sock(cs_pipe_t *pipe)
+int cs_get_pipe_sock(cs_pipe_t *pipe)
 {
     if (pipe->type == CS_TYPE_TCP) {
         return (int)pipe->link.tcp.sock;
