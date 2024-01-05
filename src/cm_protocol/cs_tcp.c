@@ -495,7 +495,7 @@ status_t cs_tcp_send(const tcp_link_t *link, const char *buf, uint32 size, int32
         if (code == WSAEWOULDBLOCK) {
 #else
         code = errno;
-        if (errno == EWOULDBLOCK) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN) {
 #endif
             *send_size = 0;
             return CM_SUCCESS;

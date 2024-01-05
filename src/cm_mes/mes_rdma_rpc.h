@@ -52,7 +52,7 @@ int mes_rdma_rpc_send_data(const void* msg_data);
 
 int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list);
 
-bool32 mes_rdma_rpc_connection_ready(uint32 inst_id);
+bool32 mes_rdma_rpc_connection_ready(uint32 inst_id, uint32 *ready_count);
 
 int mes_register_rdma_rpc_proc_func(void);
 

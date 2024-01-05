@@ -52,7 +52,7 @@ static mes_global_ptr_t g_mes_ptr = {
 #define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
-#define MES_CONNETION_READY(inst_id) g_cbb_mes_callback.conn_ready_func(inst_id)
+#define MES_CONNETION_READY(inst_id, ready_count) g_cbb_mes_callback.conn_ready_func(inst_id, ready_count)
 #define MES_ALLOC_MSGITEM(queue, is_send) g_cbb_mes_callback.alloc_msgitem_func(queue, is_send)
 
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
@@ -458,6 +458,11 @@ static int mes_set_buffer_pool(const mes_profile_t *profile)
 
 void mes_set_specified_priority_enable_compress(mes_priority_t priority, bool8 enable_compress)
 {
+    if (SECUREC_UNLIKELY(priority >= MES_PRIORITY_CEIL)) {
+        LOG_RUN_ERR("[mes] invalid priority %u.", priority);
+        return;
+    }
+
     uint8 enable_compress_priority = MES_GLOBAL_INST_MSG.profile.enable_compress_priority;
     if (enable_compress) {
         cm_bitmap8_set(&enable_compress_priority, (uint8)priority);
@@ -532,8 +537,10 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.pipe_type = profile->pipe_type;
     MES_GLOBAL_INST_MSG.profile.conn_created_during_init = profile->conn_created_during_init;
     MES_GLOBAL_INST_MSG.profile.frag_size = profile->frag_size;
-    MES_GLOBAL_INST_MSG.profile.connect_timeout = profile->connect_timeout;
-    MES_GLOBAL_INST_MSG.profile.socket_timeout = profile->socket_timeout;
+    MES_GLOBAL_INST_MSG.profile.connect_timeout =
+        profile->connect_timeout == 0 ? CM_INVALID_INT32 : profile->connect_timeout;
+    MES_GLOBAL_INST_MSG.profile.socket_timeout =
+        profile->socket_timeout == 0 ? CM_INVALID_INT32 : profile->socket_timeout;
     MES_GLOBAL_INST_MSG.profile.need_serial = profile->need_serial;
     MES_GLOBAL_INST_MSG.profile.send_directly = profile->send_directly;
     MES_GLOBAL_INST_MSG.profile.disable_request = profile->disable_request;
@@ -1226,6 +1233,7 @@ static void mes_stop_channels(void)
 
 void mes_uninit(void)
 {
+    LOG_RUN_INF("[mes] mes_uninit start");
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_INPROGRESS;
     mes_close_listen_thread();
     mes_stop_receivers();
@@ -1244,6 +1252,7 @@ void mes_uninit(void)
     delete_thread_key();
 #endif
 
+    LOG_RUN_INF("[mes] mes_uninit success");
     return;
 }
 
@@ -1255,6 +1264,7 @@ int mes_init(mes_profile_t *profile)
         LOG_RUN_ERR("[mes] profile is NULL, init failed.");
         return ERR_MES_PARAM_NULL;
     }
+    LOG_RUN_INF("[mes] mes_init start");
 
 #ifndef WIN32
     static pthread_once_t once_key = PTHREAD_ONCE_INIT;
@@ -1376,9 +1386,14 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
     va_list apcopy;
     va_copy(apcopy, args);
 
-    if ((uint32)MES_PRIORITY(head->flags) >= MES_GLOBAL_INST_MSG.profile.priority_cnt) {
+    if (SECUREC_UNLIKELY((uint32)MES_PRIORITY(head->flags) >= MES_GLOBAL_INST_MSG.profile.priority_cnt)) {
         LOG_RUN_ERR("[mes] flag priority[%u] exceeds the configured number[%d].",
                     MES_PRIORITY(head->flags), MES_GLOBAL_INST_MSG.profile.priority_cnt);
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(head->dst_inst >= MES_MAX_INSTANCES)) {
+        LOG_RUN_ERR("[mes] mes_send_data_x_inner, invalid dst_inst %u.", head->dst_inst);
         return CM_ERROR;
     }
 
@@ -1415,6 +1430,7 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
 
     bool32 is_send = head->dst_inst == MES_MY_ID ? CM_FALSE : CM_TRUE;
     mes_get_consume_time_start(&start_stat_time);
+    MES_RESET_COMPRESS_ALGORITHM_FLAG(head->flags);
     int ret = mes_put_buffer_list_queue(&buff_list, is_send);
     if (ret == CM_SUCCESS) {
         mes_send_stat(head->cmd);
@@ -1527,6 +1543,11 @@ int mes_send_response(inst_type dest_inst, flag_type flag, ruid_type ruid, char 
  */
 int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, unsigned int count, ...)
 {
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
+        LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_send_response_x");
+        return CM_ERROR;
+    }
+
     MES_RETURN_IF_BAD_RUID(ruid);
     MES_RETURN_IF_BAD_MSG_COUNT(count);
     mes_message_head_t head;
@@ -1801,7 +1822,7 @@ int mes_connect(inst_type inst_id)
     cm_thread_lock(&conn->lock);
     if (MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id].is_connect) {
         cm_thread_unlock(&conn->lock);
-        LOG_RUN_WAR("[mes] dst instance %u has connected.", inst_id);
+        LOG_RUN_WAR("[mes] dst instance %u has trigger connect.", inst_id);
         return CM_SUCCESS;
     }
 
@@ -1893,7 +1914,9 @@ static int mes_update_secondary_ip_lsnr(unsigned int inst_cnt, const mes_addr_t 
         return CM_SUCCESS;
     }
 
-    LOG_RUN_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s", old_secondary_ip, new_secondary_ip);
+    LOG_RUN_INF("[mes] old_secondary_ip:%s, new_secondary_ip:%s",
+                CM_IS_EMPTY_STR(old_secondary_ip) ? "NULL" : old_secondary_ip,
+                CM_IS_EMPTY_STR(new_secondary_ip) ? "NULL" : new_secondary_ip);
     if (!CM_IS_EMPTY_STR(old_secondary_ip)) {
         CM_RETURN_IFERR(mes_stop_old_secondary_ip_lsnr(lsnr, old_secondary_ip));
     }
@@ -2092,7 +2115,8 @@ void mes_disconnect(inst_type inst_id)
 
 unsigned int mes_connection_ready(inst_type inst_id)
 {
-    return MES_CONNETION_READY(inst_id);
+    uint32 ready_count;
+    return MES_CONNETION_READY(inst_id, &ready_count);
 }
 
 static inline bool32 is_node_in_new_profile(inst_type inst_id)
@@ -2188,6 +2212,11 @@ static int mes_get_queue_count_internal(const mq_context_t *mq_ctx, mes_priority
 
 int mes_get_queue_count(bool8 is_send, mes_priority_t priority)
 {
+    if (SECUREC_UNLIKELY(priority >= MES_PRIORITY_CEIL)) {
+        LOG_RUN_ERR("[mes] mes_get_queue_count, invalid priority %u.", priority);
+        return -1;
+    }
+
     if (is_send) {
         return mes_get_queue_count_internal(&MES_GLOBAL_INST_MSG.send_mq, priority);
     }
@@ -2374,6 +2403,11 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
 
 int mes_is_different_endian(inst_type dst_inst)
 {
+    if (SECUREC_UNLIKELY(dst_inst >= MES_MAX_INSTANCES)) {
+        LOG_RUN_ERR("[mes] mes_is_different_endian, invalid dst_inst: %u.", dst_inst);
+        return -1;
+    }
+
     int channel_id = MES_CALLER_TID_TO_CHANNEL_ID((uint32)MES_CURR_TID);
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst][channel_id];
     if (channel == NULL) {
