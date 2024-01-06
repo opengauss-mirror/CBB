@@ -133,6 +133,26 @@ typedef struct st_mes_addr {
     unsigned char reserved[1];
 } mes_addr_t;
 
+typedef struct st_mes_task_threadpool_group_attr {
+    unsigned int group_id;
+    unsigned int enabled;
+    unsigned char num_fixed;
+    unsigned char unused[2];
+    unsigned int min_cnt;
+    unsigned int max_cnt;
+    unsigned int task_num_ceiling;
+    unsigned int task_num_floor;
+} mes_task_threadpool_group_attr_t;
+
+typedef struct st_mes_task_threadpool_attr {
+    unsigned char enable_threadpool;
+    unsigned char unused[3];
+    unsigned int group_num;
+    mes_task_threadpool_group_attr_t group_attr[MES_PRIORITY_CEIL];
+    unsigned int min_cnt;
+    unsigned int max_cnt;
+} mes_task_threadpool_attr_t;
+
 typedef struct st_mes_profile {
     inst_type inst_id;
     unsigned int inst_cnt;
@@ -171,6 +191,7 @@ typedef struct st_mes_profile {
         unsigned int send_directly : 1;
         unsigned int reserved : 28;
     };
+    mes_task_threadpool_attr_t tpool_attr;
 } mes_profile_t;
 
 typedef struct st_mes_msg {
