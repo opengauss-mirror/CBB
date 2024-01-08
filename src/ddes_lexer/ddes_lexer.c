@@ -218,6 +218,12 @@ static word_type_t lex_diagnose_word_type(lex_t *lex)
         return WORD_TYPE_NUMBER;
     }
 
+    if (c1 == '-' || c1 == '+') {
+        if (c2 >= '0' && c2 <= '9') {
+            return WORD_TYPE_NUMBER;
+        }
+    }
+
     return lex_diagnose_word_type1(lex, c1, c2);
 }
 

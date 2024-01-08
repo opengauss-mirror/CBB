@@ -200,7 +200,7 @@ void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat)
         return;
     }
     json_t *statJson = (json_t *)res_stat;
-    json_destroy(statJson);
+    json_destroy(statJson, NULL, &(statJson->allocator));
 }
 
 // get detail stats info
@@ -233,11 +233,13 @@ const cm_res_inst_info_ptr_t cm_res_get_instance_info(cm_res_mgr_t *cm_res_mgr,
     text_t key;
     key.str = (char *)"inst_status";
     key.len = (uint32)strlen(key.str);
-    json_arr_t *arr = json_get_arr(statJson, &key);
+    json_arr_t *arr = NULL;
+    (void) json_get_arr(statJson, &arr, &key);
     if (arr == NULL) {
         return NULL;
     }
-    json_t *json_sub = jarr_get_obj(arr, instance_idx);
+    json_t *json_sub = NULL;
+    (void) jarr_get_obj(arr, &json_sub, instance_idx);
     if (json_sub == NULL) {
         return NULL;
     }

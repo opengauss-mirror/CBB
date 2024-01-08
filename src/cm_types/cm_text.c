@@ -385,7 +385,7 @@ static bool32 cm_is_err(const char *err)
     return CM_FALSE;
 }
 
-static status_t cm_str2real(const char *str, double *value)
+status_t cm_str2real(const char *str, double *value)
 {
     char *err = NULL;
     *value = strtod(str, &err);
