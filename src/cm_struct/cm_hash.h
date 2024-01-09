@@ -52,6 +52,7 @@ typedef union {
 #define HASH_DIM_INDEX_1 1
 #define HASH_DIM_INDEX_2 2
 #define BIT_NUM_INT32 32
+#define DEFAULT_HASH_SIZE 8
 
 typedef union {
     uint8 bytes[HASH_BYTE_BATCH];
@@ -141,6 +142,7 @@ typedef struct st_hash_map {
 
 static inline status_t cm_hmap_init(hash_map_t *hmap, cm_allocator_t *alloc, uint32 buckets)
 {
+    buckets = buckets < DEFAULT_HASH_SIZE ? DEFAULT_HASH_SIZE : buckets;
     uint32 size = (uint32)sizeof(hash_node_t *) * buckets;
     CM_RETURN_IFERR(alloc->f_alloc(alloc->mem_ctx, size, (void **)&hmap->buckets));
     MEMS_RETURN_IFERR(memset_s(hmap->buckets, size, 0, size));

@@ -955,6 +955,7 @@ static inline void cm_text_ltrim_zero(text_t *text)
 status_t cm_str2size(const char *str, int64 *value);
 status_t cm_str2int(const char *str, int32 *value);
 status_t cm_str2bigint(const char *str, int64 *value);
+status_t cm_str2real(const char *str, double *value);
 status_t cm_text2bigint(const text_t *text_src, int64 *value);
 status_t cm_text2size(const text_t *text, int64 *value);
 
