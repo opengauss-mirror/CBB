@@ -699,11 +699,6 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
 
-    if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
-        mes_put_msgitem_to_threadpool(msgitem);
-        return CM_SUCCESS;
-    }
-
     uint32 work_index = 0;
     mes_put_msgitem_enqueue(msgitem, is_send, &work_index);
     if (work_index == CM_INVALID_ID32 || work_index >= MES_MAX_TASK_NUM) {
@@ -760,7 +755,7 @@ mes_msgitem_t *mes_get_msgitem(mes_msgqueue_t *queue)
     return ret;
 }
 
-void mes_free_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
+static void mes_free_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
 {
     cm_spin_lock(&pool->free_list.lock, NULL);
     if (pool->free_list.count > 0) {
@@ -912,10 +907,6 @@ void mes_task_proc(thread_t *thread)
 
 status_t mes_start_task_dynamically(bool32 is_send, uint32 index)
 {
-    if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
-        return CM_SUCCESS;
-    }
-    
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
     bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
     if (need_serial && !mq_ctx->work_thread_idx[index].is_start) {

@@ -9,7 +9,6 @@ include_directories(${CBB_TYPE_PATH})
 include_directories(${CBB_UTIL_PATH})
 include_directories(${CBB_UTIL_PROTOCOL_PATH})
 include_directories(${CBB_MES_PATH})
-include_directories(${CBB_MES_TASK_PATH})
 include_directories(${CBB_PROTOCOL_PATH})
 include_directories(${CBB_JSON_PATH})
 include_directories(${CBB_LEXER_PATH})
@@ -38,7 +37,6 @@ aux_source_directory(./cm_utils CM_UTILS_SRC)
 aux_source_directory(./cm_utils/protocol CM_UTILS_PROTOCOL_SRC)
 aux_source_directory(./cm_security CM_SECURITY_SRC)
 aux_source_directory(./cm_mes CM_MES_SRC)
-aux_source_directory(./cm_mes/mes_task CM_MES_TASK_SRC)
 aux_source_directory(./cm_protocol CM_PROTOCOL_SRC)
 aux_source_directory(./cm_res CM_RES_SRC)
 aux_source_directory(./ddes_json CM_JSON_SRC)
@@ -67,7 +65,6 @@ set(COMMON_ALL_SRC
         ${CM_INTERFACE_SRC}
         ${CM_MEC_SRC}
         ${CM_COMPRESS_SRC}
-        ${CM_MES_TASK_SRC}
         )
 
 add_library(cbb SHARED ${COMMON_ALL_SRC})

@@ -40,7 +40,6 @@
 #include "cm_rwlock.h"
 #include "mes_interface.h"
 #include "mes_type.h"
-#include "mes_task_threadpool_interface.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -253,7 +252,6 @@ typedef struct st_mes_instance {
     mes_message_proc_t proc;
     ssl_ctx_t *ssl_acceptor_fd;
     ssl_ctx_t *ssl_connector_fd;
-    mes_task_threadpool_t task_tpool;
 } mes_instance_t;
 
 #define INST_ID_MOVE_LEFT_BIT_CNT 8
@@ -294,8 +292,6 @@ extern mes_callback_t g_cbb_mes_callback;
 #define MES_SEND_BUFFLIST(buff_list) g_cbb_mes_callback.send_bufflist_func(buff_list)
 
 #define MES_WAITING_ROOM_POOL MES_GLOBAL_INST_MSG.mes_ctx.wr_pool
-#define MES_TASK_THREADPOOL &MES_GLOBAL_INST_MSG.task_tpool
-#define ENABLE_MES_TASK_THREADPOOL (MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool == CM_TRUE)
 
 bool32 mes_connection_ready(uint32 inst_id);
 int mes_send_bufflist(mes_bufflist_t *buff_list);
