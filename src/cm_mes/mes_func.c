@@ -519,6 +519,95 @@ static void mes_set_channel_num(uint32 channel_cnt)
     return;
 }
 
+static status_t mes_check_task_threadpool_attr(mes_profile_t *profile)
+{
+    if (!profile->tpool_attr.enable_threadpool) {
+        LOG_RUN_INF("[mes][MES TASK THREADPOOL] work threadpool is off");
+        MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool = CM_FALSE;
+        return CM_SUCCESS;
+    }
+
+    bool8 work_task_count_all_zero = CM_TRUE;
+    for (int i = 0; i < MES_PRIORITY_CEIL; i++) {
+        if (profile->work_task_count[i] > 0 ) {
+            work_task_count_all_zero = CM_FALSE;
+            break;
+        }
+    }
+
+    if (profile->tpool_attr.enable_threadpool && !work_task_count_all_zero) {
+        LOG_RUN_WAR("[mes][MES TASK THREADPOOL] work threadpool is on and work_task_count is not zero, "
+            "which is not allowed. so we turn off work threadpool");
+        profile->tpool_attr.enable_threadpool = CM_FALSE;
+        MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool = CM_FALSE;
+        return CM_SUCCESS;
+    }
+    
+    mes_task_threadpool_attr_t *tpool_attr = &profile->tpool_attr;
+    if (tpool_attr->group_num > MES_PRIORITY_CEIL) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] group_num large than MES_PRIORITY_CEIL");
+        return CM_ERROR;
+    }
+
+    if (tpool_attr->min_cnt < MES_MIN_TASK_NUM) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] min_cnt less than MES_MIN_TASK_NUM, min_cnt:%u, MES_MIN_TASK_NUM:%u",
+            tpool_attr->min_cnt, MES_MIN_TASK_NUM);
+        return CM_ERROR;
+    }
+
+    if (tpool_attr->max_cnt > MES_MAX_TASK_NUM) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] max_cnt large than MES_MAX_TASK_NUM, max_cnt:%u, MES_MAX_TASK_NUM:%u",
+            tpool_attr->max_cnt, MES_MAX_TASK_NUM);
+        return CM_ERROR;
+    }
+
+    unsigned int total_min = 0;
+    unsigned int total_max = 0;
+    for (int i = 0; i < tpool_attr->group_num; i++) {
+        mes_task_threadpool_group_attr_t *group_attr = &tpool_attr->group_attr[i];
+        if (group_attr->enabled) {
+            if (group_attr->min_cnt > group_attr->max_cnt) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group min_cnt large than max_cnt "
+                    "group_id:%u, min_cnt:%u, max_cnt:%u",
+                    group_attr->group_id, group_attr->min_cnt, group_attr->max_cnt);
+                return CM_ERROR;
+            }
+            if (group_attr->min_cnt < MES_MIN_TASK_NUM) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group min_cnt less than MES_MIN_TASK_NUM "
+                    "group_id:%u, min_cnt:%u, MES_MIN_TASK_NUM:%u",
+                    group_attr->group_id, group_attr->min_cnt, MES_MIN_TASK_NUM);
+                return CM_ERROR;
+            }
+            if (group_attr->max_cnt > MES_MAX_TASK_NUM) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group max_cnt large than MES_MAX_TASK_NUM "
+                    "group_id:%u, max_cnt:%u, MES_MAX_TASK_NUM:%u",
+                    group_attr->group_id, group_attr->max_cnt, MES_MAX_TASK_NUM);
+                return CM_ERROR;
+            }
+            total_min += group_attr->min_cnt;
+            total_max += group_attr->max_cnt;
+        }
+    }
+
+    if (total_min != tpool_attr->min_cnt) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] min_cnt not equal to sum of group min_cnt "
+            "min_cnt:%u, sum of group:%u",
+            tpool_attr->min_cnt, total_min);
+        return CM_ERROR;
+    }
+
+    if (total_max != tpool_attr->max_cnt) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] max_cnt not equal to sum of group max_cnt "
+            "max_cnt:%u, sum of group:%u",
+            tpool_attr->max_cnt, total_max);
+        return CM_ERROR;
+    }
+
+    LOG_RUN_INF("[mes][MES TASK THREADPOOL] work threadpool is on");
+    MES_GLOBAL_INST_MSG.profile.tpool_attr = profile->tpool_attr;
+    return CM_SUCCESS;
+}
+
 static int mes_set_profile(mes_profile_t *profile)
 {
     int ret;
@@ -583,6 +672,12 @@ static int mes_set_profile(mes_profile_t *profile)
     if (ret != EOK) {
         LOG_RUN_ERR("[mes]: copy ock_log_path failed.");
         return ERR_MES_MEMORY_COPY_FAIL;
+    }
+
+    ret = mes_check_task_threadpool_attr(profile);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes]: init threadpool attr failed.");
+        return ret;
     }
 
     LOG_RUN_INF("[mes]: set profile finish.");
@@ -694,6 +789,10 @@ static int mes_init_priority_task(bool32 is_send)
             is_send ? MES_GLOBAL_INST_MSG.profile.send_task_count : MES_GLOBAL_INST_MSG.profile.work_task_count;
     uint32 priority_cnt = MES_GLOBAL_INST_MSG.profile.priority_cnt;
 
+    if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
+        return CM_SUCCESS;
+    }
+
     for (loop = 0; loop < priority_cnt; loop++) {
         if (task_priority[loop] == 0) {
             task_priority[loop] = 1;
@@ -729,6 +828,10 @@ static int mes_start_work_thread_statically(bool32 is_send)
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
 
     if (is_send && send_directly) {
+        return CM_SUCCESS;
+    }
+
+    if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
         return CM_SUCCESS;
     }
 
@@ -1009,6 +1112,11 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
 
+    if (ENABLE_MES_TASK_THREADPOOL) {
+        mes_put_msgitem_to_threadpool(msgitem);
+        return;
+    }
+
     uint32 work_index = 0;
     mes_put_msgitem_enqueue(msgitem, CM_FALSE, &work_index);
     mes_consume_with_time(msg->head->cmd, MES_TIME_PUT_QUEUE, start_time);
@@ -1239,6 +1347,9 @@ void mes_uninit(void)
     mes_stop_receivers();
     mes_close_work_thread(CM_TRUE);
     mes_close_work_thread(CM_FALSE);
+    if (ENABLE_MES_TASK_THREADPOOL) {
+        mes_task_threadpool_uninit();
+    }
     mes_destroy_msgitem_pool();
     mes_destroy_all_message_pool();
     mes_stop_channels();
@@ -1296,6 +1407,13 @@ int mes_init(mes_profile_t *profile)
         ret = mes_init_resource();
         if (ret != CM_SUCCESS) {
             break;
+        }
+
+        if (profile->tpool_attr.enable_threadpool) {
+            ret = mes_task_threadpool_init(&profile->tpool_attr);
+            if (ret != CM_SUCCESS) {
+                break;
+            }
         }
 
         ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_event_proc);

@@ -165,6 +165,8 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send);
 void mes_free_channel_msg_queue(bool32 is_send);
 int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send);
 status_t mes_check_send_head_info(const mes_message_head_t *head);
+void mes_free_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems);
+void mes_work_proc(mes_msgitem_t *msgitem, uint32 work_idx);
 
 #ifdef __cplusplus
 }
