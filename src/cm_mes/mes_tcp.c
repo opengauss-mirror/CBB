@@ -111,13 +111,19 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
         return ERR_MES_READ_MSG_FAIL;
     }
 
+    if (g_cb_convert_inst_id != NULL) {
+        g_cb_convert_inst_id(&head->src_inst, &head->dst_inst);
+    }
+
     if (SECUREC_UNLIKELY(head->size < sizeof(mes_message_head_t) ||
             head->size > MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile))) {
         MES_LOG_ERR_HEAD_EX(head, "message head size invalid or message length excced");
         return ERR_MES_READ_MSG_FAIL;
     }
 
-    if (SECUREC_UNLIKELY(head->src_inst >= MES_MAX_INSTANCES || head->dst_inst >= MES_MAX_INSTANCES)) {
+    inst_type cur_node = MES_GLOBAL_INST_MSG.profile.inst_id;
+    if (SECUREC_UNLIKELY(head->src_inst >= MES_MAX_INSTANCES || head->dst_inst >= MES_MAX_INSTANCES || 
+        head->src_inst == cur_node || head->dst_inst != cur_node)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return ERR_MES_INVALID_MSG_HEAD;
     }
@@ -140,7 +146,11 @@ static int mes_get_message_buf(mes_message_t *msg, const mes_message_head_t *hea
     uint64 stat_time = 0;
     mes_get_consume_time_start(&stat_time);
     char *msg_buf;
-    msg_buf = mes_alloc_buf_item(head->size, CM_FALSE, head->src_inst, MES_PRIORITY(head->flags));
+    uint32 size = head->size;
+    if (MES_COMPRESS_ALGORITHM(head->flags)) {
+        size = mes_get_priority_max_msg_size(MES_PRIORITY(head->flags));
+    }
+    msg_buf = mes_alloc_buf_item(size, CM_FALSE, head->src_inst, MES_PRIORITY(head->flags));
     if (SECUREC_UNLIKELY(msg_buf == NULL)) {
         return ERR_MES_ALLOC_MSGITEM_FAIL;
     }
@@ -216,6 +226,7 @@ static int mes_process_event(mes_pipe_t *pipe)
         LOG_RUN_ERR("[mes] mes_read_message head failed.");
         return ERR_MES_SOCKET_FAIL;
     }
+    CM_RETURN_IFERR(check_recv_head_info(&head, pipe->priority));
 
     // ignore heartbeat msg
     if (head.cmd == MES_CMD_HEARTBEAT) {
@@ -225,11 +236,6 @@ static int mes_process_event(mes_pipe_t *pipe)
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request) && (head.cmd != MES_CMD_ASYNC_MSG)) {
         LOG_RUN_ERR("[mes] mes_process_event, disable_request = 1, no support send request and get response");
         return ERR_MES_SOCKET_FAIL;
-    }
-
-    CM_RETURN_IFERR(check_recv_head_info(&head, pipe->priority));
-    if (g_cb_convert_inst_id != NULL) {
-        g_cb_convert_inst_id(&head.src_inst, &head.dst_inst);
     }
 
     ret = mes_get_message_buf(&msg, &head);
@@ -338,7 +344,7 @@ static void mes_tcp_try_connect(mes_pipe_t *pipe)
     mes_message_head_t *head = (mes_message_head_t *)buf;
     head->cmd = MES_CMD_CONNECT;
     head->dst_inst = MES_INSTANCE_ID(pipe->channel->id);
-    head->src_inst = (uint8)MES_GLOBAL_INST_MSG.profile.inst_id;
+    head->src_inst = MES_GLOBAL_INST_MSG.profile.inst_id;
     head->caller_tid = MES_CHANNEL_ID(pipe->channel->id); // use caller_tid to represent channel id
     head->size = (uint16)sizeof(mes_message_head_t);
     head->ruid = 0;
@@ -567,9 +573,10 @@ static int mes_read_message(cs_pipe_t *pipe, mes_message_t *msg)
     }
 
     char *buf = msg->buffer + sizeof(mes_message_head_t);
-    if (SECUREC_UNLIKELY(msg->head->size < sizeof(mes_message_head_t))) {
+    if (SECUREC_UNLIKELY(msg->head->size < sizeof(mes_message_head_t) || 
+        (msg->head->size > (sizeof(mes_message_head_t) + MES_MAX_IP_LEN)))) {
         cs_disconnect(pipe);
-        LOG_RUN_ERR("mes msg head size invalid.");
+        MES_LOG_ERR_HEAD_EX(msg->head, "invalid head size for mes accept");
         return ERR_MES_READ_MSG_FAIL;
     }
 
@@ -823,10 +830,6 @@ static int mes_accept(cs_pipe_t *recv_pipe)
         return ERR_MES_CMD_TYPE_ERR;
     }
 
-    if (g_cb_convert_inst_id != NULL) {
-        g_cb_convert_inst_id(&msg.head->src_inst, &msg.head->dst_inst);
-    }
-
     uint8 child = MES_CALLER_TID_TO_CHANNEL_ID(msg.head->caller_tid);
     channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg.head->src_inst][child];
     mes_priority_t priority = MES_PRIORITY(msg.head->flags);
@@ -1009,15 +1012,15 @@ int mes_tcp_send_data(const void *msg_data)
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
     }
 
-    if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
-        PROC_DIFF_ENDIAN(head);
-    }
-
     LOG_DEBUG_INF("[mes] begin tcp send data, cmd=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, "
                   "dst_inst=%u, size=%u, flags:%u, pipe version:%u.",
                   (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                   (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                   (head)->flags, version);
+
+    if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
+        PROC_DIFF_ENDIAN(head);
+    }
 
     if (!is_old_mec_version(version)) {
         ret = cs_send_fixed_size(&pipe->send_pipe, (char *)msg_data, (int32)head->size);
@@ -1087,15 +1090,15 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
     }
 
-    if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
-        PROC_DIFF_ENDIAN(head);
-    }
-
     LOG_DEBUG_INF("[mes] Begin tcp send buffer, buff list cnt=%u, cmd=%u, ruid=%llu(%llu-%llu), src_inst=%u, "
                   "dst_inst=%u, size=%u, flags=%u, pipe version=%u.",
                   buff_list->cnt, (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                   (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                   (head)->flags, version);
+
+    if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
+        PROC_DIFF_ENDIAN(head);
+    }
 
     if (is_old_mec_version(version)) {
         buff_list->buffers[0].buf = buff_list->buffers[0].buf + sizeof(mes_message_head_t);
@@ -1107,7 +1110,8 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         if (pipe->msgbuf == NULL) {
             merged = CM_FALSE;
         }
-        LOG_RUN_INF("[mes] mes_tcp_send_bufflist, malloc msg buf, merged:%u, priority:%u", merged, priority);
+        LOG_RUN_INF("[mes] mes_tcp_send_bufflist, malloc msg buf, merged:%u, channel_id:%u, priority:%u", 
+            merged, MES_CHANNEL_ID(pipe->channel->id), priority);
     }
 
     if (merged) {

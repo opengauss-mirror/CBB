@@ -147,7 +147,11 @@ static int mec_get_message_buf(mes_message_t *msg, const mec_message_head_adapte
     mes_get_consume_time_start(&stat_time);
     char *msg_buf = NULL;
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head->flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
-    msg_buf = mes_alloc_buf_item(mec_head->size + MES_MSG_HEAD_SIZE, CM_FALSE, mec_head->src_inst, priority);
+    uint32 size = mec_head->size;
+    if (MEC_COMPRESS_ADAPTER(mec_head->flags)) {
+        size = mes_get_priority_max_msg_size(priority) - MES_MSG_HEAD_SIZE;
+    }
+    msg_buf = mes_alloc_buf_item(size + MES_MSG_HEAD_SIZE, CM_FALSE, mec_head->src_inst, priority);
     if (SECUREC_UNLIKELY(msg_buf == NULL)) {
         return ERR_MES_MALLOC_FAIL;
     }
@@ -172,6 +176,19 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
     if (SECUREC_UNLIKELY(mec_head->src_inst >= MEC_MAX_NODE_COUNT_ADAPTER ||
                          mec_head->dst_inst >= MEC_MAX_NODE_COUNT_ADAPTER)) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:invalid src_inst %u or dst_inst %u", mec_head->src_inst, mec_head->dst_inst);
+        return CM_ERROR;
+    }
+
+    inst_type cur_node = MES_GLOBAL_INST_MSG.profile.inst_id;
+    if (SECUREC_UNLIKELY(mec_head->src_inst == cur_node || mec_head->dst_inst != cur_node)) {
+        LOG_DEBUG_ERR("[mes_mec] rcvhead:invalid src_inst %u or dst_inst %u, cur_node:%u",
+                      mec_head->src_inst, mec_head->dst_inst, cur_node);
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.algorithm == COMPRESS_NONE && 
+        MEC_COMPRESS_ADAPTER(mec_head->flags))) {
+        LOG_DEBUG_ERR("[mes_mec] rcvhead:compress is not enable, but recv compress pkt. head_flags=%u", mec_head->flags);
         return CM_ERROR;
     }
 
@@ -209,17 +226,16 @@ int mec_process_event(mes_pipe_t *pipe)
     CM_RETURN_IFERR(mec_handle_cross_cluster_head_info(&mec_head));
     CM_RETURN_IFERR(mec_check_recv_head_info(&mec_head));
 
+    mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head.flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
+    if (priority != pipe->priority) {
+        LOG_RUN_ERR("[mes_mec] flag priority %u not equal with pipe priority %u", priority, pipe->priority);
+        return CM_ERROR;
+    }
+
     ret = mec_get_message_buf(&msg, &mec_head);
     if (ret != CM_SUCCESS) {
         LOG_DEBUG_ERR("[mes_mec] mec_get_message_buf failed.");
         return ret;
-    }
-
-    mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head.flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
-    if (priority != pipe->priority) {
-        mes_release_message_buf(&msg);
-        LOG_RUN_ERR("[mes_mec] flag priority %u not equal with pipe priority %u", priority, pipe->priority);
-        return CM_ERROR;
     }
 
     // The MES head is assembled in a unified manner

@@ -445,12 +445,20 @@ static int mes_set_buffer_pool(const mes_profile_t *profile)
         MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count = pool_count;
         MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].queue_count = queue_count;
 
+        uint32 max_index = 0;
         for (uint32 i = 0; i < pool_count; i++) {
             MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size =
                     profile->buffer_pool_attr[priority].buf_attr[i].size + sizeof(mes_message_head_t);
             MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].count =
                     profile->buffer_pool_attr[priority].buf_attr[i].count;
+            if (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[max_index].size <
+                MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size) {
+                max_index = i;
+            }
         }
+
+        // for compress reserved
+        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[max_index].size += MES_BUFFER_RESV_SIZE;
     }
 
     return CM_SUCCESS;
