@@ -36,8 +36,7 @@
 #include "mec_type.h"
 #include "mes_recv.h"
 
-
-mes_instance_t g_cbb_mes;
+mes_instance_t g_cbb_mes = {0};
 mes_callback_t g_cbb_mes_callback;
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
@@ -763,7 +762,7 @@ static int mes_register_func(void)
 
 static int mes_init_conn(void)
 {
-    mes_conn_t *conn;
+    mes_conn_t *conn = NULL;
     if (MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_TCP &&
         MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_RDMA) {
         return ERR_MES_CONNTYPE_ERR;
@@ -772,7 +771,12 @@ static int mes_init_conn(void)
     for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
         conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[i];
         conn->is_connect = CM_FALSE;
+        conn->is_start = CM_FALSE;
         cm_init_thread_lock(&conn->lock);
+        if (cm_event_init(&conn->event) != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] instance %u init event failed, error code %d.", i, cm_get_os_error());
+            return CM_ERROR;
+        }
     }
     return CM_SUCCESS;
 }
@@ -1188,6 +1192,7 @@ static void mes_close_work_thread(bool32 is_send)
             mes_init_msgqueue(&mq_ctx->tasks[loop].queue);
         }
     }
+    LOG_RUN_INF("[mes] mes_close_work_thread end");
     return;
 }
 
@@ -1928,6 +1933,11 @@ int mes_connect(inst_type inst_id)
 {
     int ret;
     mes_conn_t *conn;
+
+    if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+        LOG_RUN_ERR("[mes] mes_connect, phase(%d) not begin, inst_id %u", MES_GLOBAL_INST_MSG.mes_ctx.phase, inst_id);
+        return CM_ERROR;
+    }
 
     if ((inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) || (inst_id >= MES_MAX_INSTANCES)) {
         LOG_RUN_ERR("[mes]: connect inst_id %u failed, current inst_id %u.",

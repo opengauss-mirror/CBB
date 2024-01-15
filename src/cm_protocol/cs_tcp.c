@@ -370,6 +370,7 @@ status_t cs_tcp_connect(const char *host, uint16 port, tcp_link_t *link, const c
     }
 
     cs_set_conn_timeout(link->sock, sock_attr->connect_timeout);
+    cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
     if (cs_tcp_connect_core(link, sock_attr) != CM_SUCCESS) {
         (void)cs_close_socket(link->sock);
         link->sock = CS_INVALID_SOCKET;
@@ -379,7 +380,6 @@ status_t cs_tcp_connect(const char *host, uint16 port, tcp_link_t *link, const c
     }
     cs_reset_conn_timeout(link->sock);
 
-    cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
     cs_set_keep_alive(link->sock, CM_TCP_KEEP_IDLE, CM_TCP_KEEP_INTERVAL, CM_TCP_KEEP_COUNT);
     cs_set_linger(link->sock, sock_attr->l_onoff, sock_attr->l_linger);
     link->closed = CM_FALSE;

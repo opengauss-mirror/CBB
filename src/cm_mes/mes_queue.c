@@ -87,8 +87,8 @@ int get_mes_compress_ctx_core(mes_compress_ctx_t **ctx)
     return CM_SUCCESS;
 }
 
-static int get_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+static int get_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                            mes_priority_t priority)
 {
     mes_compress_ctx_t *ctx = NULL;
 
@@ -97,7 +97,7 @@ static int get_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algo
         return CM_ERROR;
     }
 
-    if (ctx->compress_ctx[algorithm] == NULL || ctx->compress_ctx[algorithm]->level != compress_level || 
+    if (ctx->compress_ctx[algorithm] == NULL || ctx->compress_ctx[algorithm]->level != compress_level ||
         ctx->compress_ctx[algorithm]->frag_size != mes_get_priority_max_msg_size(priority)) {
         LOG_DEBUG_INF("[mes] mes_create_compress_ctx, algorithm:%u, level:%u.", algorithm, compress_level);
         free_compress_ctx(ctx->compress_ctx[algorithm]);
@@ -115,8 +115,8 @@ static int get_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algo
     return CM_SUCCESS;
 }
 
-static int get_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+static int get_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                              mes_priority_t priority)
 {
     mes_compress_ctx_t *ctx = NULL;
 
@@ -125,12 +125,13 @@ static int get_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t al
         return CM_ERROR;
     }
 
-    if (ctx->decompress_ctx[algorithm] == NULL || ctx->decompress_ctx[algorithm]->level != compress_level || 
+    if (ctx->decompress_ctx[algorithm] == NULL || ctx->decompress_ctx[algorithm]->level != compress_level ||
         ctx->decompress_ctx[algorithm]->frag_size != mes_get_priority_max_msg_size(priority)) {
         LOG_DEBUG_INF("[mes] mes_create_decompress_ctx, algorithm:%u, level:%u.", algorithm, compress_level);
         free_compress_ctx(ctx->decompress_ctx[algorithm]);
         CM_FREE_PTR(ctx->decompress_ctx[algorithm]);
-        if (mes_create_decompress_ctx(&ctx->decompress_ctx[algorithm], algorithm, compress_level, priority) != CM_SUCCESS) {
+        if (mes_create_decompress_ctx(&ctx->decompress_ctx[algorithm], algorithm, compress_level, priority) !=
+            CM_SUCCESS) {
             LOG_DEBUG_ERR("[mes] mes_create_decompress_ctx failed.");
             return CM_ERROR;
         }
@@ -144,8 +145,8 @@ static int get_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t al
 }
 #endif
 
-static status_t mes_init_compress(compress_t *compress, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+static status_t mes_init_compress(compress_t *compress, compress_algorithm_t algorithm, uint32 compress_level,
+                                  mes_priority_t priority)
 {
     LOG_DEBUG_INF("[mes] mes_init_compress, algorithm=%u, level:%u.", algorithm, compress_level);
     if (algorithm == COMPRESS_NONE) {
@@ -167,8 +168,8 @@ static status_t mes_init_compress(compress_t *compress, compress_algorithm_t alg
     return CM_SUCCESS;
 }
 
-status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                                 mes_priority_t priority)
 {
     compress_t *temp = NULL;
     temp = (compress_t *)malloc(sizeof(compress_t));
@@ -193,8 +194,8 @@ status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t
     return CM_SUCCESS;
 }
 
-static status_t mes_init_decompress(compress_t *compress, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+static status_t mes_init_decompress(compress_t *compress, compress_algorithm_t algorithm, uint32 compress_level,
+                                    mes_priority_t priority)
 {
     LOG_DEBUG_INF("[mes] mes_init_decompress, algorithm=%u, level:%u.", algorithm, compress_level);
     if (algorithm == COMPRESS_NONE) {
@@ -215,8 +216,8 @@ static status_t mes_init_decompress(compress_t *compress, compress_algorithm_t a
     return CM_SUCCESS;
 }
 
-int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level, 
-    mes_priority_t priority)
+int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                              mes_priority_t priority)
 {
     compress_t *temp = NULL;
     temp = (compress_t *)malloc(sizeof(compress_t));
@@ -1063,8 +1064,8 @@ int mes_put_buffer_list_queue(mes_bufflist_t *buff_list, bool32 is_send)
         total_len += buff_list->buffers[i].len;
     }
 
-    if (is_send && cm_bitmap8_exist(&enable_compress_priority, priority) && algorithm > COMPRESS_NONE && 
-        algorithm < COMPRESS_CEIL &&  head->size > MES_MSG_HEAD_SIZE) {
+    if (is_send && cm_bitmap8_exist(&enable_compress_priority, priority) && algorithm > COMPRESS_NONE &&
+        algorithm < COMPRESS_CEIL && head->size > MES_MSG_HEAD_SIZE) {
         // for compress reserved
         total_len += MES_BUFFER_RESV_SIZE;
     }

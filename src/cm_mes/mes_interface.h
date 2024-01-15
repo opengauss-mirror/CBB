@@ -129,7 +129,7 @@ typedef struct st_mes_addr {
     char ip[MES_MAX_IP_LEN];
     char secondary_ip[MES_MAX_IP_LEN];
     unsigned short port;
-    unsigned char need_connect;
+    unsigned char need_connect; // Indicates whether the instance needs to be connected.
     unsigned char reserved[1];
 } mes_addr_t;
 
@@ -166,6 +166,7 @@ typedef struct st_mes_profile {
     unsigned char rdma_rpc_bind_core_start;
     unsigned char rdma_rpc_bind_core_end;
     char ock_log_path[MES_MAX_LOG_PATH];
+    // The array subscript does not correspond to the instance id.
     mes_addr_t inst_net_addr[MES_MAX_INSTANCES];
     unsigned int send_task_count[MES_PRIORITY_CEIL];
     unsigned int recv_task_count[MES_PRIORITY_CEIL];
