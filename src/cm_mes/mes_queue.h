@@ -158,8 +158,10 @@ mes_msgitem_t *mes_alloc_msgitem(mes_msgqueue_t *queue, bool32 is_send);
 mes_task_priority_t *mes_get_task_priority(uint32 task_index, bool32 is_send);
 int mes_alloc_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems);
 mes_msgitem_t *mes_get_msgitem(mes_msgqueue_t *queue);
-status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level);
-int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level);
+status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                                 mes_priority_t priority);
+int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t algorithm, uint32 compress_level,
+                              mes_priority_t priority);
 int mes_decompress(mes_message_t *msg);
 status_t mes_alloc_channel_msg_queue(bool32 is_send);
 void mes_free_channel_msg_queue(bool32 is_send);

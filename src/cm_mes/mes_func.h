@@ -216,7 +216,10 @@ typedef enum en_shutdown_phase {
 
 typedef struct st_mes_conn {
     thread_lock_t lock;
-    bool8 is_connect;
+    thread_t thread;
+    cm_event_t event;
+    bool8 is_connect; // Indicates whether the instance has triggered connect and heartbeat.
+    bool8 is_start;   // Indicates whether the instance has started the thread for connect and heartbeat.
 } mes_conn_t;
 
 typedef struct st_room_freelist {

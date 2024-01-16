@@ -441,3 +441,14 @@ void mes_free_buf_item(char *buffer)
     mes_release_buf_stat(cmd);
     return;
 }
+
+uint32 mes_get_priority_max_msg_size(mes_priority_t priority)
+{
+    uint32 max_size = 0;
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count; i++) {
+        if (max_size < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size) {
+            max_size = MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size;
+        }
+    }
+    return max_size;
+}

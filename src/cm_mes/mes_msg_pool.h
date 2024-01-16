@@ -109,6 +109,7 @@ void mes_destroy_buffer_chunk(mes_buf_chunk_t *chunk);
 char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 void mes_free_buf_item(char *buffer);
+uint32 mes_get_priority_max_msg_size(mes_priority_t priority);
 
 #ifdef __cplusplus
 }
