@@ -55,6 +55,7 @@ extern "C" {
 #define MEC_ALGORITHM_ADAPTER(flag)      ((flag)&MEC_FLAG_ALGORITHM_ADAPTER)
 
 #define MEC_DEFAULT_STREAM_ID_ADAPTER    1
+#define MEC_MAX_STREAM_COUNT_ADAPTER     64
 
 typedef enum en_mec_msg_priv_adapter {
     MEC_PRIV_HIGH_ADAPTER = 0,  // high priority message = MES_PRIORITY_ZERO

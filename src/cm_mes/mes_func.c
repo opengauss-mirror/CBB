@@ -1373,7 +1373,7 @@ void mes_uninit(void)
     (void)memset_s(&MES_GLOBAL_INST_MSG, sizeof(mes_instance_t), 0, sizeof(mes_instance_t));
 
 #ifndef WIN32
-    delete_thread_key();
+    delete_compress_thread_key();
 #endif
 
     LOG_RUN_INF("[mes] mes_uninit success");

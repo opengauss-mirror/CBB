@@ -55,21 +55,26 @@ void destroy_compress_ctx(void *compress_ctx)
 }
 
 #ifndef WIN32
-static pthread_key_t g_thread_key;
+static pthread_key_t g_compress_thread_key;
 
-void delete_thread_key()
+void delete_compress_thread_key(void)
 {
-    (void)pthread_key_delete(g_thread_key);
+    if (g_compress_thread_key == 0) {
+        LOG_RUN_WAR("[mes] delete_compress_thread_key, thread key is 0");
+        return;
+    }
+
+    (void)pthread_key_delete(g_compress_thread_key);
 }
 
 void create_compress_ctx()
 {
-    (void)pthread_key_create(&g_thread_key, destroy_compress_ctx);
+    (void)pthread_key_create(&g_compress_thread_key, destroy_compress_ctx);
 }
 
 int get_mes_compress_ctx_core(mes_compress_ctx_t **ctx)
 {
-    *ctx = pthread_getspecific(g_thread_key);
+    *ctx = pthread_getspecific(g_compress_thread_key);
     if (*ctx == NULL) {
         *ctx = (mes_compress_ctx_t *)malloc(sizeof(mes_compress_ctx_t));
         if (*ctx == NULL) {
@@ -81,7 +86,7 @@ int get_mes_compress_ctx_core(mes_compress_ctx_t **ctx)
             return CM_ERROR;
         }
 
-        pthread_setspecific(g_thread_key, *ctx);
+        pthread_setspecific(g_compress_thread_key, *ctx);
     }
 
     return CM_SUCCESS;

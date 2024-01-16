@@ -209,6 +209,12 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
                       mec_head->flags, mec_head->batch_size);
         return CM_ERROR;
     }
+
+    if (SECUREC_UNLIKELY(mec_head->stream_id >= MEC_MAX_STREAM_COUNT_ADAPTER)) {
+        LOG_DEBUG_ERR("[mes_mec] rcvhead:invalid msg stream_id %u", mec_head->stream_id);
+        return CM_ERROR;
+    }
+
     return CM_SUCCESS;
 }
 

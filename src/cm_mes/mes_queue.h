@@ -139,7 +139,7 @@ typedef struct st_mq_context_t {
     } while (0)
 
 #ifndef WIN32
-void delete_thread_key();
+void delete_compress_thread_key(void);
 void create_compress_ctx();
 #endif
 
