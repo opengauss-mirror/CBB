@@ -454,6 +454,9 @@ void mes_heartbeat_channel(mes_channel_t *channel)
 {
     for (unsigned int priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
         mes_pipe_t *pipe = &channel->pipe[priority];
+        if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+            return;
+        }
         if (!pipe->send_pipe_active) {
             mes_tcp_try_connect(pipe);
         } else {

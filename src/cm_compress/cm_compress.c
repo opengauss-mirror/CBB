@@ -138,6 +138,11 @@ status_t lz4f_decompress(compress_t *ctx, char *write_buf, size_t *write_buf_len
                 return CM_ERROR;
             }
             if (dst_size != 0) {
+                if (buf_size <= ctx->write_len || (buf_size - ctx->write_len < dst_size)) {
+                    LOG_RUN_ERR("[mes] lz4f_decompress, dst_size %llu is larger than buf_size %llu, write_len %llu",
+                                (uint64)dst_size, (uint64)buf_size, (uint64)ctx->write_len);
+                    return CM_ERROR;
+                }
                 MEMS_RETURN_IFERR(memcpy_sp(write_buf + ctx->write_len, buf_size - ctx->write_len,
                     ctx->out_buf, dst_size));
             }

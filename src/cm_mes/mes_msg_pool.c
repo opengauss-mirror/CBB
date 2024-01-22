@@ -309,6 +309,11 @@ char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priori
     mes_buffer_item_t *buf_node = NULL;
     uint32 find_times = 0;
 
+    if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+        LOG_DEBUG_ERR("[mes] mes_alloc_buf_item fail, phase %u", MES_GLOBAL_INST_MSG.mes_ctx.phase);
+        return NULL;
+    }
+
     chunk = mes_get_buffer_chunk(len, is_send, dst_inst, priority);
     if (chunk == NULL) {
         LOG_RUN_ERR("[mes]: Get buffer failed.");
@@ -400,6 +405,10 @@ static void mes_release_buf_stat(uint32 cmd)
 void mes_free_buf_item(char *buffer)
 {
     if (buffer == NULL) {
+        return;
+    }
+
+    if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
         return;
     }
 
