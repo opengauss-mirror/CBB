@@ -538,6 +538,12 @@ void mes_set_worker_init_cb(mes_thread_init_t callback);
 */
 void mes_set_worker_deinit_cb(mes_thread_deinit_t callback);
 
+/*
+ * @brief estimated total memory consumed by mes_init
+ * @param profile -  config value
+ * @return total memory consumed by mes_init
+ */
+long long mes_calc_mem_usage(mes_profile_t *profile);
 #ifdef __cplusplus
 }
 #endif
