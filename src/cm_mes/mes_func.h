@@ -52,7 +52,7 @@ extern "C" {
 #define MES_MESSAGE_TINY_SIZE (256) /* app head(64) + mes head(64) + reserved(128) */
 #define MES_BUFFER_RESV_SIZE     (SIZE_K(2))
 #define MES_MESSAGE_BUFFER_SIZE(profile) \
-    (uint64)((profile)->frag_size + MES_BUFFER_RESV_SIZE + MES_MESSAGE_TINY_SIZE) /* heads + data */
+    (uint64)((profile)->frag_size + MES_MESSAGE_TINY_SIZE) /* heads + data */
 #define MES_CHANNEL_MAX_SEND_BUFFER_SIZE(profile) MES_MESSAGE_BUFFER_SIZE(profile)
 #define MES_WAIT_TIMEOUT (5) // ms
 
