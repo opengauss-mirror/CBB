@@ -97,6 +97,7 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
     LOG_RUN_INF("[MES TASK THREADPOOL][init] begin");
     // init worker resource
     unsigned int max_worker = tpool_attr->max_cnt;
+    LOG_RUN_INF("[MES TASK THREADPOOL][init] threadpool max worker:%u", max_worker);
     ptr = malloc(sizeof(mes_task_threadpool_worker_t) * max_worker);
     if (ptr == NULL) {
         return CM_ERROR;
@@ -108,10 +109,13 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
         mes_task_threadpool_worker_t *cur_worker = &tpool->all_workers[i];
         cur_worker->node.prev = cur_worker->node.next = NULL;
         cur_worker->worker_id = i;
+        cur_worker->group_id = MES_PRIORITY_CEIL;
+        cm_event_init(&cur_worker->event);
         cm_bilist_add_tail(&cur_worker->node, &tpool->free_workers);
         cur_worker->status = MTTP_WORKER_STATUS_IN_FREELIST;
     }
     tpool->cur_worker_cnt = 0;
+    tpool->in_recycle_worker_cnt = 0;
 
     // init queue resource
     unsigned max_queues = tpool_attr->max_cnt;
@@ -185,5 +189,8 @@ void mes_put_msgitem_to_threadpool(mes_msgitem_t *msgitem)
         LOG_RUN_WAR("[MES TASK THREADPOOL][put msg] put failed, group_id:%d",
             group->attr.group_id);
     }
+
+    mes_task_threadpool_worker_t *worker= mes_task_threadpool_group_get_notify_worker(group);
+    cm_event_notify(&worker->event);
     cm_unlatch(&group->latch, NULL);
 }

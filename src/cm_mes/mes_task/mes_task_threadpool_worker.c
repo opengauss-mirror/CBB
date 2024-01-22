@@ -31,17 +31,19 @@ void mes_task_threadpool_worker(thread_t *thread)
 {
     char thread_name[CM_MAX_THREAD_NAME_LEN];
     mes_task_threadpool_worker_t *worker = (mes_task_threadpool_worker_t *)thread->argument;
+    unsigned int group_id = worker->group_id;
+    unsigned int worker_id = worker->worker_id;
 
     PRTS_RETVOID_IFERR(
         sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mttp_work_g%uw%u",
-            worker->group_id, worker->worker_id));
+            group_id, worker_id));
     cm_set_thread_name(thread_name);
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (cb_thread_init != NULL) {
         cb_thread_init(CM_FALSE, (char**)&thread->reg_data);
-        LOG_RUN_INF("[MES TASK THREADPOOL][worker] thread init, group_id:%u, worker_id:%u",
-            worker->group_id, worker->worker_id);
+        LOG_RUN_INF("[MES TASK THREADPOOL][worker] thread init, group_id:%u, worker_id:%u, thread id:%lu",
+            group_id, worker_id, thread->id);
     }
 
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
@@ -49,8 +51,18 @@ void mes_task_threadpool_worker(thread_t *thread)
     mes_msgqueue_t finished_msgitem_queue;
     mes_init_msgqueue(&finished_msgitem_queue);
     mes_msgitem_t *msgitem = NULL;
+    bool8 is_empty = CM_FALSE;
 
     while (!thread->closed) {
+        cm_latch_s(&group->latch, 0, CM_FALSE, NULL);
+        is_empty = mes_task_threadpool_group_all_queue_is_empty(group);
+        cm_unlatch(&group->latch, NULL);
+        if (is_empty) {
+            if (cm_event_timedwait(&worker->event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
+                continue;
+            }
+        }
+
         cm_latch_s(&group->latch, 0, CM_FALSE, NULL);
         mes_task_threadpool_queue_t *cur_queue = mes_task_threadpool_group_get_pop_queue(group);
         mes_task_threadpool_queue_t *next_queue = cur_queue;
@@ -63,7 +75,6 @@ void mes_task_threadpool_worker(thread_t *thread)
 
         cm_unlatch(&group->latch, NULL);
         if (msgitem == NULL) {
-            cm_sleep(1);
             continue;
         }
 
@@ -80,8 +91,16 @@ void mes_task_threadpool_worker(thread_t *thread)
 
     mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
     if (cb_thread_deinit != NULL) {
+        LOG_RUN_INF("[MES TASK THREADPOOL][worker] thread deinit, group_id:%u, worker_id:%u, thread id:%lu",
+            group_id, worker_id, thread->id);
         cb_thread_deinit();
-        LOG_RUN_INF("[MES TASK THREADPOOL][worker] thread deinit, group_id:%u, worker_id:%u",
-            worker->group_id, worker->worker_id);
     }
+
+    cm_event_init(&worker->event);
+    worker->group_id = MES_PRIORITY_CEIL;
+    cm_latch_x(&group->latch, 0, NULL);
+    worker->status = MTTP_WORKER_STATUS_IN_FREELIST;
+    cm_bilist_add_tail(&worker->node, &tpool->free_workers);
+    cm_unlatch(&group->latch, NULL);
+    cm_atomic32_dec(&tpool->in_recycle_worker_cnt);
 }
