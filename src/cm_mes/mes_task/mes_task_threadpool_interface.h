@@ -39,7 +39,6 @@ typedef enum st_mes_task_threadpool_worker_status {
     MTTP_WORKER_STATUS_UNINIT,
     MTTP_WORKER_STATUS_IN_FREELIST,
     MTTP_WORKER_STATUS_IN_GROUP,
-    MTTP_WORKER_STATUS_OUTSIDE_OF_GROUP,
 } mes_task_threadpool_worker_status_e;
 
 typedef struct st_mes_task_threadpool_worker {
@@ -92,7 +91,6 @@ typedef struct st_mes_task_threadpool {
     mes_task_threadpool_worker_t *all_workers;
     bilist_t free_workers;
     unsigned int cur_worker_cnt;
-    atomic32_t in_recycle_worker_cnt;
     mes_task_threadpool_queue_t *all_queues;
     bilist_t free_queues;
     unsigned int cur_queue_cnt;
