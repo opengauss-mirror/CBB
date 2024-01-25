@@ -115,7 +115,6 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
         cur_worker->status = MTTP_WORKER_STATUS_IN_FREELIST;
     }
     tpool->cur_worker_cnt = 0;
-    tpool->in_recycle_worker_cnt = 0;
 
     // init queue resource
     unsigned max_queues = tpool_attr->max_cnt;

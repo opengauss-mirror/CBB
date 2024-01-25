@@ -95,12 +95,4 @@ void mes_task_threadpool_worker(thread_t *thread)
             group_id, worker_id, thread->id);
         cb_thread_deinit();
     }
-
-    cm_event_init(&worker->event);
-    worker->group_id = MES_PRIORITY_CEIL;
-    cm_latch_x(&group->latch, 0, NULL);
-    worker->status = MTTP_WORKER_STATUS_IN_FREELIST;
-    cm_bilist_add_tail(&worker->node, &tpool->free_workers);
-    cm_unlatch(&group->latch, NULL);
-    cm_atomic32_dec(&tpool->in_recycle_worker_cnt);
 }
