@@ -35,6 +35,7 @@
 #include "mes_interface.h"
 #include "mec_type.h"
 #include "mes_recv.h"
+#include "mec_adapter.h"
 
 mes_instance_t g_cbb_mes = {0};
 mes_callback_t g_cbb_mes_callback;
@@ -48,13 +49,14 @@ static mes_global_ptr_t g_mes_ptr = {
     .g_mes_elapsed_stat = &g_mes_elapsed_stat
 };
 
-#define MES_CONNECT(inst_id) g_cbb_mes_callback.connect_func(inst_id)
+#define MES_CONNECT(pipe) g_cbb_mes_callback.connect_func(pipe)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
 #define MES_CONNETION_READY(inst_id, ready_count) g_cbb_mes_callback.conn_ready_func(inst_id, ready_count)
 #define MES_ALLOC_MSGITEM(queue, is_send) g_cbb_mes_callback.alloc_msgitem_func(queue, is_send)
 
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
+#define MES_CONNECT_TIMEOUT (3000)
 
 // for ssl
 bool32 g_ssl_enable = CM_FALSE;
@@ -743,18 +745,16 @@ static int mes_init_session_room(void)
 static int mes_register_func(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
-        g_cbb_mes_callback.connect_func = mes_tcp_connect;
+        g_cbb_mes_callback.connect_func = mes_tcp_try_connect;
         g_cbb_mes_callback.disconnect_func = mes_tcp_disconnect;
         g_cbb_mes_callback.send_func = mes_tcp_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
-        g_cbb_mes_callback.conn_ready_func = mes_tcp_connection_ready;
         g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
-        g_cbb_mes_callback.connect_func = mes_rdma_rpc_connect_handle;
+        g_cbb_mes_callback.connect_func = mes_rdma_rpc_try_connect;
         g_cbb_mes_callback.disconnect_func = mes_rdma_rpc_disconnect_handle;
         g_cbb_mes_callback.send_func = mes_rdma_rpc_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_rdma_rpc_send_bufflist;
-        g_cbb_mes_callback.conn_ready_func = mes_rdma_rpc_connection_ready;
         g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     }
     return CM_SUCCESS;
@@ -1352,6 +1352,133 @@ static void mes_stop_channels(void)
     }
 }
 
+static void mes_heartbeat(mes_pipe_t *pipe)
+{
+    if (g_timer()->now - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
+        return;
+    }
+    pipe->last_send_time = g_timer()->now;
+
+    uint32 version = CM_INVALID_ID32;
+    if (mes_get_pipe_version(&pipe->send_pipe, &version) != CM_SUCCESS) {
+        LOG_DEBUG_ERR("[mes] mes_heartbeat, mes_get_send_pipe_version failed, channel_id %d, priority %d",
+                      MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
+        return;
+    }
+    if (is_old_mec_version(version)) {
+        return;
+    }
+
+    /* dst_inst and caller_tid used to get current channel in mes_send_data */
+    mes_message_head_t head = {0};
+    head.cmd = MES_CMD_HEARTBEAT;
+    head.src_inst = MES_GLOBAL_INST_MSG.profile.inst_id;
+    head.dst_inst = MES_INSTANCE_ID(pipe->channel->id);
+    head.caller_tid = MES_CHANNEL_ID(pipe->channel->id);
+    head.size = (uint32)sizeof(mes_message_head_t);
+    MES_SET_PRIORITY_FLAG(head.flags, pipe->priority);
+    int ret = MES_SEND_DATA((void *)&head);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes_heartbeat failed, src:%u, dst:%u, flags:%u, ret:%u",
+                    head.src_inst, head.dst_inst, head.flags, ret);
+    }
+}
+
+void mes_heartbeat_channel(mes_channel_t *channel)
+{
+    for (unsigned int priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
+        mes_pipe_t *pipe = &channel->pipe[priority];
+        if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+            return;
+        }
+        if (!pipe->send_pipe_active) {
+            MES_CONNECT((uintptr_t)pipe);
+        } else {
+            mes_heartbeat(pipe);
+        }
+    }
+}
+
+static void mes_heartbeat_entry(thread_t *thread)
+{
+    inst_type inst_id = (inst_type)(uint64)thread->argument;
+    char thread_name[CM_MAX_THREAD_NAME_LEN];
+    PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_heartbeat_%u", inst_id));
+    cm_set_thread_name(thread_name);
+
+    mes_context_t *mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
+    uint64 periods = 0;
+    while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
+        mes_conn_t *conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
+        if (conn->is_connect) {
+            for (unsigned int channel_id = 0; channel_id < MES_GLOBAL_INST_MSG.profile.channel_cnt; channel_id++) {
+                mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
+                mes_heartbeat_channel(channel);
+            }
+        }
+
+        if (periods == SECONDS_PER_DAY && g_ssl_enable) {
+            periods = 0;
+            (void)mes_chk_ssl_cert_expire();
+        }
+        periods++;
+
+        (void)cm_event_timedwait(&conn->event, CM_1000X_FIXED);
+    }
+    LOG_RUN_INF("[mes] heartbeat thread closed, inst_id:%u, close:%u", inst_id, thread->closed);
+}
+
+int mes_start_heartbeat_thread()
+{
+    mes_conn_t *conn = NULL;
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
+            continue;
+        }
+        if (!MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+            LOG_RUN_INF("[mes] no need to connect instance %u", inst_id);
+            continue;
+        }
+        conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
+        cm_thread_lock(&conn->lock);
+        if (conn->is_start) {
+            cm_thread_unlock(&conn->lock);
+            LOG_RUN_WAR("[mes] dst instance %u thread has started.", inst_id);
+            continue;
+        }
+
+        // wait last thread close finish
+        cm_close_thread(&conn->thread);
+        if (cm_create_thread(mes_heartbeat_entry, 0, (void *)(uint64)inst_id, &conn->thread) != CM_SUCCESS) {
+            cm_thread_unlock(&conn->lock);
+            LOG_RUN_ERR("[mes] start instance %u heartbeat thread failed, os error %d", inst_id, cm_get_os_error());
+            return CM_ERROR;
+        }
+        conn->is_start = CM_TRUE;
+        cm_thread_unlock(&conn->lock);
+        LOG_RUN_INF("[mes] mes_start_heartbeat_thread, inst_id %u start thread success", inst_id);
+    }
+    return CM_SUCCESS;
+}
+
+void mes_stop_heartbeat_thread()
+{
+    mes_conn_t *conn = NULL;
+    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
+        conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[i];
+        cm_thread_lock(&conn->lock);
+        if (conn->is_start) {
+            cm_close_thread(&conn->thread);
+            conn->is_start = CM_FALSE;
+        }
+        cm_event_destory(&conn->event);
+        cm_thread_unlock(&conn->lock);
+    }
+    LOG_RUN_INF("[mes] mes_stop_heartbeat_thread end");
+}
+
+
 void mes_uninit(void)
 {
     LOG_RUN_INF("[mes] mes_uninit start");
@@ -1929,6 +2056,30 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
     return CM_SUCCESS;
 }
 
+// connect interface
+int mes_connect_thread_start(uint32 inst_id)
+{
+    if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
+        LOG_RUN_INF("[mes] mes_connect_thread_start, not need to be connected to itself %u", inst_id);
+        return CM_SUCCESS;
+    }
+    mes_conn_t *conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
+    conn->is_connect = CM_TRUE;
+    if (!conn->is_start) {
+        // wait last thread close finish
+        cm_close_thread(&conn->thread);
+        if (cm_create_thread(mes_heartbeat_entry, 0, (void *)(uint64)inst_id, &conn->thread) != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] start instance %u heartbeat thread failed, os error %d", inst_id, cm_get_os_error());
+            return CM_ERROR;
+        }
+        conn->is_start = CM_TRUE;
+        LOG_RUN_INF("[mes] mes_connect_thread_start, inst_id %u start thread success", inst_id);
+    }
+    cm_event_notify(&conn->event);
+    LOG_DEBUG_INF("[mes] mes_connect_thread_start, inst_id=%u, event_notify to try connect", inst_id);
+    return CM_SUCCESS;
+}
+
 int mes_connect(inst_type inst_id)
 {
     int ret;
@@ -1962,10 +2113,10 @@ int mes_connect(inst_type inst_id)
         return CM_SUCCESS;
     }
 
-    ret = MES_CONNECT(inst_id);
+    ret = mes_connect_thread_start(inst_id);
     if (ret != CM_SUCCESS) {
         cm_thread_unlock(&conn->lock);
-        LOG_RUN_ERR("[mes]: MES_CONNECT failed, inst_id:%u.", inst_id);
+        LOG_RUN_ERR("[mes]: mes_connect_thread_start failed, inst_id:%u.", inst_id);
         return ret;
     }
 
@@ -2247,12 +2398,6 @@ void mes_disconnect(inst_type inst_id)
     cm_thread_unlock(&conn->lock);
 
     LOG_RUN_INF("[mes]: disconnect node %u.", inst_id);
-}
-
-unsigned int mes_connection_ready(inst_type inst_id)
-{
-    uint32 ready_count;
-    return MES_CONNETION_READY(inst_id, &ready_count);
 }
 
 static inline bool32 is_node_in_new_profile(inst_type inst_id)
@@ -2550,4 +2695,70 @@ int mes_is_different_endian(inst_type dst_inst)
         return -1;
     }
     return CS_DIFFERENT_ENDIAN(channel->pipe[MES_PRIORITY_ZERO].send_pipe.options);
+}
+
+bool32 mes_connection_ready_with_count(uint32 inst_id, uint32 *ready_count)
+{
+    uint32 i, j;
+    if (inst_id >= MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("check tcp connection is failed, inst id:%u", inst_id);
+        return CM_FALSE;
+    }
+
+    *ready_count = 0;
+    mes_channel_t *channel = NULL;
+    mes_pipe_t *pipe = NULL;
+    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
+        channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
+        for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
+            pipe = &channel->pipe[j];
+            if (pipe->recv_pipe_active && pipe->send_pipe_active) {
+                (*ready_count)++;
+            }
+        }
+    }
+    return *ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt;
+}
+
+unsigned int mes_connection_ready(uint32 inst_id)
+{
+    uint32 ready_count;
+    return mes_connection_ready_with_count(inst_id, &ready_count);
+}
+
+int mes_connect_single(inst_type inst_id)
+{
+    if (inst_id > MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes]: currently not support id=%u > 255.", inst_id);
+        return ERR_MES_PARAM_INVALID;
+    }
+
+    if (MES_GLOBAL_INST_MSG.profile.inst_id == inst_id) {
+        return CM_SUCCESS;
+    }
+
+    int ret = mes_connect(inst_id);
+    if (ret != CM_SUCCESS && ret != ERR_MES_IS_CONNECTED) {
+        LOG_RUN_ERR("[mes] failed to create mes channel to instance %u", inst_id);
+        return ret;
+    }
+
+    uint32 wait_time = 0;
+    uint32 ready_count = 0;
+    uint32 pre_ready_count = 0;
+    while (!mes_connection_ready_with_count(inst_id, &ready_count)) {
+        const uint8 once_wait_time = 10;
+        cm_sleep(once_wait_time);
+        if (ready_count == pre_ready_count) {
+            wait_time += once_wait_time;
+        }
+        pre_ready_count = ready_count;
+
+        if (wait_time > MES_CONNECT_TIMEOUT) {
+            LOG_RUN_INF("[mes] connect to instance %u timeout.", inst_id);
+            return ERR_MES_CONNECT_TIMEOUT;
+        }
+    }
+    LOG_DEBUG_INF("[mes] reconnect to node %u success", inst_id);
+    return CM_SUCCESS;
 }

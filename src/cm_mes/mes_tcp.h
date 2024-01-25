@@ -46,19 +46,15 @@ int mes_init_tcp_resource(void);
 void mes_free_channels(void);
 void mes_tcp_stop_channels(void);
 void mes_tcp_disconnect(uint32 inst_id, bool32 wait);
-int mes_tcp_connect(uint32 inst_id);
+void mes_tcp_try_connect(uintptr_t pipePtr);
 int mes_tcp_send_data(const void *msg_data);
 int mes_start_lsnr(void);
 int mes_alloc_channels(void);
 int mes_tcp_send_bufflist(mes_bufflist_t *buff_list);
-bool32 mes_tcp_connection_ready(uint32 inst_id, uint32 *ready_count);
 
-int mes_connect_single(inst_type inst_id);
 status_t mes_get_pipe_version(cs_pipe_t *pipe, uint32 *version);
 void cs_disconnect_ex(cs_pipe_t *pipe, bool8 is_send, inst_type inst_id);
 void mes_event_proc(uint32 channel_id, uint32 priority, uint32 event);
-int mes_start_heartbeat_thread();
-void mes_stop_heartbeat_thread();
 
 #ifdef __cplusplus
 }
