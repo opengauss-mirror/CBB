@@ -59,7 +59,7 @@ static inline void cm_ptlist_reset(ptlist_t *list)
 static inline void cm_destroy_ptlist(ptlist_t *list)
 {
     if (list->items != NULL) {
-        CM_FREE_PTR(list->items);
+        CM_FREE_PROT_PTR(list->items);
     }
 
     list->items = NULL;
@@ -90,14 +90,14 @@ static inline status_t cm_ptlist_extend(ptlist_t *list, uint32 extent_size)
         LOG_DEBUG_ERR("cm_ptlist_add extending list failed");
         return CM_ERROR;
     }
-    new_items = (pointer_t *)malloc(buf_size);
+    new_items = (pointer_t *)cm_malloc_prot(buf_size);
     if (new_items == NULL) {
         LOG_DEBUG_ERR("cm_ptlist_add extending list failed");
         return CM_ERROR;
     }
     errcode = memset_sp(new_items, (size_t)buf_size, 0, (size_t)buf_size);
     if (errcode != EOK) {
-        CM_FREE_PTR(new_items);
+        CM_FREE_PROT_PTR(new_items);
         LOG_DEBUG_ERR("cm_ptlist_add extending list failed");
         return CM_ERROR;
     }
@@ -105,13 +105,13 @@ static inline status_t cm_ptlist_extend(ptlist_t *list, uint32 extent_size)
         if (list->capacity != 0) {
             errcode = memcpy_sp(new_items, (size_t)buf_size, list->items, (size_t)(list->capacity * sizeof(pointer_t)));
             if (errcode != EOK) {
-                CM_FREE_PTR(new_items);
+                CM_FREE_PROT_PTR(new_items);
                 LOG_DEBUG_ERR("cm_ptlist_add extending list failed");
                 return CM_ERROR;
             }
         }
 
-        CM_FREE_PTR(list->items);
+        CM_FREE_PROT_PTR(list->items);
     }
     list->items = new_items;
     list->capacity += extent_size;

@@ -49,14 +49,14 @@ static status_t cm_alloc_config_buf(config_t *config, uint32 size, char **buf)
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)config->value_buf_size, "config value");
             return CM_ERROR;
         }
-        config->value_buf = (char *)malloc(config->value_buf_size);
+        config->value_buf = (char *)cm_malloc_prot(config->value_buf_size);
         if (config->value_buf == NULL) {
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)config->value_buf_size, "config value");
             return CM_ERROR;
         }
         errcode = memset_sp(config->value_buf, (size_t)config->value_buf_size, 0, (size_t)config->value_buf_size);
         if (errcode != EOK) {
-            CM_FREE_PTR(config->value_buf);
+            CM_FREE_PROT_PTR(config->value_buf);
             CM_THROW_ERROR(ERR_RESET_MEMORY, "config->value_buf");
             return CM_ERROR;
         }
@@ -64,7 +64,7 @@ static status_t cm_alloc_config_buf(config_t *config, uint32 size, char **buf)
     size = CM_ALIGN4(size);
     if (config->value_offset + size > config->value_buf_size) {
         CM_THROW_ERROR(ERR_BUFFER_OVERFLOW, config->value_offset + size, config->value_buf_size);
-        CM_FREE_PTR(config->value_buf);
+        CM_FREE_PROT_PTR(config->value_buf);
         return CM_ERROR;
     }
 
@@ -534,7 +534,7 @@ status_t cm_read_config(const char *file_name, config_t *config)
 void cm_free_config_buf(config_t *config)
 {
     if (config->value_buf != NULL) {
-        free(config->value_buf);
+        CM_FREE_PROT_PTR(config->value_buf);
         config->value_buf = NULL;
     }
 }

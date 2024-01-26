@@ -65,7 +65,7 @@ status_t cm_alloc_dlock(dlock_t *lock, uint64 lock_addr, int64 inst_id)
         errcode = memset_sp(lock, sizeof(dlock_t), 0, sizeof(dlock_t));
         securec_check_ret(errcode);
 
-        lock->buff = malloc(buff_size);
+        lock->buff = cm_malloc_prot(buff_size);
         if (lock->buff == NULL) {
             cm_reset_error();
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, buff_size, "cm disk lock");
@@ -74,7 +74,7 @@ status_t cm_alloc_dlock(dlock_t *lock, uint64 lock_addr, int64 inst_id)
 
         errcode = memset_sp(lock->buff, buff_size, 0, buff_size);
         if (errcode != EOK) {
-            CM_FREE_PTR(lock->buff);
+            CM_FREE_PROT_PTR(lock->buff);
             CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
             return CM_ERROR;
         }
@@ -87,7 +87,7 @@ status_t cm_alloc_dlock(dlock_t *lock, uint64 lock_addr, int64 inst_id)
 
         errcode = memset_sp(lock->lockw, CM_DEF_BLOCK_SIZE, 1, CM_DEF_BLOCK_SIZE);
         if (errcode != EOK) {
-            CM_FREE_PTR(lock->buff);
+            CM_FREE_PROT_PTR(lock->buff);
             CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
             return CM_ERROR;
         }
@@ -151,7 +151,7 @@ void cm_destory_dlock(dlock_t *lock)
 #ifdef WIN32
 #else
     if (lock->buff != NULL) {
-        free(lock->buff);
+        CM_FREE_PROT_PTR(lock->buff);
         lock->buff = NULL;
     }
 #endif

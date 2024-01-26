@@ -54,7 +54,9 @@ typedef struct st_mes_msgitem {
 #ifdef WIN32
 typedef struct st_mes_msgqueue
 #else
-typedef struct __attribute__((aligned(128))) st_mes_msgqueue
+// old code the msgqueue aligned 128
+// will cause gcc10.3 compile to movaps %xmm0,0x10(%rdi), forbid it at present
+typedef struct st_mes_msgqueue
 #endif
 {
     spinlock_t lock;

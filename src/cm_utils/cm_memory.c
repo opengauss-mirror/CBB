@@ -105,14 +105,14 @@ static mem_zone_t *mem_zone_init(mem_pool_t *mem, uint64 size)
     mem_zone_t *mem_zone;
     mem_block_t *mem_block;
 
-    mem_zone = (mem_zone_t *)malloc((size_t)(sizeof(mem_zone_t) + size));
+    mem_zone = (mem_zone_t *)cm_malloc_prot((size_t)(sizeof(mem_zone_t) + size));
     if (mem_zone == NULL) {
         return NULL;
     }
 
     errno_t ret = memset_sp(mem_zone, sizeof(mem_zone_t), 0, sizeof(mem_zone_t));
     if (ret != EOK) {
-        CM_FREE_PTR(mem_zone);
+        CM_FREE_PROT_PTR(mem_zone);
         return NULL;
     }
     mem_zone->mem = mem;
@@ -121,7 +121,7 @@ static mem_zone_t *mem_zone_init(mem_pool_t *mem, uint64 size)
     CM_MAGIC_SET(mem_zone, mem_zone_t);
     mem_block = mem_block_init(mem_zone, (void *)(mem_zone + 1), size, MEM_BLOCK_LEFT, 0);
     if (mem_block == NULL) {
-        CM_FREE_PTR(mem_zone);
+        CM_FREE_PROT_PTR(mem_zone);
         return NULL;
     }
     mem_block_add(mem_block);
@@ -478,7 +478,7 @@ void buddy_pool_deinit(mem_pool_t *mem)
         head = cm_bilist_head(&mem->mem_zone_lst);
         cm_bilist_del(head, &mem->mem_zone_lst);
         mem_zone = BILIST_NODE_OF(mem_zone_t, head, link);
-        CM_FREE_PTR(mem_zone);
+        CM_FREE_PROT_PTR(mem_zone);
     }
 }
 #ifdef __cplusplus

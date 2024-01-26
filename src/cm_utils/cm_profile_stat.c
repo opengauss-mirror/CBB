@@ -81,7 +81,7 @@ void cm_stat_record(uint32 stat_item_id, uint64 value)
             cm_spin_unlock(&g_lock);
             return;
         }
-        item_local = (stat_item_t *)malloc(sizeof(stat_item_t));
+        item_local = (stat_item_t *)cm_malloc_prot(sizeof(stat_item_t));
         if (item_local == NULL) {
             cm_spin_unlock(&g_lock);
             return;
@@ -326,7 +326,7 @@ static void stat_free(void)
             uint32 item_count_total = g_stat_count[table_id][item_id];
             for (uint32 item_count = 0; item_count < item_count_total; item_count++) {
                 if (g_stat_table[table_id][item_id][item_count] != NULL) {
-                    free(g_stat_table[table_id][item_id][item_count]);
+                    CM_FREE_PROT_PTR(g_stat_table[table_id][item_id][item_count]);
                     g_stat_table[table_id][item_id][item_count] = NULL;
                 }
             }

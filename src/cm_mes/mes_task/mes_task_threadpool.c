@@ -98,7 +98,7 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
     // init worker resource
     unsigned int max_worker = tpool_attr->max_cnt;
     LOG_RUN_INF("[MES TASK THREADPOOL][init] threadpool max worker:%u", max_worker);
-    ptr = malloc(sizeof(mes_task_threadpool_worker_t) * max_worker);
+    ptr = cm_malloc_prot(sizeof(mes_task_threadpool_worker_t) * max_worker);
     if (ptr == NULL) {
         return CM_ERROR;
     }
@@ -118,9 +118,9 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
 
     // init queue resource
     unsigned max_queues = tpool_attr->max_cnt;
-    ptr = malloc(sizeof(mes_task_threadpool_queue_t) * max_queues);
+    ptr = cm_malloc_prot(sizeof(mes_task_threadpool_queue_t) * max_queues);
     if (ptr == NULL) {
-        CM_FREE_PTR(tpool->all_workers);
+        CM_FREE_PROT_PTR(tpool->all_workers);
         return CM_ERROR;
     }
     tpool->all_queues = (mes_task_threadpool_queue_t*)ptr;
@@ -157,8 +157,8 @@ status_t mes_task_threadpool_uninit()
     LOG_RUN_INF("[MES TASK THREADPOOL][uninit] begin");
     mes_task_threadpool_stop_thread();
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
-    CM_FREE_PTR(tpool->all_queues);
-    CM_FREE_PTR(tpool->all_workers);
+    CM_FREE_PROT_PTR(tpool->all_queues);
+    CM_FREE_PROT_PTR(tpool->all_workers);
     LOG_RUN_INF("[MES TASK THREADPOOL][uninit] end");
     return CM_SUCCESS;
 }

@@ -41,16 +41,16 @@ void destroy_compress_ctx(void *compress_ctx)
         for (int i = 0; i < COMPRESS_CEIL; i++) {
             if (ctx->compress_ctx[i] != NULL) {
                 free_compress_ctx(ctx->compress_ctx[i]);
-                CM_FREE_PTR(ctx->compress_ctx[i]);
+                CM_FREE_PROT_PTR(ctx->compress_ctx[i]);
             }
         }
         for (int i = 0; i < COMPRESS_CEIL; i++) {
             if (ctx->decompress_ctx[i] != NULL) {
                 free_compress_ctx(ctx->decompress_ctx[i]);
-                CM_FREE_PTR(ctx->decompress_ctx[i]);
+                CM_FREE_PROT_PTR(ctx->decompress_ctx[i]);
             }
         }
-        CM_FREE_PTR(ctx);
+        CM_FREE_PROT_PTR(ctx);
     }
 }
 
@@ -76,13 +76,13 @@ int get_mes_compress_ctx_core(mes_compress_ctx_t **ctx)
 {
     *ctx = pthread_getspecific(g_compress_thread_key);
     if (*ctx == NULL) {
-        *ctx = (mes_compress_ctx_t *)malloc(sizeof(mes_compress_ctx_t));
+        *ctx = (mes_compress_ctx_t *)cm_malloc_prot(sizeof(mes_compress_ctx_t));
         if (*ctx == NULL) {
             return ERR_MES_MALLOC_FAIL;
         }
         errno_t ret = memset_sp(*ctx, sizeof(mes_compress_ctx_t), 0, sizeof(mes_compress_ctx_t));
         if (ret != EOK) {
-            CM_FREE_PTR(*ctx);
+            CM_FREE_PROT_PTR(*ctx);
             return CM_ERROR;
         }
 
@@ -107,7 +107,7 @@ static int get_compress_ctx(compress_t **compress_ctx, compress_algorithm_t algo
         mes_get_priority_max_msg_size(priority)) {
         LOG_DEBUG_INF("[mes] mes_create_compress_ctx, algorithm:%u, level:%u.", algorithm, compress_level);
         free_compress_ctx(ctx->compress_ctx[algorithm]);
-        CM_FREE_PTR(ctx->compress_ctx[algorithm]);
+        CM_FREE_PROT_PTR(ctx->compress_ctx[algorithm]);
         if (mes_create_compress_ctx(&ctx->compress_ctx[algorithm], algorithm, compress_level, priority) != CM_SUCCESS) {
             LOG_DEBUG_ERR("[mes] mes_create_compress_ctx failed.");
             return CM_ERROR;
@@ -136,7 +136,7 @@ static int get_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t al
         mes_get_priority_max_msg_size(priority)) {
         LOG_DEBUG_INF("[mes] mes_create_decompress_ctx, algorithm:%u, level:%u.", algorithm, compress_level);
         free_compress_ctx(ctx->decompress_ctx[algorithm]);
-        CM_FREE_PTR(ctx->decompress_ctx[algorithm]);
+        CM_FREE_PROT_PTR(ctx->decompress_ctx[algorithm]);
         if (mes_create_decompress_ctx(&ctx->decompress_ctx[algorithm], algorithm, compress_level, priority) !=
             CM_SUCCESS) {
             LOG_DEBUG_ERR("[mes] mes_create_decompress_ctx failed.");
@@ -179,18 +179,18 @@ status_t mes_create_compress_ctx(compress_t **compress_ctx, compress_algorithm_t
                                  mes_priority_t priority)
 {
     compress_t *temp = NULL;
-    temp = (compress_t *)malloc(sizeof(compress_t));
+    temp = (compress_t *)cm_malloc_prot(sizeof(compress_t));
     if (temp == NULL) {
         return CM_ERROR;
     }
     errno_t ret = memset_sp(temp, sizeof(compress_t), 0, sizeof(compress_t));
     if (ret != EOK) {
-        CM_FREE_PTR(temp);
+        CM_FREE_PROT_PTR(temp);
         return CM_ERROR;
     }
     if (mes_init_compress(temp, algorithm, compress_level, priority) != CM_SUCCESS) {
         free_compress_ctx(temp);
-        CM_FREE_PTR(temp);
+        CM_FREE_PROT_PTR(temp);
         return CM_ERROR;
     }
     *compress_ctx = temp;
@@ -227,18 +227,18 @@ int mes_create_decompress_ctx(compress_t **compress_ctx, compress_algorithm_t al
                               mes_priority_t priority)
 {
     compress_t *temp = NULL;
-    temp = (compress_t *)malloc(sizeof(compress_t));
+    temp = (compress_t *)cm_malloc_prot(sizeof(compress_t));
     if (temp == NULL) {
         return CM_ERROR;
     }
     errno_t ret = memset_sp(temp, sizeof(compress_t), 0, sizeof(compress_t));
     if (ret != EOK) {
-        CM_FREE_PTR(temp);
+        CM_FREE_PROT_PTR(temp);
         return CM_ERROR;
     }
     if (mes_init_decompress(temp, algorithm, compress_level, priority) != CM_SUCCESS) {
         free_compress_ctx(temp);
-        CM_FREE_PTR(temp);
+        CM_FREE_PROT_PTR(temp);
         return CM_ERROR;
     }
     *compress_ctx = temp;
@@ -386,7 +386,7 @@ int mes_decompress(mes_message_t *msg)
 
 #ifdef WIN32
     free_compress_ctx(compress_ctx);
-    CM_FREE_PTR(compress_ctx);
+    CM_FREE_PROT_PTR(compress_ctx);
 #endif
 
     MES_MESSAGE_ATTACH(msg, msg->buffer);
@@ -438,13 +438,13 @@ int mes_alloc_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
         }
         pool->hwm = 0;
         uint32 size = INIT_MSGITEM_BUFFER_SIZE * sizeof(mes_msgitem_t);
-        pool->buffer[pool->buf_idx] = (mes_msgitem_t *)malloc(size);
+        pool->buffer[pool->buf_idx] = (mes_msgitem_t *)cm_malloc_prot(size);
         if (pool->buffer[pool->buf_idx] == NULL) {
             cm_spin_unlock(&pool->lock);
             return ERR_MES_MALLOC_FAIL;
         }
         if (memset_sp(pool->buffer[pool->buf_idx], size, 0, size) != EOK) {
-            CM_FREE_PTR(pool->buffer[pool->buf_idx]);
+            CM_FREE_PROT_PTR(pool->buffer[pool->buf_idx]);
             cm_spin_unlock(&pool->lock);
             return CM_ERROR;
         }
@@ -560,7 +560,7 @@ void mes_free_msgitem_pool(mes_msgitem_pool_t *pool)
     }
 
     for (uint16 i = 0; i <= pool->buf_idx; i++) {
-        CM_FREE_PTR(pool->buffer[i]);
+        CM_FREE_PROT_PTR(pool->buffer[i]);
     }
 }
 
@@ -663,7 +663,7 @@ static status_t mes_send_compress(mes_message_head_t *head)
     status_t status = mes_compress(compress_ctx, head);
 #ifdef WIN32
     free_compress_ctx(compress_ctx);
-    CM_FREE_PTR(compress_ctx);
+    CM_FREE_PROT_PTR(compress_ctx);
 #endif
 
     LOG_DEBUG_INF("[mes] mes_send_compress, src_inst[%u] to dst_inst[%u], flags:%u, priority:%u, size:%u, "
@@ -970,7 +970,7 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send)
     // alloc msgqueue
     alloc_size = sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
             sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * profile->channel_cnt;
-    temp_buf = malloc(alloc_size);
+    temp_buf = cm_malloc_prot(alloc_size);
     if (temp_buf == NULL) {
         CM_THROW_ERROR_EX(ERR_MEC_CREATE_AREA, "allocate mes_msgqueue_t failed, channel_num %u alloc size %u",
                           profile->channel_cnt, alloc_size);
@@ -980,7 +980,7 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send)
     errno_t ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
     if (ret != EOK) {
         CM_THROW_ERROR(ERR_SYSTEM_CALL, ret);
-        CM_FREE_PTR(temp_buf);
+        CM_FREE_PROT_PTR(temp_buf);
         return CM_ERROR;
     }
 
@@ -1004,7 +1004,7 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send)
 void mes_free_channel_msg_queue(bool32 is_send)
 {
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
-    CM_FREE_PTR(mq_ctx->channel_private_queue);
+    CM_FREE_PROT_PTR(mq_ctx->channel_private_queue);
 }
 
 int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority)

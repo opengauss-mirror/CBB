@@ -37,13 +37,13 @@ chan_t *cm_chan_new(uint32 capacity, uint32 size)
         return NULL;
     }
 
-    chan_t *chan = (chan_t *)malloc(sizeof(*chan));
+    chan_t *chan = (chan_t *)cm_malloc_prot(sizeof(*chan));
     if (chan == NULL) {
         return NULL;
     }
     rc_memzero = memset_sp(chan, sizeof(*chan), 0, sizeof(*chan));
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(chan);
+        CM_FREE_PROT_PTR(chan);
         return NULL;
     }
     chan->capacity = capacity;
@@ -51,18 +51,18 @@ chan_t *cm_chan_new(uint32 capacity, uint32 size)
     chan->size = size;
     real_size = size * capacity;
     if (real_size / capacity != size) {
-        CM_FREE_PTR(chan);
+        CM_FREE_PROT_PTR(chan);
         return NULL;
     }
-    chan->buf = (uint8 *)malloc(real_size);
+    chan->buf = (uint8 *)cm_malloc_prot(real_size);
     if (chan->buf == NULL) {
-        CM_FREE_PTR(chan);
+        CM_FREE_PROT_PTR(chan);
         return NULL;
     }
     rc_memzero = memset_sp(chan->buf, (size_t)real_size, 0, (size_t)real_size);
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(chan->buf);
-        CM_FREE_PTR(chan);
+        CM_FREE_PROT_PTR(chan->buf);
+        CM_FREE_PROT_PTR(chan);
         return NULL;
     }
     chan->buf_end = chan->buf + size * capacity;
@@ -298,7 +298,7 @@ void cm_chan_free(chan_t *chan)
     cm_event_destory(&chan->event_recv);
     cm_event_destory(&chan->event_send);
 
-    CM_FREE_PTR(chan->buf);
+    CM_FREE_PROT_PTR(chan->buf);
     chan->begin = NULL;
     chan->end = NULL;
     chan->buf_end = NULL;
@@ -310,7 +310,7 @@ void cm_chan_free(chan_t *chan)
     chan->is_closed = CM_TRUE;
     chan->ref_count = 0;
 
-    CM_FREE_PTR(chan);
+    CM_FREE_PROT_PTR(chan);
 }
 
 #ifdef __cplusplus

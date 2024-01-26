@@ -71,7 +71,7 @@ static bool32 cm_var_chan_can_send(var_chan_t *chan, uint32 len)
 static inline void free_buf_ctrls(var_chan_t *chan, uint32 to_free_count)
 {
     for (uint32 j = 0; j < to_free_count; j++) {
-        CM_FREE_PTR(chan->buf_ctrl.bufs[j]);
+        CM_FREE_PROT_PTR(chan->buf_ctrl.bufs[j]);
     }
 }
 var_chan_t *cm_var_chan_new(uint64 total)
@@ -85,14 +85,14 @@ var_chan_t *cm_var_chan_new(uint64 total)
         return NULL;
     }
 
-    chan = (var_chan_t *)malloc(sizeof(var_chan_t));
+    chan = (var_chan_t *)cm_malloc_prot(sizeof(var_chan_t));
     if (chan == NULL) {
         return NULL;
     }
 
     rc_memzero = memset_sp(chan, sizeof(var_chan_t), 0, sizeof(var_chan_t));
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(chan);
+        CM_FREE_PROT_PTR(chan);
         return NULL;
     }
 
@@ -102,16 +102,16 @@ var_chan_t *cm_var_chan_new(uint64 total)
     chan->buf_ctrl.buf_count = (remain == 0 ? page_count : page_count + 1);
 
     for (i = 0; i < chan->buf_ctrl.buf_count; i++) {
-        chan->buf_ctrl.bufs[i] = (uint8 *)malloc(SIZE_K(128));
+        chan->buf_ctrl.bufs[i] = (uint8 *)cm_malloc_prot(SIZE_K(128));
         if (chan->buf_ctrl.bufs[i] == NULL) {
             free_buf_ctrls(chan, i);
-            CM_FREE_PTR(chan);
+            CM_FREE_PROT_PTR(chan);
             return NULL;
         }
         rc_memzero = memset_sp(chan->buf_ctrl.bufs[i], SIZE_K(128), 0, SIZE_K(128));
         if (rc_memzero != EOK) {
             free_buf_ctrls(chan, i);
-            CM_FREE_PTR(chan);
+            CM_FREE_PROT_PTR(chan);
             return NULL;
         }
 
@@ -284,7 +284,7 @@ void cm_var_chan_free(var_chan_t **chan_in)
     cm_event_destory(&chan->ori_chan.event_send);
 
     for (i = 0; i < MAX_BUF_COUNT; i++) {
-        CM_FREE_PTR(chan->buf_ctrl.bufs[i]);
+        CM_FREE_PROT_PTR(chan->buf_ctrl.bufs[i]);
         chan->buf_ctrl.bufs_end[i] = NULL;
         chan->buf_ctrl.data_end[i] = NULL;
     }
@@ -300,7 +300,7 @@ void cm_var_chan_free(var_chan_t **chan_in)
     chan->ori_chan.is_closed = CM_TRUE;
     chan->ori_chan.ref_count = 0;
 
-    CM_FREE_PTR(*chan_in);
+    CM_FREE_PROT_PTR(*chan_in);
 }
 
 bool32 cm_var_chan_empty(var_chan_t *chan)

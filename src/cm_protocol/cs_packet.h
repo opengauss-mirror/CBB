@@ -206,7 +206,7 @@ static inline void cs_init_pack(cs_packet_t *pack, uint32 options, uint32 max_bu
 static inline void cs_try_free_packet_buffer(cs_packet_t *pack)
 {
     if (pack->buf != NULL && pack->buf != pack->init_buf) {
-        CM_FREE_PTR(pack->buf);
+        CM_FREE_PROT_PTR(pack->buf);
         pack->buf_size = CM_INIT_PACKET_SIZE;
         pack->buf = pack->init_buf;
         pack->head = (cs_packet_head_t *)pack->buf;
@@ -264,7 +264,7 @@ static status_t cs_try_realloc_send_pack(cs_packet_t *pack, uint32 expect_size)
             return CM_ERROR;
         }
 
-        char *new_buf = (char *)malloc(new_buf_size);
+        char *new_buf = (char *)cm_malloc_prot(new_buf_size);
         if (new_buf == NULL) {
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)new_buf_size, "large packet buffer");
             return CM_ERROR;
@@ -272,11 +272,11 @@ static status_t cs_try_realloc_send_pack(cs_packet_t *pack, uint32 expect_size)
         errcode = memcpy_s(new_buf, new_buf_size, pack->buf, pack->head->size);
         if (SECUREC_UNLIKELY(errcode != EOK)) {
             CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
-            CM_FREE_PTR(new_buf);
+            CM_FREE_PROT_PTR(new_buf);
             return CM_ERROR;
         }
         if (pack->buf != pack->init_buf) {
-            CM_FREE_PTR(pack->buf);
+            CM_FREE_PROT_PTR(pack->buf);
         }
 
         pack->buf_size = new_buf_size;
