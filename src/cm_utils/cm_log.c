@@ -394,7 +394,7 @@ static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_CO
     bool32 need_insert = CM_TRUE;
     errno_t errcode;
 
-    char *file_name = (char *)malloc(CM_FILE_NAME_BUFFER_SIZE); // free in remove_bak_file
+    char *file_name = (char *)cm_malloc_prot(CM_FILE_NAME_BUFFER_SIZE); // free in remove_bak_file
     if (file_name == NULL) {
         CM_THROW_ERROR(ERR_MALLOC_BYTES_MEMORY, CM_FILE_NAME_BUFFER_SIZE);
         return CM_ERROR;
@@ -402,7 +402,7 @@ static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_CO
 
     errcode = snprintf_s(file_name, CM_FILE_NAME_BUFFER_SIZE, CM_MAX_FILE_NAME_LEN, "%s/%s", log_dir, bak_file);
     if (SECUREC_UNLIKELY(errcode == -1)) {
-        CM_FREE_PTR(file_name);
+        CM_FREE_PROT_PTR(file_name);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
         return CM_ERROR;
     }
@@ -417,11 +417,11 @@ static status_t cm_log_add_backup_file(char *backup_file_name[CM_MAX_LOG_FILE_CO
     if (*backup_file_count == CM_MAX_LOG_FILE_COUNT_LARGER) {
         if (i == 0) {
             cm_log_remove_file(file_name);
-            CM_FREE_PTR(file_name);
+            CM_FREE_PROT_PTR(file_name);
             need_insert = CM_FALSE;
         } else {
             cm_log_remove_file(backup_file_name[0]);
-            CM_FREE_PTR(backup_file_name[0]);
+            CM_FREE_PROT_PTR(backup_file_name[0]);
             for (j = 0; j < (*backup_file_count - 1); ++j) {
                 backup_file_name[j] = backup_file_name[j + 1];
             }
@@ -568,7 +568,7 @@ static void cm_log_remove_bak_file(char *backup_file_name[CM_MAX_LOG_FILE_COUNT_
         } else {
             /* free name of file that is not removed
             name of removed file will be freed after log */
-            CM_FREE_PTR(backup_file_name[i]);
+            CM_FREE_PROT_PTR(backup_file_name[i]);
         }
     }
 }
@@ -669,7 +669,7 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
     // When you do not back up, delete the log file directly, and re-open will automatically generate a new empty file.
     if (need_bak_file_count == 0) {
         cm_log_remove_file(log_file_handle->file_name);
-        bak_file_name[0] = (char *)malloc(CM_FILE_NAME_BUFFER_SIZE);
+        bak_file_name[0] = (char *)cm_malloc_prot(CM_FILE_NAME_BUFFER_SIZE);
         if (bak_file_name[0] == NULL) {
             return CM_ERROR;
         }
@@ -895,7 +895,7 @@ static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf,
         cm_spin_unlock(&log_file_handle->lock);
     }
     for (uint32 i = 0; i < remove_file_count; ++i) {
-        CM_FREE_PTR(bak_file_name[i]);
+        CM_FREE_PROT_PTR(bak_file_name[i]);
     }
 }
 
@@ -906,7 +906,7 @@ static void cm_log_write_large_buf(const char *buf, bool32 need_rec_filelog, con
     va_list ap1;
     errno_t errcode;
     va_copy(ap1, ap);
-    char *pTmp = (char *)malloc(CM_MAX_LOG_NEW_BUFFER_SIZE);
+    char *pTmp = (char *)cm_malloc_prot(CM_MAX_LOG_NEW_BUFFER_SIZE);
     if (pTmp == NULL) {
         va_end(ap1);
         return;
@@ -914,7 +914,7 @@ static void cm_log_write_large_buf(const char *buf, bool32 need_rec_filelog, con
 
     errcode = strncpy_s(pTmp, CM_MAX_LOG_NEW_BUFFER_SIZE, buf, log_head_len);
     if (errcode != EOK) {
-        CM_FREE_PTR(pTmp);
+        CM_FREE_PROT_PTR(pTmp);
         va_end(ap1);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
         return;
@@ -929,7 +929,7 @@ static void cm_log_write_large_buf(const char *buf, bool32 need_rec_filelog, con
         // if the security function fails, continue to write the log after the string is truncated
         cm_stat_and_write_log(log_file_hanle, pTmp, (uint32)strlen(pTmp), need_rec_filelog, cm_write_log_file);
     }
-    CM_FREE_PTR(pTmp);
+    CM_FREE_PROT_PTR(pTmp);
 }
 
 static void cm_log_fulfil_write_buf(log_file_handle_t *log_file_handle, text_t *buf_text, uint32 buf_size,
@@ -1205,7 +1205,7 @@ status_t cm_log_suppress_array_free(void)
     while (cm_atomic32_get(&log_param->reference_count) != 0) {
         cm_sleep(CM_SLEEP_5_FIXED);
     }
-    CM_FREE_PTR(g_log_suppress_array);
+    CM_FREE_PROT_PTR(g_log_suppress_array);
     cm_spin_unlock(&log_param->lock);
     return CM_SUCCESS;
 }
@@ -1217,7 +1217,7 @@ status_t cm_log_suppress_array_alloc(void)
     }
     LOG_RUN_INF("[LOG]Start allocating memory for g_log_suppress_array");
     log_suppress_entry_t* tem_log_suppress_array =
-            (log_suppress_entry_t *)malloc(MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
+            (log_suppress_entry_t *)cm_malloc_prot(MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
     if (tem_log_suppress_array == NULL) {
         LOG_RUN_ERR("[LOG]Memory allocation for g_log_suppress_array failed");
         return CM_ERROR;
@@ -1228,7 +1228,7 @@ status_t cm_log_suppress_array_alloc(void)
                                MAX_THREAD_NUM_COUNT * sizeof(log_suppress_entry_t));
     if (errcode != EOK) {
         LOG_RUN_ERR("Secure C lib has thrown an error %d", errcode);
-        CM_FREE_PTR(tem_log_suppress_array);
+        CM_FREE_PROT_PTR(tem_log_suppress_array);
         return CM_ERROR;
     }
     g_log_suppress_array = tem_log_suppress_array;

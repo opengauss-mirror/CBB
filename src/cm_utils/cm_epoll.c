@@ -99,7 +99,7 @@ static int entry_pool_alloc_buf(bool32 limit_reached, entry_pool_t *pool, char *
         return CM_ERROR;
     }
 
-    buf = (char *)malloc(size);
+    buf = (char *)cm_malloc_prot(size);
     if (buf == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)size, "extending memory");
         return CM_ERROR;
@@ -107,7 +107,7 @@ static int entry_pool_alloc_buf(bool32 limit_reached, entry_pool_t *pool, char *
 
     rc_memzero = memset_sp(buf, size, 0, size);
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(buf);
+        CM_FREE_PROT_PTR(buf);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, (rc_memzero));
         return CM_ERROR;
     }
@@ -192,20 +192,20 @@ static int entry_pool_init(entry_pool_t **pool, uint32 steps, uint32 threshold, 
     uint32 maxextents;
     errno_t rc_memzero;
 
-    *pool = (entry_pool_t *)malloc(sizeof(entry_pool_t));
+    *pool = (entry_pool_t *)cm_malloc_prot(sizeof(entry_pool_t));
     if (*pool == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)sizeof(entry_pool_t), "extending memory");
         return CM_ERROR;
     }
     rc_memzero = memset_sp(*pool, sizeof(entry_pool_t), 0, sizeof(entry_pool_t));
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(*pool);
+        CM_FREE_PROT_PTR(*pool);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, rc_memzero);
         return CM_ERROR;
     }
 
     if (steps == 0) {
-        CM_FREE_PTR(*pool);
+        CM_FREE_PROT_PTR(*pool);
         CM_THROW_ERROR(ERR_ZERO_DIVIDE);
         return CM_ERROR;
     }
@@ -217,20 +217,20 @@ static int entry_pool_init(entry_pool_t **pool, uint32 steps, uint32 threshold, 
     (*pool)->entry_size = entry_size;
     biqueue_init(&(*pool)->idles);
     if (maxextents == 0) {
-        CM_FREE_PTR(*pool);
+        CM_FREE_PROT_PTR(*pool);
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)maxextents * sizeof(char *), "extending memory");
         return CM_ERROR;
     }
-    (*pool)->buf = (char **)malloc(maxextents * sizeof(char *));
+    (*pool)->buf = (char **)cm_malloc_prot(maxextents * sizeof(char *));
     if ((*pool)->buf == NULL) {
-        CM_FREE_PTR(*pool);
+        CM_FREE_PROT_PTR(*pool);
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)maxextents * sizeof(char *), "extending memory");
         return CM_ERROR;
     }
     rc_memzero = memset_sp((*pool)->buf, maxextents * sizeof(char *), 0, maxextents * sizeof(char *));
     if (rc_memzero != EOK) {
-        CM_FREE_PTR((*pool)->buf);
-        CM_FREE_PTR(*pool);
+        CM_FREE_PROT_PTR((*pool)->buf);
+        CM_FREE_PROT_PTR(*pool);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, rc_memzero);
         return CM_ERROR;
     }
@@ -377,8 +377,8 @@ static int epoll_ctl_del(epfd_entry_t *entry, int fd)
 
 static void epoll_epfd_clean(epfd_entry_t *entry)
 {
-    CM_FREE_PTR(entry->fd_pool);
-    CM_FREE_PTR(entry->hash_map_fd2id);
+    CM_FREE_PROT_PTR(entry->fd_pool);
+    CM_FREE_PROT_PTR(entry->hash_map_fd2id);
     entry->currbucket = 0;
     entry->currnode = NULL;
 }
@@ -411,7 +411,7 @@ int epoll_create1(int flags)
     }
 
     epfd_entry_t *entry = OBJECT_OF(epfd_entry_t, node);
-    entry->hash_map_fd2id = malloc(EPOLL_HASHMAP_BUCKETS * sizeof(entry_bucket_t));
+    entry->hash_map_fd2id = cm_malloc_prot(EPOLL_HASHMAP_BUCKETS * sizeof(entry_bucket_t));
     if (entry->hash_map_fd2id == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)EPOLL_HASHMAP_BUCKETS * sizeof(entry_bucket_t), "extending memory");
         return -1;
@@ -419,7 +419,7 @@ int epoll_create1(int flags)
     rc_memzero = memset_sp(entry->hash_map_fd2id, EPOLL_HASHMAP_BUCKETS * sizeof(entry_bucket_t), 0,
         EPOLL_HASHMAP_BUCKETS * sizeof(entry_bucket_t));
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(entry->hash_map_fd2id);
+        CM_FREE_PROT_PTR(entry->hash_map_fd2id);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, rc_memzero);
         return CM_ERROR;
     }
@@ -428,7 +428,7 @@ int epoll_create1(int flags)
         biqueue_init(&entry->hash_map_fd2id[loop].entry_que);
     }
     if (CM_SUCCESS != entry_pool_init(&entry->fd_pool, EPOLL_FD_EXTENT_STEP, EPOLL_MAX_FD_COUNT, sizeof(fd_entry_t))) {
-        CM_FREE_PTR(entry->hash_map_fd2id);
+        CM_FREE_PROT_PTR(entry->hash_map_fd2id);
         return -1;
     }
     entry->currbucket = 0;

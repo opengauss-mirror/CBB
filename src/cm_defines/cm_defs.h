@@ -191,8 +191,21 @@ extern "C" {
         }                     \
     } while (0)
 
+typedef void *(*cm_malloc_proc_t)(size_t size);
+typedef void (*cm_free_proc_t)(void *ptr);
+void regist_cm_malloc_proc(cm_malloc_proc_t malloc_proc, cm_free_proc_t free_proc);
+void *cm_malloc_prot(size_t size);
+void cm_free_prot(void *pointer);
 /* function retrun */
 // free memory and set the pointer to NULL
+#define CM_FREE_PROT_PTR(pointer)  \
+    do {                           \
+        if ((pointer) != NULL) {   \
+            cm_free_prot(pointer); \
+            (pointer) = NULL;      \
+        }                          \
+    } while (0)
+
 #define CM_FREE_PTR(pointer)      \
     do {                          \
         if ((pointer) != NULL) { \

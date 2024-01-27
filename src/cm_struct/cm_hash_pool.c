@@ -92,14 +92,14 @@ static status_t try_extend_free_list(cm_hash_pool_t *pool)
         return CM_ERROR;
     }
     uint32 size = (uint32)((ENTRY_SIZE + HASH_ITEM_SIZE) * HASH_MEM_EXTENT_SIZE);
-    extent = (cm_hash_item_t *)malloc(size);
+    extent = (cm_hash_item_t *)cm_malloc_prot(size);
     if (extent == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)size, pool->profile.name);
         return CM_ERROR;
     }
     errno_t ret = memset_sp(extent, size, 0, size);
     if (ret != EOK) {
-        CM_FREE_PTR(extent);
+        CM_FREE_PROT_PTR(extent);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, ret);
         return CM_ERROR;
     }
@@ -158,30 +158,30 @@ status_t cm_hash_pool_create(cm_hash_profile_t *profile, cm_hash_pool_t *pool)
     MEMS_RETURN_IFERR(memcpy_sp(&pool->profile, sizeof(cm_hash_profile_t), (void *)profile, sizeof(cm_hash_profile_t)));
 
     uint32 mem_size = (uint32)(profile->bucket_num * sizeof(cm_hash_bucket_t));
-    pool->buckets = (cm_hash_bucket_t *)malloc(mem_size);
+    pool->buckets = (cm_hash_bucket_t *)cm_malloc_prot(mem_size);
     if (pool->buckets == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, mem_size, profile->name);
         return CM_ERROR;
     }
     errno_t ret = memset_sp(pool->buckets, mem_size, 0, mem_size);
     if (ret != EOK) {
-        CM_FREE_PTR(pool->buckets);
+        CM_FREE_PROT_PTR(pool->buckets);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, ret);
         return CM_ERROR;
     }
 
     mem_size = (uint32)(CM_ALIGN_CEIL(HASH_MAX_SIZE, HASH_MEM_EXTENT_SIZE) * sizeof(char *));
-    pool->pages = (char **)malloc(mem_size);
+    pool->pages = (char **)cm_malloc_prot(mem_size);
     if (pool->pages == NULL) {
-        CM_FREE_PTR(pool->buckets);
+        CM_FREE_PROT_PTR(pool->buckets);
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, mem_size, profile->name);
         return CM_ERROR;
     }
 
     ret = memset_sp(pool->pages, mem_size, 0, mem_size);
     if (ret != EOK) {
-        CM_FREE_PTR(pool->buckets);
-        CM_FREE_PTR(pool->pages);
+        CM_FREE_PROT_PTR(pool->buckets);
+        CM_FREE_PROT_PTR(pool->pages);
         CM_THROW_ERROR(ERR_SYSTEM_CALL, ret);
         return CM_ERROR;
     }
@@ -359,10 +359,10 @@ void cm_hpool_add_to_free_list(cm_hash_pool_t *pool, cm_hash_item_t *item)
 void cm_hash_pool_destory(cm_hash_pool_t *pool)
 {
     for (uint32 i = 0; i < pool->count; i++) {
-        CM_FREE_PTR(pool->pages[i]);
+        CM_FREE_PROT_PTR(pool->pages[i]);
     }
-    CM_FREE_PTR(pool->buckets);
-    CM_FREE_PTR(pool->pages);
+    CM_FREE_PROT_PTR(pool->buckets);
+    CM_FREE_PROT_PTR(pool->pages);
     pool->count = 0;
     pool->hwm = 0;
     init_hash_bucket(&pool->free_list);

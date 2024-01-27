@@ -250,14 +250,14 @@ status_t cm_compress_alloc_buff(compress_t *ctx)
             return CM_ERROR;
     }
     ctx->in_buf_capacity = MAX(ctx->in_buf_capacity, ctx->frag_size);
-    ctx->in_buf = (char *)malloc(ctx->in_buf_capacity);
+    ctx->in_buf = (char *)cm_malloc_prot(ctx->in_buf_capacity);
     if (ctx->in_buf == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)ctx->in_buf_capacity, "compress in buffer memory");
         return CM_ERROR;
     }
-    ctx->out_buf = (char *)malloc(ctx->out_buf_capacity);
+    ctx->out_buf = (char *)cm_malloc_prot(ctx->out_buf_capacity);
     if (ctx->out_buf == NULL) {
-        CM_FREE_PTR(ctx->in_buf);
+        CM_FREE_PROT_PTR(ctx->in_buf);
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)ctx->out_buf_capacity, "compress out buffer memory");
         return CM_ERROR;
     }

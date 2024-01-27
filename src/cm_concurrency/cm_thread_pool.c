@@ -90,7 +90,7 @@ status_t cm_create_thread_pool(cm_thread_pool_t *pool, uint32 thread_stack_size,
 
         /* create parallel threads */
         size = (uint32)(count * sizeof(pooling_thread_t));
-        threads = (pooling_thread_t *)malloc(size);
+        threads = (pooling_thread_t *)cm_malloc_prot(size);
         if (threads == NULL) {
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)size, "threads pool");
             ret = CM_ERROR;
@@ -123,7 +123,7 @@ status_t cm_create_thread_pool(cm_thread_pool_t *pool, uint32 thread_stack_size,
     cm_thread_unlock(&pool->lock);
 
     if (ret != CM_SUCCESS) {
-        CM_FREE_PTR(threads);
+        CM_FREE_PROT_PTR(threads);
         pool->threads = NULL;
     }
 
@@ -136,7 +136,7 @@ void cm_destroy_thread_pool(cm_thread_pool_t *pool)
     pooling_thread_t *obj = NULL;
 
     if (pool->starts == 0) {
-        CM_FREE_PTR(pool->threads);
+        CM_FREE_PROT_PTR(pool->threads);
         return;
     }
 
@@ -147,7 +147,7 @@ void cm_destroy_thread_pool(cm_thread_pool_t *pool)
     }
     cm_thread_unlock(&pool->lock);
 
-    CM_FREE_PTR(pool->threads);
+    CM_FREE_PROT_PTR(pool->threads);
 
     return;
 }

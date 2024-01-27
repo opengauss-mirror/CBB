@@ -74,10 +74,10 @@ static inline void free_compress_ctx(compress_t *ctx)
         return;
     }
     cm_compress_free(ctx);
-    CM_FREE_PTR(ctx->in_buf);
+    CM_FREE_PROT_PTR(ctx->in_buf);
     ctx->in_chunk_size = 0;
     ctx->in_buf_capacity = 0;
-    CM_FREE_PTR(ctx->out_buf);
+    CM_FREE_PROT_PTR(ctx->out_buf);
     ctx->out_buf_capacity = 0;
     ctx->algorithm = COMPRESS_NONE;
 }

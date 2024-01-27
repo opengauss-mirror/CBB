@@ -104,7 +104,7 @@ int mes_create_buffer_queue(
     // alloc memery
     buf_item_size = (uint64)(sizeof(mes_buffer_item_t) + buf_size);
     mem_size = (uint64)buf_count * buf_item_size;
-    queue->addr = malloc(mem_size); // reserve MEX_XNET_PAGE_SIZE for register addr 4096 align.
+    queue->addr = cm_malloc_prot(mem_size); // reserve MEX_XNET_PAGE_SIZE for register addr 4096 align.
     if (queue->addr == NULL) {
         LOG_RUN_ERR("[mes]: allocate memory size %llu for MES msg pool failed", mem_size);
         return ERR_MES_MALLOC_FAIL;
@@ -161,14 +161,14 @@ int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, mes_chunk_info_t chunk_info,
     }
 
     queues_size = (uint64)(queue_num * sizeof(mes_buf_queue_t));
-    chunk->queues = (mes_buf_queue_t *)malloc(queues_size);
+    chunk->queues = (mes_buf_queue_t *)cm_malloc_prot(queues_size);
     if (chunk->queues == NULL) {
         LOG_RUN_ERR("[mes]:allocate memory queue_num %u failed", queue_num);
         return ERR_MES_MALLOC_FAIL;
     }
     ret = memset_sp(chunk->queues, queues_size, 0, queues_size);
     if (ret != EOK) {
-        free(chunk->queues);
+        CM_FREE_PROT_PTR(chunk->queues);
         chunk->queues = NULL;
         return ERR_MES_MEMORY_SET_FAIL;
     }
@@ -199,7 +199,7 @@ void mes_destroy_buffer_queue(mes_buf_queue_t *queue)
         return;
     }
 
-    free(queue->addr);
+    CM_FREE_PROT_PTR(queue->addr);
     queue->addr = NULL;
 }
 
@@ -213,7 +213,7 @@ void mes_destroy_buffer_chunk(mes_buf_chunk_t *chunk)
         mes_destroy_buffer_queue(&chunk->queues[i]);
     }
 
-    free(chunk->queues);
+    CM_FREE_PROT_PTR(chunk->queues);
     chunk->queues = NULL;
 
     return;
@@ -239,14 +239,14 @@ int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priorit
     }
 
     size_t ctrl_size = sizeof(mes_pool_t);
-    mes_pool_t *cur_pool = (mes_pool_t *)malloc(ctrl_size);
+    mes_pool_t *cur_pool = (mes_pool_t *)cm_malloc_prot(ctrl_size);
     if (cur_pool == NULL) {
         LOG_RUN_ERR("[mes] malloc message pool ctrl failed.");
         return CM_ERROR;
     }
     errno_t err = memset_s(cur_pool, ctrl_size, 0, ctrl_size);
     if (err != EOK) {
-        CM_FREE_PTR(cur_pool);
+        CM_FREE_PROT_PTR(cur_pool);
         LOG_RUN_ERR("[mes] memset message pool ctrl failed.");
         return CM_ERROR;
     }
@@ -257,7 +257,7 @@ int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priorit
                                       MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].queue_count,
                                       &MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i]);
         if (ret != CM_SUCCESS) {
-            CM_FREE_PTR(cur_pool);
+            CM_FREE_PROT_PTR(cur_pool);
             LOG_RUN_ERR("[mes] create buf chunk failed, priority:%u.", priority);
             return ret;
         }
@@ -299,7 +299,7 @@ void mes_destroy_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t pri
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count; i++) {
         mes_destroy_buffer_chunk(&msg_pool->chunk[i]);
     }
-    CM_FREE_PTR(mq_ctx->msg_pool[inst_id][priority]);
+    CM_FREE_PROT_PTR(mq_ctx->msg_pool[inst_id][priority]);
 }
 
 char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority)

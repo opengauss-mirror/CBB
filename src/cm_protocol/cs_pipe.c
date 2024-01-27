@@ -524,7 +524,7 @@ static status_t cs_try_realloc_packet_buffer(cs_packet_t *pack, uint32 offset)
             CM_THROW_ERROR(ERR_FULL_PACKET, "request", new_buf_size, pack->max_buf_size);
             return CM_ERROR;
         }
-        char *new_buf = (char *)malloc(new_buf_size);
+        char *new_buf = (char *)cm_malloc_prot(new_buf_size);
         if (new_buf == NULL) {
             CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)new_buf_size, "large packet buffer");
             return CM_ERROR;
@@ -532,12 +532,12 @@ static status_t cs_try_realloc_packet_buffer(cs_packet_t *pack, uint32 offset)
         errcode = memcpy_s(new_buf, new_buf_size, pack->buf, offset);
         if (SECUREC_UNLIKELY(errcode != EOK)) {
             CM_THROW_ERROR(ERR_SYSTEM_CALL, errcode);
-            CM_FREE_PTR(new_buf);
+            CM_FREE_PROT_PTR(new_buf);
             return CM_ERROR;
         }
 
         if (pack->buf != pack->init_buf) {
-            CM_FREE_PTR(pack->buf);
+            CM_FREE_PROT_PTR(pack->buf);
         }
 
         pack->buf_size = new_buf_size;

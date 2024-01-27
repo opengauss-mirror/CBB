@@ -534,19 +534,19 @@ status_t cm_copy_file(const char *src, const char *dst, bool32 over_write)
 {
     errno_t rc_memzero;
 
-    char *buf = (char *)malloc(GS_WRITE_BUFFER_SIZE);
+    char *buf = (char *)cm_malloc_prot(GS_WRITE_BUFFER_SIZE);
     if (buf == NULL) {
         CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)GS_WRITE_BUFFER_SIZE, "copying file");
         return CM_ERROR;
     }
     rc_memzero = memset_sp(buf, (uint32)GS_WRITE_BUFFER_SIZE, 0, (uint32)GS_WRITE_BUFFER_SIZE);
     if (rc_memzero != EOK) {
-        CM_FREE_PTR(buf);
+        CM_FREE_PROT_PTR(buf);
         CM_THROW_ERROR(ERR_RESET_MEMORY, "buf");
         return CM_ERROR;
     }
     status_t status = cm_copy_file_ex(src, dst, buf, GS_WRITE_BUFFER_SIZE, over_write);
-    CM_FREE_PTR(buf);
+    CM_FREE_PROT_PTR(buf);
     return status;
 }
 

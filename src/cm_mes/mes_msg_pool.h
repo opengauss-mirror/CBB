@@ -55,7 +55,9 @@ typedef struct st_mes_buffer_item {
 #define MES_BUFFER_ITEM_SIZE (offsetof(mes_buffer_item_t, data))
 
 #ifndef WIN32
-typedef struct __attribute__((aligned(128))) st_mes_buf_queue {
+// old code the mes buf queue aligned 128
+// will cause gcc10.3 compile to movaps %xmm0,0x10(%rdi), forbid it at present
+typedef struct st_mes_buf_queue {
 #else
 typedef struct st_mes_buf_queue {
 #endif

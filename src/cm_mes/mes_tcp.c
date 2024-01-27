@@ -73,7 +73,7 @@ int mes_alloc_channels(void)
 
     alloc_size = sizeof(mes_channel_t *) * MES_MAX_INSTANCES +
             sizeof(mes_channel_t) * MES_MAX_INSTANCES * MES_GLOBAL_INST_MSG.profile.channel_cnt;
-    temp_buf = (char *)malloc(alloc_size);
+    temp_buf = (char *)cm_malloc_prot(alloc_size);
     if (temp_buf == NULL) {
         LOG_RUN_ERR("allocate mes_channel_t failed, channel_cnt %u alloc size %zu",
                     MES_GLOBAL_INST_MSG.profile.channel_cnt, alloc_size);
@@ -81,7 +81,7 @@ int mes_alloc_channels(void)
     }
     ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
     if (ret != EOK) {
-        free(temp_buf);
+        CM_FREE_PROT_PTR(temp_buf);
         return ERR_MES_MEMORY_SET_FAIL;
     }
 
@@ -393,7 +393,7 @@ void mes_close_send_pipe_nolock(mes_pipe_t *pipe)
     }
     cs_disconnect_ex(&pipe->send_pipe, CM_TRUE, MES_INSTANCE_ID(pipe->channel->id));
     pipe->send_pipe_active = CM_FALSE;
-    CM_FREE_PTR(pipe->msgbuf);
+    CM_FREE_PROT_PTR(pipe->msgbuf);
 
     LOG_RUN_INF("[mes] mes_close_send_pipe_nolock priority=%u, inst_id=%u, channel_id=%u",
         pipe->priority, MES_INSTANCE_ID(pipe->channel->id), MES_CHANNEL_ID(pipe->channel->id));
@@ -566,7 +566,7 @@ void mes_free_channels(void)
         return;
     }
 
-    free(MES_GLOBAL_INST_MSG.mes_ctx.channels);
+    CM_FREE_PROT_PTR(MES_GLOBAL_INST_MSG.mes_ctx.channels);
     MES_GLOBAL_INST_MSG.mes_ctx.channels = NULL;
     return;
 }
@@ -961,7 +961,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     }
     
     if (pipe->msgbuf == NULL) {
-        pipe->msgbuf = (char *)malloc(totalsz);
+        pipe->msgbuf = (char *)cm_malloc_prot(totalsz);
         if (pipe->msgbuf == NULL) {
             merged = CM_FALSE;
         }
