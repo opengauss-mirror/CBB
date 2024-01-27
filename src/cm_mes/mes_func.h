@@ -135,7 +135,7 @@ typedef pthread_mutex_t mes_mutex_t;
         (msg)->head = NULL;     \
     } while (0);
 
-typedef int (*mes_connect_t)(uint32 inst_id);
+typedef void (*mes_connect_t)(uintptr_t pipePtr);
 
 typedef void (*mes_disconnect_t)(uint32 inst_id, bool32 wait);
 
@@ -144,8 +144,6 @@ typedef int (*mes_send_data_t)(const void *msg_data);
 typedef int (*mes_send_bufflist_t)(mes_bufflist_t *buff_list);
 
 typedef void (*mes_release_buf_t)(const char *buffer);
-
-typedef bool32 (*mes_connection_ready_t)(uint32 inst_id, uint32 *ready_count);
 
 typedef mes_msgitem_t *(*mes_alloc_msgitem_t)(mes_msgqueue_t *queue, bool32 is_send);
 
@@ -283,7 +281,6 @@ typedef struct st_mes_callback {
     mes_send_data_t send_func;
     mes_send_bufflist_t send_bufflist_func;
     mes_release_buf_t release_buf_func;
-    mes_connection_ready_t conn_ready_func;
     mes_alloc_msgitem_t alloc_msgitem_func;
 } mes_callback_t;
 
@@ -385,6 +382,7 @@ void mes_close_recv_pipe(mes_pipe_t *pipe);
 void mes_close_recv_pipe_nolock(mes_pipe_t *pipe);
 int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority);
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
+int mes_connect_single(inst_type inst_id);
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus
