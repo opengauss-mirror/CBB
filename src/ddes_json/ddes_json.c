@@ -1005,7 +1005,7 @@ status_t json_add_num(json_t *json, const char * const key, const double value)
 
     key_size = sizeof(json_val_t) + sizeof(uint16) + key_len + 1;
     val_size = sizeof(digitext_t);
-    json->allocator.f_alloc(json->allocator.mem_ctx, key_size + val_size, (void **)&jval);
+    CM_RETURN_IFERR(json->allocator.f_alloc(json->allocator.mem_ctx, key_size + val_size, (void **)&jval));
     jval->order = NULL;
     jval->next = NULL;
     char *data = jval->data;
@@ -1231,15 +1231,7 @@ void json_destroy(json_t *json, json_val_t *item, cm_allocator_t *allocator)
         json_t *obj = NULL;
         if (type == JSON_ARRAY) {
             json_arr_t *arr = (json_arr_t *)JSON_OFFSET_VAL(item);
-            json_val_t *vals = arr->vals;
-            json_val_t *curr;
-            obj = (json_t *)JSON_OFFSET_DATA(vals);
-            while (vals) {
-                json_travers_del(obj, allocator);
-                curr = vals;
-                vals = vals->order;
-                allocator->f_free(allocator->mem_ctx, curr);
-            }
+            json_del_arr(arr, allocator);
         } else if (type == JSON_OBJ) {
             obj = (json_t *)JSON_OFFSET_DATA(item);
             json_travers_del(obj, allocator);
