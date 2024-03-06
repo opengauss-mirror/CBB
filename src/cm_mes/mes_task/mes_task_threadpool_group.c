@@ -88,22 +88,6 @@ void mes_task_threadpool_group_check_busyness(mes_task_threadpool_group_t *group
 mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threadpool_group_t *group)
 {
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
-    if (group->worker_list.count == group->attr.max_cnt) {
-        LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] group worker cnt has reach max, group_id:%u,"
-            "worker cnt%u, max cnt:%u",
-            group->attr.group_id, group->worker_list.count, group->attr.max_cnt);
-        return MTTP_ADD_WORKER_STATUS_REACH_MAX;
-    }
-
-    if (group->worker_list.count > group->attr.max_cnt ||
-        tpool->cur_worker_cnt > tpool->attr.max_cnt) {
-        LOG_RUN_ERR("[MES TASK THREADPOOL][add worker] group worker cnt large than max cnt, group_id:%u,"
-            "worker cnt%u, max cnt:%u",
-            group->attr.group_id, group->worker_list.count, group->attr.max_cnt);
-        cm_panic(0);
-        return MTTP_ADD_WORKER_STATUS_FAILED_NOT_EXPECT;
-    }
-
     if (group->leaving_queue != NULL) {
         LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker][delete leaving-queue] begin, group_id:%u",
             group->attr.group_id);
@@ -121,6 +105,22 @@ mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threa
         LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker][delete leaving-queue] end, group_id:%u",
             group->attr.group_id);
         cm_unlatch(&group->latch, NULL);
+    }
+    
+    if (group->worker_list.count == group->attr.max_cnt) {
+        LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] group worker cnt has reach max, group_id:%u,"
+            "worker cnt%u, max cnt:%u",
+            group->attr.group_id, group->worker_list.count, group->attr.max_cnt);
+        return MTTP_ADD_WORKER_STATUS_REACH_MAX;
+    }
+
+    if (group->worker_list.count > group->attr.max_cnt ||
+        tpool->cur_worker_cnt > tpool->attr.max_cnt) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL][add worker] group worker cnt large than max cnt, group_id:%u,"
+            "worker cnt%u, max cnt:%u",
+            group->attr.group_id, group->worker_list.count, group->attr.max_cnt);
+        cm_panic(0);
+        return MTTP_ADD_WORKER_STATUS_FAILED_NOT_EXPECT;
     }
 
     LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] begin, group_id:%u",
@@ -426,6 +426,7 @@ bool8 mes_task_threadpool_group_all_queue_is_empty(mes_task_threadpool_group_t *
         if (cnt > 0) {
             return CM_FALSE;
         }
+        queue = (mes_task_threadpool_queue_t*)queue->node.next;
     }
     return CM_TRUE;
 }
