@@ -635,6 +635,7 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.pipe_type = profile->pipe_type;
     MES_GLOBAL_INST_MSG.profile.conn_created_during_init = profile->conn_created_during_init;
     MES_GLOBAL_INST_MSG.profile.frag_size = profile->frag_size;
+    MES_GLOBAL_INST_MSG.profile.max_wait_time = profile->max_wait_time;
     MES_GLOBAL_INST_MSG.profile.connect_timeout =
         profile->connect_timeout == 0 ? CM_INVALID_INT32 : profile->connect_timeout;
     MES_GLOBAL_INST_MSG.profile.socket_timeout =
@@ -1123,6 +1124,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
 
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
+    msgitem->enqueue_time = g_timer()->now;
 
     if (ENABLE_MES_TASK_THREADPOOL) {
         mes_put_msgitem_to_threadpool(msgitem);

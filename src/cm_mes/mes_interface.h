@@ -178,6 +178,7 @@ typedef struct st_mes_profile {
     unsigned int compress_level;
     // max message buffer size supported
     unsigned int frag_size;
+    unsigned int max_wait_time;
     int connect_timeout;  // ms
     int socket_timeout;   // ms
     struct {
