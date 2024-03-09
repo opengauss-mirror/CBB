@@ -77,6 +77,12 @@ void mes_task_threadpool_worker(thread_t *thread)
         if (msgitem == NULL) {
             continue;
         }
+        if ((g_timer()->now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >=
+            MES_GLOBAL_INST_MSG.profile.max_wait_time) {
+            LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded ");
+            mes_release_message_buf(&msgitem->msg);
+            continue;
+        }
 
         mes_work_proc(msgitem, worker->worker_id);
         mes_put_msgitem_nolock(&finished_msgitem_queue, msgitem);
