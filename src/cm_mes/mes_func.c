@@ -956,11 +956,15 @@ static int mes_init_mq()
 static int mes_init_resource(void)
 {
     int ret;
+
+    LOG_RUN_INF("start to init mq");
     ret = mes_init_mq();
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] mes init mq failed.");
         return ret;
     }
+    LOG_RUN_INF("end to init mq");
+
     (void)mes_register_func();
 
     ret = mes_init_conn();

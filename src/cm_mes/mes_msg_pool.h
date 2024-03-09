@@ -27,6 +27,7 @@
 
 #include "mes_type.h"
 #include "cm_defs.h"
+#include "cm_memory.h"
 #include "cm_spinlock.h"
 #include "cm_error.h"
 #include "mes_interface.h"
@@ -54,16 +55,20 @@ typedef struct st_mes_buffer_item {
 
 #define MES_BUFFER_ITEM_SIZE (offsetof(mes_buffer_item_t, data))
 
-#ifndef WIN32
-// old code the mes buf queue aligned 128
-// will cause gcc10.3 compile to movaps %xmm0,0x10(%rdi), forbid it at present
+/*
+ * old style" ``typedef struct __attribute__((aligned(128))) st_mes_buf_queue``,
+ * DO NOT USE aligned(128), it will tell gcc to generate ``movaps %xmm0, 0x10(%rdi)``
+ * instruction to operate st_mes_buf_queue variable's members, but it requires
+ * st_mes_buf_queue variable's address is aligned by 128, otherwise it will crash.
+ * now we don't ensure its address is aligned by 128.
+ *
+*/
 typedef struct st_mes_buf_queue {
-#else
-typedef struct st_mes_buf_queue {
-#endif
     spinlock_t lock;
-    uint8 chunk_no;
+    spinlock_t init_lock; // defer format memory to buffer item allocation, to speed mes_init
+    mes_chunk_info_t chunk_info;
     uint8 queue_no;
+    volatile bool8 inited;
     uint8 reserved[2];
     uint32 buf_size;
     uint32 count;
@@ -84,6 +89,7 @@ typedef struct st_mes_buf_chunk {
 typedef struct st_mes_pool {
     uint32 count;
     mes_buf_chunk_t chunk[MES_MAX_BUFFPOOL_NUM];
+    memory_chunk_t mem_chunk;
 } mes_pool_t;
 
 typedef struct st_message_pool {
@@ -101,17 +107,11 @@ typedef struct st_message_pool {
 int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
 void mes_destroy_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
 void mes_destroy_all_message_pool(void);
-void mes_init_buf_queue(mes_buf_queue_t *queue);
-int mes_create_buffer_queue(
-    mes_buf_queue_t *queue, mes_chunk_info_t chunk_info, uint8 queue_no, uint32 buf_size, uint32 buf_count);
-void mes_destroy_buffer_queue(mes_buf_queue_t *queue);
-int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, mes_chunk_info_t chunk_info, uint32 queue_num,
-    const mes_buffer_attr_t *buf_attr);
-void mes_destroy_buffer_chunk(mes_buf_chunk_t *chunk);
 char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 void mes_free_buf_item(char *buffer);
 uint32 mes_get_priority_max_msg_size(mes_priority_t priority);
+uint64 mes_calc_message_pool_size(mes_profile_t *profile, uint32 priority);
 
 #ifdef __cplusplus
 }

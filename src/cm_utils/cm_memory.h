@@ -166,6 +166,20 @@ static inline uint64 mem_max_size(const mem_pool_t *mem)
 
 extern mem_pool_t g_buddy_pool;
 
+typedef struct st_memory_chunk_t {
+    char *addr;
+    uint64 total_size;
+    uint64 offset;
+} memory_chunk_t;
+
+static inline char *cm_alloc_memory_from_chunk(memory_chunk_t *mem_chunk, uint64 size)
+{
+    char *curr_addr = mem_chunk->addr + mem_chunk->offset;
+    mem_chunk->offset += size;
+    cm_panic(mem_chunk->offset <= mem_chunk->total_size);
+    return curr_addr;
+}
+
 #ifdef __cplusplus
 }
 #endif
