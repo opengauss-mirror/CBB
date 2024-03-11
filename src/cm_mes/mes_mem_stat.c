@@ -47,12 +47,7 @@ uint64 mes_calc_buffer_pool_mem(mes_profile_t *profile)
 {
     uint64 total_mem = 0;
     for (uint32 i = 0; i < profile->priority_cnt; i++) {
-        total_mem += sizeof(mes_pool_t);
-        for (uint32 j = 0; j < profile->buffer_pool_attr[i].pool_count; j++) {
-            mes_buffer_attr_t *buf_attr = &profile->buffer_pool_attr[i].buf_attr[j];
-            total_mem += profile->buffer_pool_attr[i].queue_count * sizeof(mes_buf_queue_t);
-            total_mem += (buf_attr->size + sizeof(mes_buffer_item_t)) * buf_attr->count;
-        }
+        total_mem += mes_calc_message_pool_size(profile, i);
     }
     return total_mem;
 }
