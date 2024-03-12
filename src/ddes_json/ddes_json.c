@@ -56,6 +56,13 @@ void json_register_allocator_func(f_malloc_t register_alloc, f_free_t register_f
     }
 }
 
+void json_unregister_allocator_func()
+{
+    g_json_allocator.f_alloc = NULL;
+    g_json_allocator.f_free = NULL;
+    g_json_allocator.mem_ctx = NULL;
+}
+
 cm_allocator_t *json_get_alloc_func(void)
 {
     return &g_json_allocator;

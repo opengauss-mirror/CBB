@@ -199,6 +199,7 @@ typedef enum en_cm_errno {
     ERR_MES_CONNECT_TIMEOUT = 627,
     ERR_MES_RECV_PIPE_INACTIVE = 628,
     ERR_MES_INVALID_MSG_HEAD = 629,
+    ERR_JSON_REGISTER_FAIL = 630,
     // The max error number
     ERR_CODE_CEIL = 2000,
 } cm_errno_t;
