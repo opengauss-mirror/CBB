@@ -85,7 +85,7 @@ static void mes_format_buf_queue_memory(mes_buf_queue_t *queue)
     buf_node->queue_no = queue->queue_no;
     buf_node->next = NULL;
     queue->last = buf_node;
-    queue->init_lock = CM_TRUE;
+    queue->inited = CM_TRUE;
 }
 
 static mes_buf_queue_t *mes_get_buffer_queue(mes_buf_chunk_t *chunk)
