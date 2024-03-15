@@ -54,6 +54,13 @@ IF (ENABLE_EXPORT_API)
     add_compile_options(-fvisibility=hidden)
 ENDIF()
 
+OPTION(USE_GM_TLS "Enable use gm ssl" ON)
+message(STATUS "USE_GM_TLS=${USE_GM_TLS}")
+IF (NOT USE_GM_TLS)
+    message(STATUS "Disable use gm ssl without GMTLS")
+    ADD_DEFINITIONS(-DDISABLE_GMTLS)
+ENDIF ()
+
 execute_process(
     COMMAND uname -m
     OUTPUT_VARIABLE OS_ARCH

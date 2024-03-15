@@ -33,6 +33,8 @@ static param_item_t g_parameters[] = {
     [CBB_PARAM_SSL_KEY] = {"SSL_KEY", {.ssl_key = ""}, get_param_string, "", PARAM_STRING},
     [CBB_PARAM_SSL_CRL] = {"SSL_CRL", {.ssl_crl = ""}, get_param_string, "", PARAM_STRING},
     [CBB_PARAM_SSL_CERT] = {"SSL_CERT", {.ssl_cert = ""}, get_param_string, "", PARAM_STRING},
+    [CBB_PARAM_SSL_GM_KEY] = {"SSL_GM_KEY", {.ssl_gm_key = ""}, get_param_string, "", PARAM_STRING},
+    [CBB_PARAM_SSL_GM_CERT] = {"SSL_GM_CERT", {.ssl_gm_cert = ""}, get_param_string, "", PARAM_STRING},
     [CBB_PARAM_SSL_CIPHER] = {"SSL_CIPHER", {.ssl_cipher = ""}, get_param_string, "", PARAM_STRING},
     [CBB_PARAM_SSL_PWD_PLAINTEXT] = {"SSL_PWD_PLAINTEXT", {0}, get_param_password, "", PARAM_STRING},
     [CBB_PARAM_SSL_PWD_CIPHERTEXT] = {"SSL_PWD_CIPHERTEXT", {.ext_pwd = ""}, get_param_string, "",
@@ -132,6 +134,14 @@ status_t get_param_string(cbb_param_t param_type, const char *param_value, param
         case CBB_PARAM_SSL_CERT:
             errcode = strncpy_s(out_value->ssl_cert, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
                 strlen((const char *)param_value));
+            break;
+	case CBB_PARAM_SSL_GM_CERT:
+            errcode = strncpy_s(out_value->ssl_gm_cert, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
+                                strlen((const char *)param_value));
+            break;
+        case CBB_PARAM_SSL_GM_KEY:
+            errcode = strncpy_s(out_value->ssl_gm_key, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
+                                strlen((const char *)param_value));
             break;
         case CBB_PARAM_SSL_CIPHER:
             errcode = strncpy_s(out_value->ssl_cipher, CM_MAX_SSL_CIPHER_LEN, (const char *)param_value,

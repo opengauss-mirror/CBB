@@ -134,7 +134,7 @@ cp -r $LIB_PATH/lz4/comm/include                     $CBB_LIBRARYS/lz4/include
 
 cd $PACKAGE
 if [ "$build_tool"x == "cmake"x ];then
-    cmake . -DCMAKE_BUILD_TYPE=${version_mode}
+    cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF
     make -sj 8
 else
     make clean
