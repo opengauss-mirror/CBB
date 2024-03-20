@@ -239,10 +239,10 @@ int32 cm_scsi3_register(int32 fd, int64 sark)
     int32 scope = 0;
     uint32 type = 0;
     int32 servact = 0x00;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     int64 rk = 0;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
-    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = { 0 };
     int32 status = 0;
     uint64 tmp = 0;
     sg_io_hdr_t hdr;
@@ -253,7 +253,7 @@ int32 cm_scsi3_register(int32 fd, int64 sark)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
@@ -299,10 +299,10 @@ int32 cm_scsi3_unregister(int32 fd, int64 rk)
     int32 scope = 0;
     uint32 type = 0;
     int32 servact = 0x00;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     int64 sark = 0;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
-    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = { 0 };
     int32 status = 0;
     int64 tmp = 0;
     sg_io_hdr_t hdr;
@@ -313,7 +313,7 @@ int32 cm_scsi3_unregister(int32 fd, int64 rk)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
@@ -358,9 +358,9 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
     int32 scope = 0;
     uint32 type = 0x06;
     int32 servact = 0x01;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
-    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = { 0 };
     int32 status = 0;
     int64 tmp = 0;
     sg_io_hdr_t hdr;
@@ -371,7 +371,7 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
@@ -413,9 +413,9 @@ status_t cm_scsi3_release(int32 fd, int64 rk)
     int32 scope = 0;
     uint32 type = 0x06;
     int32 servact = 0x02;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
-    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = { 0 };
     int32 status = 0;
     int64 tmp = 0;
     sg_io_hdr_t hdr;
@@ -426,7 +426,7 @@ status_t cm_scsi3_release(int32 fd, int64 rk)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
@@ -464,9 +464,9 @@ status_t cm_scsi3_clear(int32 fd, int64 rk)
     int32 scope = 0;
     uint32 type = 0;
     int32 servact = 0x03;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
-    uchar data_buffer[CM_SCSI_XFER_DATA] = { 0 };
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = { 0 };
     int32 status = 0;
     int64 tmp = 0;
     sg_io_hdr_t hdr;
@@ -477,7 +477,7 @@ status_t cm_scsi3_clear(int32 fd, int64 rk)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
@@ -515,9 +515,9 @@ status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
     uint32 scope = 0;
     uint32 type = 0x06;
     uint32 servact = 0x04;
-    uint16 param_len = 24;
+    uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = {0};
-    uchar data_buffer[CM_SCSI_XFER_DATA] = {0};
+    uchar data_buffer[CM_SCSI_XFER_DATA_LEN_24] = {0};
     int32 status;
     int64 tmp;
     sg_io_hdr_t hdr;
@@ -528,7 +528,7 @@ status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
     hdr.interface_id = 'S';
     hdr.flags = SG_FLAG_LUN_INHIBIT;
 
-    cm_set_xfer_data(&hdr, data_buffer, CM_SCSI_XFER_DATA);
+    cm_set_xfer_data(&hdr, data_buffer, (uint32)param_len);
     cm_set_sense_data(&hdr, sense_buffer, CM_SCSI_SENSE_LEN);
 
     cdb[0] = 0x5F;
