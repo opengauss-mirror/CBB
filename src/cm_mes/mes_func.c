@@ -1385,8 +1385,8 @@ static void mes_heartbeat(mes_pipe_t *pipe)
     MES_SET_PRIORITY_FLAG(head.flags, pipe->priority);
     int ret = MES_SEND_DATA((void *)&head);
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes] mes_heartbeat failed, src:%u, dst:%u, flags:%u, ret:%u",
-                    head.src_inst, head.dst_inst, head.flags, ret);
+        LOG_RUN_ERR("[mes] mes_heartbeat failed, src:%u, dst:%u, flags:%u, ret:%u, channel_id:%u, priority:%u",
+                    head.src_inst, head.dst_inst, head.flags, ret, MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
     }
 }
 
@@ -1401,6 +1401,9 @@ void mes_heartbeat_channel(mes_channel_t *channel)
             MES_CONNECT((uintptr_t)pipe);
         } else {
             mes_heartbeat(pipe);
+            if (!pipe->send_pipe_active) {
+                MES_CONNECT((uintptr_t)pipe);
+            }
         }
     }
 }
