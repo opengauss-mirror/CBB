@@ -155,7 +155,9 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_MEC_FRAGMENT_THRESHOLD]   = "MEC fragment ctrl number limit %u reached",
     [ERR_MEC_INCONSISTENT_FRAG_NO] = "MEC last fragment number [%d] is not consistent with new [%d]",
     /* storage errors: 500 - 599 */
-    [ERR_STG_MEM_POOL_FULL      ] = "STG mem pool is full"
+    [ERR_STG_MEM_POOL_FULL      ] = "STG mem pool is full",
+    /* json */
+    [ERR_JSON_REGISTER_FAIL]      = "JSON register allocator failed, %s."
 };
 
 static cm_error_handler g_error_handler = NULL;

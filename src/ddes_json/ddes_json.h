@@ -138,6 +138,7 @@ status_t json2arr(json_t *json, json_arr_t **jarr);
 status_t arr2json(json_val_t *jarr, json_t **json, cm_allocator_t *allocator);
 
 void json_register_allocator_func(f_malloc_t register_alloc, f_free_t register_free, void *ctx);
+void json_unregister_allocator_func();
 cm_allocator_t *json_get_alloc_func(void);
 
 #ifdef __cplusplus
