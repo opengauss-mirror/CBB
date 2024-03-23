@@ -1499,6 +1499,7 @@ void mes_uninit(void)
     mes_stop_heartbeat_thread();
     mes_close_listen_thread();
     mes_stop_receivers();
+    mes_stop_sender_monitor();
     mes_close_work_thread(CM_TRUE);
     mes_close_work_thread(CM_FALSE);
     if (ENABLE_MES_TASK_THREADPOOL) {
@@ -1569,7 +1570,12 @@ int mes_init(mes_profile_t *profile)
             }
         }
 
-        ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_event_proc);
+        ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_recv_pipe_event_proc);
+        if (ret != CM_SUCCESS) {
+            break;
+        }
+
+        ret = mes_start_sender_monitor();
         if (ret != CM_SUCCESS) {
             break;
         }
@@ -2822,4 +2828,34 @@ int mes_connect_single(inst_type inst_id)
     }
     LOG_DEBUG_INF("[mes] reconnect to node %u success", inst_id);
     return CM_SUCCESS;
+}
+
+mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, uint32 flags)
+{
+    uint32 channel_id = MES_CALLER_TID_TO_CHANNEL_ID(caller_tid);
+    mes_priority_t priority = MES_PRIORITY(flags);
+    mes_instance_t *mes = &MES_GLOBAL_INST_MSG;
+    mes_channel_t *channel = &mes->mes_ctx.channels[dest_id][channel_id];
+    if (mes->profile.need_serial) {
+        return channel;
+    } else {
+        /*
+         * try to get active send channel,
+         * if original choosed channel is inactive,
+         * we iterate from tail to head to find an active channel (
+         * because heartbeat thread construct channel from head to tail),
+         * if all is inactive, we still use the original choosed channel.
+         */
+        uint32 channel_cnt = mes->profile.channel_cnt;
+        uint32 index = channel_id;
+        uint32 times = 0;
+        while (times++ <= channel_cnt) {
+            channel = &mes->mes_ctx.channels[dest_id][index];
+            if (channel->pipe[priority].send_pipe_active) {
+                break;
+            }
+            index = (index == 0) ? (channel_cnt - 1) : (index - 1);
+        }
+        return channel;
+    }
 }

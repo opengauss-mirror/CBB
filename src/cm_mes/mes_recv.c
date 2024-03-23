@@ -27,11 +27,7 @@
 #include "cm_debug.h"
 #include "mes_recv.h"
 #include "mes_interface.h"
-
-typedef struct st_receiver {
-    int epfd;
-    thread_t thread;
-} receiver_t;
+#include "mes_func.h"
 
 typedef union un_ev_data {
     struct {
@@ -50,14 +46,27 @@ receiver_t g_receiver[MES_PRIORITY_CEIL][MES_MAX_RECV_THREAD_PER_PRIO] = {0};
 uint32 g_priority_count = 0;
 uint32 g_receiver_count[MES_PRIORITY_CEIL] = {0};
 
-mes_event_proc_t g_event_proc = NULL;
-
 static void mes_recv_proc(thread_t *thread);
 
-int start_one_receiver(uint32 priority, unsigned int id)
+void mes_init_receivers(mes_event_proc_t proc)
 {
-    receiver_t *receiver = &g_receiver[priority][id];
+    for (uint32 i = 0; i < MES_PRIORITY_CEIL; i++) {
+        for (uint32 j = 0; j < MES_MAX_RECV_THREAD_PER_PRIO; j++) {
+            g_receiver[i][j].priority = i;
+            g_receiver[i][j].id = j;
+            g_receiver[i][j].proc = proc;
+        }
+    }
+}
 
+receiver_t *mes_get_receiver(uint32 priority, uint32 id)
+{
+    cm_panic(priority < MES_PRIORITY_CEIL && id < MES_MAX_RECV_THREAD_PER_PRIO);
+    return &g_receiver[priority][id];
+}
+
+int start_one_receiver(receiver_t *receiver)
+{
     int epfd = epoll_create(1);
     if (epfd < 0) {
         LOG_RUN_ERR("[mes] epoll_create failed: errno=%d", errno);
@@ -72,17 +81,14 @@ int start_one_receiver(uint32 priority, unsigned int id)
     
     // start thread
     if (receiver->thread.id == 0) {
-        ev_data_t argument;
-        argument.id = id;
-        argument.priority = priority;
-        if (cm_create_thread(mes_recv_proc, 0, (void *)argument.data, &receiver->thread) != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes] create receive thread:priority=%u , id=%u failed.", priority, id);
+        if (cm_create_thread(mes_recv_proc, 0, (void *)receiver, &receiver->thread) != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] create receive thread:priority=%u , id=%u failed.", receiver->priority, receiver->id);
             (void)epoll_close(receiver->epfd);
             receiver->epfd = -1;
             return CM_ERROR;
         }
 
-        LOG_RUN_INF("[mes] start_one_receiver start receiver:priority=%u , id=%u.", priority, id);
+        LOG_RUN_INF("[mes] start_one_receiver start receiver:priority=%u , id=%u.", receiver->priority, receiver->id);
     }
 
     return CM_SUCCESS;
@@ -91,7 +97,8 @@ int start_one_receiver(uint32 priority, unsigned int id)
 int start_receiver_prio(uint32 priority, unsigned int count)
 {
     for (uint32 i = 0; i < count; i++) {
-        if (start_one_receiver(priority, i) != CM_SUCCESS) {
+        receiver_t *receiver = mes_get_receiver(priority, i);
+        if (start_one_receiver(receiver) != CM_SUCCESS) {
             return CM_ERROR;
         }
     }
@@ -103,8 +110,8 @@ int mes_start_receivers(uint32 priority_count, unsigned int *recv_task_count, me
 {
     CM_ASSERT(priority_count <= MES_PRIORITY_CEIL);
     g_priority_count = priority_count;
-    g_event_proc = event_proc;
 
+    mes_init_receivers(event_proc);
     for (uint32 i = 0; i < priority_count; i++) {
         if (recv_task_count[i] > MES_MAX_RECV_THREAD_PER_PRIO) {
             LOG_RUN_ERR("[mes] recv_task_count[%u]=%u is greater than %d:", 
@@ -135,24 +142,28 @@ int mes_start_receivers(uint32 priority_count, unsigned int *recv_task_count, me
 
     LOG_RUN_INF("[mes] start_receiver finish");
 
-    return 0;    
+    return CM_SUCCESS;    
+}
+
+static void mes_stop_one_receiver(receiver_t *receiver)
+{
+    cm_close_thread(&receiver->thread);
+    if (receiver->epfd > 0) {
+        (void)epoll_close(receiver->epfd);
+    }
+    receiver->epfd = -1;
 }
 
 void mes_stop_receivers()
 {
     for (uint32 priority = 0; priority < g_priority_count; priority++) {
         for (uint32 i = 0; i < g_receiver_count[priority]; i++) {
-            receiver_t *receiver = &g_receiver[priority][i];
-            cm_close_thread(&receiver->thread);
-            if (receiver->epfd > 0) {
-                (void)epoll_close(receiver->epfd);
-            }
-            receiver->epfd = -1;
+            mes_stop_one_receiver(&g_receiver[priority][i]);
         }
     }
 }
 
-int mes_add_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int sock)
+int mes_add_recv_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int sock)
 {
     if ((uint32)priority >= g_priority_count) {
         LOG_RUN_ERR("[mes] invaid priority");
@@ -182,12 +193,12 @@ int mes_add_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int sock)
         return CM_ERROR;
     }
 
-    LOG_RUN_INF("[mes] mes_add_pipe_to_epoll:channel_id=%u, priority=%d, sock=%d", channel_id, priority, sock);
+    LOG_RUN_INF("[mes] mes_add_recv_pipe_to_epoll:channel_id=%u, priority=%d, sock=%d", channel_id, priority, sock);
     
     return CM_SUCCESS;
 }
 
-int mes_remove_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int sock)
+int mes_remove_recv_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int sock)
 {
     if ((uint32)priority >= g_priority_count) {
         LOG_RUN_ERR("[mes] invaid priority");
@@ -208,22 +219,21 @@ int mes_remove_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int s
         return CM_ERROR;
     }
 
-    LOG_RUN_INF("[mes] mes_remove_pipe_from_epoll:priority=%d, sock=%d, channel_id=%u", priority, sock, channel_id);
+    LOG_RUN_INF("[mes] mes_remove_recv_pipe_from_epoll:priority=%d, sock=%d, channel_id=%u",
+        priority, sock, channel_id);
 
     return CM_SUCCESS;
 }
 
 static void mes_recv_proc(thread_t *thread)
 {
-    ev_data_t ev_data;
-    ev_data_t argument;
-    char thread_name[CM_MAX_THREAD_NAME_LEN];
+    receiver_t *receiver = (receiver_t *)thread->argument;
     struct epoll_event events[CM_MES_MAX_CHANNEL_NUM];
+    ev_data_t ev_data;
+    char thread_name[CM_MAX_THREAD_NAME_LEN];
 
-    argument.data = (uint64)thread->argument;
-    receiver_t *receiver = &g_receiver[argument.priority][argument.id];
     PRTS_RETVOID_IFERR(
-        sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_recv_prio_%u_%u", argument.priority, argument.id));
+        sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_recv_%u_%u", receiver->priority, receiver->id));
     cm_set_thread_name(thread_name);
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
@@ -245,7 +255,7 @@ static void mes_recv_proc(thread_t *thread)
 
         for (int i = 0; i < nfds; i++) {
             ev_data.data = events[i].data.u64;
-            g_event_proc(ev_data.id, ev_data.priority, events[i].events);
+            receiver->proc(ev_data.id, ev_data.priority, events[i].events);
         }
     }
 
@@ -254,4 +264,61 @@ static void mes_recv_proc(thread_t *thread)
         cb_thread_deinit();
         LOG_RUN_INF("[mes] mes_recv_proc thread deinit callback: cb_thread_deinit done");
     }
+}
+
+int mes_start_sender_monitor()
+{
+    receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
+    receiver->priority = MES_PRIORITY_CEIL;
+    receiver->id = 0;
+    receiver->epfd = -1;
+    receiver->thread.id = 0;
+    receiver->proc = mes_send_pipe_event_proc;
+
+    int32 ret = start_one_receiver(receiver);
+    LOG_RUN_INF("[mes] start sender monitor finish");
+    return ret;
+}
+
+void mes_stop_sender_monitor()
+{
+    receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
+    mes_stop_one_receiver(receiver);
+    LOG_RUN_INF("[mes] stop sender monitor finish");
+}
+
+int mes_add_send_pipe_to_epoll(mes_priority_t priority, uint32 channel_id, int sock)
+{
+    receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
+
+    struct epoll_event ev = {0};
+    ev_data_t ev_data;
+    ev_data.id = channel_id;
+    ev_data.priority = (uint32)priority;
+    ev.events = EPOLLIN;
+    ev.data.u64 = ev_data.data;
+
+    if (epoll_ctl(receiver->epfd, EPOLL_CTL_ADD, sock, &ev) < 0) {
+        LOG_RUN_ERR("[mes] epoll_ctl event add failed, priority=%u, channel_id=%u, fd=%d, errno=%d.\n",
+            priority, channel_id, sock, errno);
+        return CM_ERROR;        
+    }
+
+    LOG_RUN_INF("[mes] mes_add_send_pipe_to_epoll:priority=%u, channel_id=%u, sock=%d", priority, channel_id, sock);
+    return CM_SUCCESS;
+}
+
+int mes_remove_send_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int sock)
+{
+    receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
+    struct epoll_event ev = {0};
+    if (epoll_ctl(receiver->epfd, EPOLL_CTL_DEL, sock, &ev) < 0) {
+        LOG_RUN_ERR("[mes] epoll_ctl event delete failed, priority=%u, channel_id=%u, fd=%d, errno=%d.\n",
+            priority, channel_id, sock, errno);
+        return CM_ERROR;
+    }
+
+    LOG_RUN_INF(
+        "[mes] mes_remove_send_pipe_from_epoll:priority=%u, channel_id=%u, sock=%d", priority, channel_id, sock);
+    return CM_SUCCESS;
 }
