@@ -1477,11 +1477,11 @@ void mes_stop_heartbeat_thread()
     for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
         conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[i];
         cm_thread_lock(&conn->lock);
-        if (conn->is_start) {
-            cm_close_thread(&conn->thread);
-            conn->is_start = CM_FALSE;
-        }
+        cm_close_thread_nowait(&conn->thread);
+        cm_event_notify(&conn->event);
+        cm_close_thread(&conn->thread);
         cm_event_destory(&conn->event);
+        conn->is_start = CM_FALSE;
         cm_thread_unlock(&conn->lock);
     }
     LOG_RUN_INF("[mes] mes_stop_heartbeat_thread end");
@@ -1492,6 +1492,7 @@ void mes_uninit(void)
 {
     LOG_RUN_INF("[mes] mes_uninit start");
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_INPROGRESS;
+    mes_stop_heartbeat_thread();
     mes_close_listen_thread();
     mes_stop_receivers();
     mes_close_work_thread(CM_TRUE);
@@ -1502,7 +1503,6 @@ void mes_uninit(void)
     mes_destroy_msgitem_pool();
     mes_destroy_all_message_pool();
     mes_stop_channels();
-    mes_stop_heartbeat_thread();
     mes_destroy_resource();
     mes_deinit_ssl();
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_DONE;
