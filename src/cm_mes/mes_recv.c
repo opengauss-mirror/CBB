@@ -233,7 +233,7 @@ static void mes_recv_proc(thread_t *thread)
     }
 
     while (!thread->closed) {
-        int nfds = epoll_wait(receiver->epfd, events, (int)CM_MES_MAX_CHANNEL_NUM, CM_SLEEP_500_FIXED);
+        int nfds = epoll_wait(receiver->epfd, events, (int)CM_MES_MAX_CHANNEL_NUM, (int)CM_POLL_WAIT);
         if (nfds == -1) {
             if (errno == EINTR) {
                 continue;

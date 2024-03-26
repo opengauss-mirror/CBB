@@ -299,13 +299,9 @@ void mes_destroy_all_message_pool()
     uint32 priority;
 
     for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        uint32 inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (inst_id >= MES_MAX_INSTANCES) {
-            continue;
-        }
-        for (priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
-            mes_destroy_message_pool(CM_TRUE, inst_id, priority);
-            mes_destroy_message_pool(CM_FALSE, inst_id, priority);
+        for (priority = 0; priority < MES_PRIORITY_CEIL; priority++) {
+            mes_destroy_message_pool(CM_TRUE, i, priority);
+            mes_destroy_message_pool(CM_FALSE, i, priority);
         }
     }
 }
