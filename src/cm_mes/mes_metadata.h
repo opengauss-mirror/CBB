@@ -48,6 +48,8 @@ typedef enum en_cbb_param {
     CBB_PARAM_SSL_KEY,
     CBB_PARAM_SSL_CRL,
     CBB_PARAM_SSL_CERT,
+    CBB_PARAM_SSL_GM_KEY,
+    CBB_PARAM_SSL_GM_CERT,
     CBB_PARAM_SSL_CIPHER,
     CBB_PARAM_SSL_PWD_PLAINTEXT,
     CBB_PARAM_SSL_PWD_CIPHERTEXT,
@@ -64,6 +66,8 @@ typedef union un_param_value {
     char ssl_key[CM_FULL_PATH_BUFFER_SIZE];
     char ssl_crl[CM_FULL_PATH_BUFFER_SIZE];
     char ssl_cert[CM_FULL_PATH_BUFFER_SIZE];
+    char ssl_gm_key[CM_FULL_PATH_BUFFER_SIZE];
+    char ssl_gm_cert[CM_FULL_PATH_BUFFER_SIZE];
     char ssl_cipher[CM_MAX_SSL_CIPHER_LEN];
     char ext_pwd[CM_MAX_SSL_PWD_CIPHER_LEN];
     cipher_t inter_pwd;

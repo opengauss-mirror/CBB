@@ -49,6 +49,8 @@ typedef struct st_ssl_config {
     const char *ca_file;
     const char *cert_file;
     const char *key_file;
+    const char *gm_key_file;
+    const char *gm_cert_file;
     const char *key_password;
     const char *crl_file;
     const char *cipher;

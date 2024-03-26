@@ -1305,7 +1305,7 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
 static status_t mes_init_ssl(void)
 {
     ssl_config_t ssl_cfg = {0};
-    param_value_t ca, key, crl, cert, cipher;
+    param_value_t ca, key, crl, cert, cipher, gm_key, gm_cert;
 
     // Required parameters
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CA, &ca));
@@ -1314,6 +1314,10 @@ static status_t mes_init_ssl(void)
     ssl_cfg.key_file = key.ssl_key;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT, &cert));
     ssl_cfg.cert_file = cert.ssl_cert;
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_KEY, &gm_key));
+    ssl_cfg.cert_file = gm_key.ssl_gm_key;
+    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_CERT, &gm_cert));
+    ssl_cfg.cert_file = gm_cert.ssl_gm_cert;
 
     if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) || CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
         LOG_RUN_WAR("[mes] SSL disabled: certificate file or private key file or CA certificate is not available.");
@@ -2614,8 +2618,43 @@ void mes_register_log_output(mes_usr_cb_log_output_t cb_func)
     log_param->log_write = cb_func;
 }
 
+static status_t mes_set_ssl_cipher_param(const char *ssl_cipher)
+{
+    size_t cipher_len = strlen(ssl_cipher);
+    char *ssl_cipher_tmp = NULL;
+    char *sign = NULL;
+    ssl_cipher_tmp  = (char *) cm_malloc_prot(cipher_len + 1);
+    if(ssl_cipher_tmp == NULL) {
+	LOG_RUN_ERR("[mes]:allocate memory ssl_cipher_tmp failed");
+	return CM_ERROR;
+    }
+    size_t i;
+    for(i = 0; i < cipher_len; i++) {
+        ssl_cipher_tmp[i] = ssl_cipher[i];
+    }
+    ssl_cipher_tmp[i] = '\0';
+    while ((sign = strchr(ssl_cipher_tmp, ';')) != NULL) {
+        *sign = ':';
+    }
+    cbb_param_t param_type;
+    param_value_t out_value;
+    if(mes_chk_md_param("SSL_CIPHER", (const char *) ssl_cipher_tmp, &param_type, &out_value) != CM_SUCCESS) {
+	CM_FREE_PROT_PTR(ssl_cipher_tmp);
+	return CM_ERROR;
+    }
+
+    if(mes_set_md_param(param_type, &out_value) != CM_SUCCESS) {
+    	CM_FREE_PROT_PTR(ssl_cipher_tmp);
+        return CM_ERROR;
+    }
+    LOG_RUN_INF("[mes]:mes_set_ssl_cipher_param success,ssl cipher=%s", ssl_cipher_tmp);
+    CM_FREE_PROT_PTR(ssl_cipher_tmp);
+    return CM_SUCCESS;
+}
+
 int mes_set_param(const char *param_name, const char *param_value)
 {
+    status_t ret = CM_ERROR;
     if (param_name == NULL) {
         LOG_RUN_ERR("[mes] param_name is null");
         return CM_ERROR;
@@ -2625,6 +2664,11 @@ int mes_set_param(const char *param_name, const char *param_value)
         LOG_RUN_INF("[mes] set ssl param, param_name=%s param_value=%s", param_name, "***");
     } else {
         LOG_RUN_INF("[mes] set ssl param, param_name=%s param_value=%s", param_name, param_value);
+    }
+
+    if(cm_str_equal(param_name, "SSL_CIPHER")) {
+        ret = mes_set_ssl_cipher_param(param_value);
+        return ret;
     }
 
     cbb_param_t param_type;

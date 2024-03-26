@@ -59,7 +59,9 @@ static spinlock_t g_get_pem_passwd_lock = 0;
 const char *g_ssl_default_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
                                         "ECDHE-ECDSA-AES128-GCM-SHA256:"
                                         "ECDHE-RSA-AES256-GCM-SHA384:"
-                                        "ECDHE-RSA-AES128-GCM-SHA256:";
+                                        "ECDHE-RSA-AES128-GCM-SHA256:"
+					"ECC-SM4-SM3:"
+                                        "ECDHE-SM4-SM3:";
 
 const char *g_ssl_tls13_default_cipher_list = "TLS_AES_256_GCM_SHA384:"
                                               "TLS_CHACHA20_POLY1305_SHA256:"
@@ -73,6 +75,8 @@ const char *g_ssl_cipher_names[] = {
     "ECDHE-ECDSA-AES128-GCM-SHA256",
     "ECDHE-RSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECC-SM4-SM3",
+    "ECDHE-SM4-SM3",
     NULL
 };
 
@@ -739,7 +743,8 @@ static status_t cs_ssl_set_cipher(SSL_CTX *ctx, const ssl_config_t *config, bool
     const char *tls12_cipher_str = NULL;
     const char *tls13_cipher_str = NULL;
 
-    if (!CM_IS_EMPTY_STR(config->cipher)) {
+    if (!CM_IS_EMPTY_STR(config->cipher) && !cm_str_equal(config->cipher, "ALL")) {
+	LOG_RUN_INF("[mes] config->cipher is not empty cipher=%s,set user conifg cipher", config->cipher);
         if (cs_ssl_distinguish_cipher(config->cipher, tls12_cipher, &tls12_len, tls13_cipher, &tls13_len) !=
             CM_SUCCESS) {
             return CM_ERROR;
@@ -1097,6 +1102,11 @@ static status_t cs_ssl_set_tmp_dh(SSL_CTX *ctx)
     return CM_SUCCESS;
 }
 
+static bool32 ssl_check_is_gmtls(ssl_config_t *config)
+{
+    return !CM_IS_EMPTY_STR(config->gm_key_file) && !CM_IS_EMPTY_STR(config->gm_cert_file);
+}
+
 /**
  * create a new ssl context object.
  * @param [in]   ca_file      SSL CA file path
@@ -1120,12 +1130,26 @@ static SSL_CTX *cs_ssl_create_context(ssl_config_t *config, bool32 is_client)
     CM_SSL_EMPTY_STR_TO_NULL(config->cert_file);
     CM_SSL_EMPTY_STR_TO_NULL(config->key_file);
     CM_SSL_EMPTY_STR_TO_NULL(config->crl_file);
+    CM_SSL_EMPTY_STR_TO_NULL(config->gm_key_file);
+    CM_SSL_EMPTY_STR_TO_NULL(config->gm_cert_file);
 
     SSL_CTX *ctx = NULL;
     const SSL_METHOD *method = NULL;
 
     /* Negotiate highest available SSL/TLS version */
+#ifndef DISABLE_GMTLS
+    if(!ssl_check_is_gmtls(config)) {
+        method = is_client ? TLS_client_method() : TLS_server_method();
+        LOG_RUN_INF("[MES] use tls method");
+    } else {
+        method = is_client ? GMTLS_client_method() : GMTLS_server_method();
+        LOG_RUN_INF("[MES] use gmtls method");
+    }
+#else
     method = is_client ? TLS_client_method() : TLS_server_method();
+    LOG_RUN_INF("[MES] use tls method");
+#endif
+
     ctx = SSL_CTX_new(method);
     if (ctx == NULL) {
         CM_THROW_ERROR(ERR_SSL_INIT_FAILED, cs_ssl_init_err_string(SSL_INITERR_MEMFAIL));
@@ -1176,6 +1200,13 @@ static SSL_CTX *cs_ssl_create_context(ssl_config_t *config, bool32 is_client)
         return NULL;
     }
 
+    /* Verify gm cert and gm key files */
+    if(ssl_check_is_gmtls(config)) {
+    	if (cs_ssl_set_cert_auth(ctx, config->gm_cert_file, config->gm_key_file, config->key_password) != CM_SUCCESS) {
+    		LOG_DEBUG_ERR("[SSL] cs_ssl_set_cert_auth:verify gm cert and gm key files failed");
+  	      	return NULL;
+   	 }
+    }
     /* Server specific check: Must have certificate and key file */
     if (!is_client && config->key_file == NULL && config->cert_file == NULL) {
         CM_SSL_FREE_CTX_AND_RETURN(SSL_INITERR_NO_USABLE_CTX, ctx, NULL);
