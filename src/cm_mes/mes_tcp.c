@@ -276,11 +276,11 @@ static int mes_process_event(mes_pipe_t *pipe)
 
 static void mes_show_connect_error_info(const char *url)
 {
-    static date_t last = 0;
-    if ((g_timer()->now - last) > CM_30X_FIXED * MICROSECS_PER_SECOND) {
+    static uint64 last = 0;
+    if ((cm_clock_monotonic_now() - last) > CM_30X_FIXED * MICROSECS_PER_SECOND) {
         LOG_DEBUG_ERR("[mes] cs_connect fail, peer_url=%s, err code %d, err msg %s.", url, cm_get_error_code(),
                       cm_get_errormsg(cm_get_error_code()));
-        last = g_timer()->now;
+        last = cm_clock_monotonic_now();
     }
 }
 
@@ -868,10 +868,10 @@ int mes_tcp_send_data(const void *msg_data)
     }
 
     LOG_DEBUG_INF("[mes] begin tcp send data, cmd=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, "
-                  "dst_inst=%u, size=%u, flags:%u, pipe version:%u.",
+                  "dst_inst=%u, size=%u, flags:%u, pipe version:%u, channel_id %u.",
                   (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                   (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
-                  (head)->flags, version);
+                  (head)->flags, version, MES_CHANNEL_ID(pipe->channel->id));
 
     if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
         PROC_DIFF_ENDIAN(head);
@@ -896,7 +896,7 @@ int mes_tcp_send_data(const void *msg_data)
         return ERR_MES_SEND_MSG_FAIL;
     }
 
-    pipe->last_send_time = g_timer()->now;
+    pipe->last_send_time = cm_clock_monotonic_now();
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 
@@ -946,10 +946,10 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     }
 
     LOG_DEBUG_INF("[mes] Begin tcp send buffer, buff list cnt=%u, cmd=%u, ruid=%llu(%llu-%llu), src_inst=%u, "
-                  "dst_inst=%u, size=%u, flags=%u, pipe version=%u.",
+                  "dst_inst=%u, size=%u, flags=%u, pipe version=%u, channel_id %u.",
                   buff_list->cnt, (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                   (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
-                  (head)->flags, version);
+                  (head)->flags, version, MES_CHANNEL_ID(pipe->channel->id));
 
     if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
         PROC_DIFF_ENDIAN(head);
@@ -1003,7 +1003,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         }
     }
 
-    pipe->last_send_time = g_timer()->now;
+    pipe->last_send_time = cm_clock_monotonic_now();
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 

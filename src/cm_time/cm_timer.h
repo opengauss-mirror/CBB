@@ -53,6 +53,22 @@ status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time);
 void cm_close_timer(gs_timer_t *timer);
 gs_timer_t *g_timer(void);
 
+static inline uint64 cm_clock_monotonic_now()
+{
+#ifndef WIN32
+    struct timespec now = {0, 0};
+#ifdef CLOCK_MONOTONIC_RAW
+    (void)clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+#else
+    (void)clock_gettime(CLOCK_MONOTONIC, &now);
+#endif
+    return (uint64)(now.tv_sec) * MICROSECS_PER_SECOND + (uint64)(now.tv_nsec) / NANOSECS_PER_MICROSECS;
+#else
+    uint64 now = GetTickCount();
+    return (now * MICROSECS_PER_MILLISEC);
+#endif
+}
+
 #ifdef __cplusplus
 }
 #endif

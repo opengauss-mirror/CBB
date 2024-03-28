@@ -174,7 +174,7 @@ typedef struct st_mes_pipe {
     volatile bool8 send_pipe_active;
     atomic_t send_count;
     atomic_t recv_count;
-    date_t last_send_time;
+    uint64 last_send_time;
     mes_priority_t priority;
     struct st_mes_channel *channel;
     char *msgbuf;

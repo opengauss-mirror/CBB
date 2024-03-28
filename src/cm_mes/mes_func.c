@@ -1364,10 +1364,10 @@ static void mes_stop_channels(void)
 
 static void mes_heartbeat(mes_pipe_t *pipe)
 {
-    if (g_timer()->now - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
+    if (cm_clock_monotonic_now() - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
         return;
     }
-    pipe->last_send_time = g_timer()->now;
+    pipe->last_send_time = cm_clock_monotonic_now();
 
     uint32 version = CM_INVALID_ID32;
     if (mes_get_pipe_version(&pipe->send_pipe, &version) != CM_SUCCESS) {
@@ -2263,6 +2263,10 @@ int mes_add_instance(const mes_addr_t *inst_net_addr)
             break;
         }
     }
+    if (i == profile->inst_cnt && i >= MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes] inst_count %u is invalid, exceed max instance num %u.", i, MES_MAX_INSTANCES);
+        return ERR_MES_PARAM_INVALID;
+    }
     ret = mes_set_addr(i, inst_net_addr);
     if (SECUREC_UNLIKELY(ret != EOK)) {
         cm_spin_unlock(&g_profile_lock);
@@ -2438,6 +2442,10 @@ int mes_update_instance(unsigned int inst_cnt, const mes_addr_t *inst_net_addrs)
     uint32 i;
     uint32 old_insts[MES_MAX_INSTANCES];
     uint32 old_node_count = MES_GLOBAL_INST_MSG.profile.inst_cnt;
+    if (inst_cnt > MES_MAX_INSTANCES) {
+        LOG_RUN_ERR("[mes] inst_count %u is invalid, exceed max instance num %u.", inst_cnt, MES_MAX_INSTANCES);
+        return ERR_MES_PARAM_INVALID;
+    }
     int ret = mes_update_secondary_ip_lsnr(inst_cnt, inst_net_addrs);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] mes update cross ip lsnr failed.");
@@ -2781,7 +2789,7 @@ unsigned int mes_connection_ready(uint32 inst_id)
 
 int mes_connect_single(inst_type inst_id)
 {
-    if (inst_id > MES_MAX_INSTANCES) {
+    if (inst_id >= MES_MAX_INSTANCES) {
         LOG_RUN_ERR("[mes]: currently not support id=%u > 255.", inst_id);
         return ERR_MES_PARAM_INVALID;
     }
