@@ -54,7 +54,8 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list);
 
 status_t mes_get_pipe_version(cs_pipe_t *pipe, uint32 *version);
 void cs_disconnect_ex(cs_pipe_t *pipe, bool8 is_send, inst_type inst_id);
-void mes_event_proc(uint32 channel_id, uint32 priority, uint32 event);
+void mes_recv_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event);
+void mes_send_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event);
 
 #ifdef __cplusplus
 }

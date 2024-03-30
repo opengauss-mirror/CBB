@@ -236,14 +236,24 @@ typedef struct st_mes_waiting_room_pool {
     mes_room_freelist_t room_freelists[CM_MAX_ROOM_FREELIST_NUM];
 } mes_waiting_room_pool_t;
 
+typedef void (*mes_event_proc_t)(uint32 channel_id, uint32 priority, uint32 event);
+typedef struct st_receiver {
+    uint32 priority;
+    uint32 id;
+    mes_event_proc_t proc;
+    int epfd;
+    thread_t thread;
+} receiver_t;
+
 typedef struct st_mes_context {
     mes_lsnr_t lsnr;
     mes_channel_t **channels;
     mes_conn_t conn_arr[MES_MAX_INSTANCES];
     mes_waiting_room_pool_t wr_pool;
+    receiver_t sender_monitor;
+
     shutdown_phase_t phase;
     bool8 waits_interrupted;
-
     uint32 startLsnr : 1;
     uint32 startChannelsTh : 1;
     uint32 creatWaitRoom : 1;
@@ -261,7 +271,8 @@ typedef struct st_mes_instance {
     mes_task_threadpool_t task_tpool;
 } mes_instance_t;
 
-#define INST_ID_MOVE_LEFT_BIT_CNT 8
+#define CHANNEL_ID_BITS (8)
+#define CHANNEL_ID_MASK (((unsigned)1 << CHANNEL_ID_BITS) - 1)
 // for ssl
 extern bool32 g_ssl_enable;
 extern usr_cb_decrypt_pwd_t usr_cb_decrypt_pwd;
@@ -387,7 +398,7 @@ void mes_close_recv_pipe_nolock(mes_pipe_t *pipe);
 int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority);
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
 int mes_connect_single(inst_type inst_id);
-
+mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, uint32 flags);
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus
 }
