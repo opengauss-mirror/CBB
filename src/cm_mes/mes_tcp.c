@@ -474,9 +474,6 @@ void mes_recv_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_idx];
     mes_pipe_t *pipe = &channel->pipe[priority];
 
-    LOG_DEBUG_INF("[mes] mes_recv_pipe_event_proc:inst_id= %u, channel_idx=%u,priority=%u,event=%u",
-        inst_id, channel_idx, priority, event);
-
     cm_rwlock_wlock(&pipe->recv_lock);
     if (event & EPOLLIN) {
         if (mes_process_event(pipe) != CM_SUCCESS) {
