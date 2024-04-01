@@ -28,18 +28,18 @@
 
 uint64 mes_calc_channels_mem(uint32 channel_cnt)
 {
-    uint64 total_mem = sizeof(mes_channel_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_channel_t) * MES_MAX_INSTANCES * channel_cnt;
+    uint64 total_mem = (uint64)(sizeof(mes_channel_t *) * MES_MAX_INSTANCES +
+        sizeof(mes_channel_t) * MES_MAX_INSTANCES * channel_cnt);
     // send queue
-    total_mem += sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt;
+    total_mem += (uint64)(sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
+        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt);
     // receive queue
-    total_mem += sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt;
+    total_mem += (uint64)(sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
+        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt);
     // send msg item
-    total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * sizeof(mes_msgitem_t);
+    total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * (uint64)sizeof(mes_msgitem_t);
     // receive msg item
-    total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * sizeof(mes_msgitem_t);
+    total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * (uint64)sizeof(mes_msgitem_t);
     return total_mem;
 }
 
@@ -62,6 +62,6 @@ long long mes_calc_mem_usage(mes_profile_t *profile)
     // mes channels
     total_mem += mes_calc_channels_mem(profile->channel_cnt);
     // mes room pool
-    total_mem += sizeof(mes_waiting_room_pool_t);
+    total_mem += (uint64)sizeof(mes_waiting_room_pool_t);
     return total_mem;
 }

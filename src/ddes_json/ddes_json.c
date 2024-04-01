@@ -533,7 +533,7 @@ status_t json_create_arr(cm_allocator_t *allocator, json_val_t **arr)
     if (allocator == NULL) {
         return CM_ERROR;
     }
-    uint32 size = sizeof(json_t);
+    uint32 size = (uint32)sizeof(json_t);
     status_t ret = allocator->f_alloc((void *)allocator->mem_ctx, size, (void **)arr);
     MEMS_RETURN_IFERR(memset_sp(*arr, size, 0, size));
     if (ret != CM_SUCCESS) {
@@ -551,7 +551,7 @@ status_t json_create_obj(json_val_t **jval, json_t **obj, cm_allocator_t *alloca
     if (allocator == NULL) {
         return CM_ERROR;
     }
-    uint32 size = sizeof(json_val_t) + sizeof(json_t);
+    uint32 size = (uint32)(sizeof(json_val_t) + sizeof(json_t));
     CM_RETURN_IFERR(allocator->f_alloc((void *)allocator->mem_ctx, size, (void **)jval));
     MEMS_RETURN_IFERR(memset_sp(*jval, size, 0, size));
     (**jval).type = JSON_OBJ;
@@ -663,7 +663,7 @@ static status_t print_str(char *input_str, str_buf *print_buffer)
 
     input_str_len = (uint32)strlen(input_str);
 
-    CM_RETURN_IFERR(get_str_buf_print_address(print_buffer, input_str_len + sizeof("\"\""), &print_address));
+    CM_RETURN_IFERR(get_str_buf_print_address(print_buffer, (uint32)(input_str_len + sizeof("\"\"")), &print_address));
     if (print_address == NULL) {
         return CM_ERROR;
     }
@@ -935,15 +935,15 @@ status_t json_add_str(json_t *json, const char * const key, const char * const v
     json_val_t *jval;
     uint32 key_size;
     uint32 val_size;
-    uint32 key_len = strlen(key);
-    uint32 val_len = strlen(val);
+    uint32 key_len = (uint32)strlen(key);
+    uint32 val_len = (uint32)strlen(val);
 
     if ((json == NULL) || (key == NULL)) {
         return CM_ERROR;
     }
 
-    key_size = sizeof(json_val_t) + sizeof(uint16) + key_len + 1;
-    val_size = sizeof(jstr_len_t) + val_len + 1;
+    key_size = (uint32)(sizeof(json_val_t) + sizeof(uint16) + key_len + 1);
+    val_size = (uint32)sizeof(jstr_len_t) + val_len + 1;
     CM_RETURN_IFERR(json->allocator.f_alloc(json->allocator.mem_ctx, key_size + val_size, (void **)&jval));
     char *data = jval->data;
     jval->order = NULL;
@@ -1003,15 +1003,15 @@ status_t json_add_num(json_t *json, const char * const key, const double value)
     json_val_t *jval;
     uint32 key_size;
     uint32 val_size;
-    uint32 key_len = strlen(key);
-    uint32 val_len = strlen(val);
+    uint32 key_len = (uint32)strlen(key);
+    uint32 val_len = (uint32)strlen(val);
 
     if (json == NULL) {
         return CM_ERROR;
     }
 
-    key_size = sizeof(json_val_t) + sizeof(uint16) + key_len + 1;
-    val_size = sizeof(digitext_t);
+    key_size = (uint32)(sizeof(json_val_t) + sizeof(uint16) + key_len + 1);
+    val_size = (uint32)sizeof(digitext_t);
     CM_RETURN_IFERR(json->allocator.f_alloc(json->allocator.mem_ctx, key_size + val_size, (void **)&jval));
     jval->order = NULL;
     jval->next = NULL;
@@ -1064,7 +1064,7 @@ status_t json_add_arr(json_t *json, const char * const key, json_val_t *arr)
     json_arr_t *jarr = (json_arr_t *)JSON_OFFSET_VAL(arr);
     json_val_t *vals = jarr->vals;
     uint32 size = jarr->num;
-    uint32 key_len = strlen(key);
+    uint32 key_len = (uint32)strlen(key);
 
     char *data = arr->data;
     *(uint16 *)data = (uint16)key_len + 1;
@@ -1102,7 +1102,7 @@ status_t json_add_obj(json_t *json, const char * const key, json_val_t *obj)
     hash_map_t props = jobj->props;
     json_val_t *head = jobj->head;
     json_type_t type = jobj->type;
-    uint32 key_len = strlen(key);
+    uint32 key_len = (uint32)strlen(key);
 
     char *data = obj->data;
     *(uint16 *)data = (uint16)key_len + 1;
@@ -1317,7 +1317,7 @@ status_t arr2json(json_val_t *jarr, json_t **json, cm_allocator_t *allocator)
     if (jarr->type != JSON_ARRAY) {
         return CM_ERROR;
     }
-    uint32 size = sizeof(json_t) + sizeof(json_val_t);
+    uint32 size = (uint32)(sizeof(json_t) + sizeof(json_val_t));
     CM_RETURN_IFERR(allocator->f_alloc((void *)allocator->mem_ctx, size, (void **)json));
     MEMS_RETURN_IFERR(memset_sp(*json, size, 0, size));
     (*json)->head = jarr;

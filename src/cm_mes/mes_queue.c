@@ -161,7 +161,7 @@ static status_t mes_init_compress(compress_t *compress, compress_algorithm_t alg
     }
     compress->algorithm = algorithm;
     compress->level = compress_level;
-    compress->frag_size = mes_get_priority_max_msg_size(priority) - sizeof(mes_message_head_t);
+    compress->frag_size = mes_get_priority_max_msg_size(priority) - (unsigned int)sizeof(mes_message_head_t);
     compress->is_compress = CM_TRUE;
     if (cm_compress_alloc(compress) != CM_SUCCESS) {
         return CM_ERROR;
@@ -210,7 +210,7 @@ static status_t mes_init_decompress(compress_t *compress, compress_algorithm_t a
     }
     compress->algorithm = algorithm;
     compress->level = compress_level;
-    compress->frag_size = mes_get_priority_max_msg_size(priority) - sizeof(mes_message_head_t);
+    compress->frag_size = mes_get_priority_max_msg_size(priority) - (unsigned int)sizeof(mes_message_head_t);
     compress->is_compress = CM_FALSE;
     if (cm_compress_alloc(compress) != CM_SUCCESS) {
         return CM_ERROR;
@@ -437,7 +437,7 @@ int mes_alloc_msgitems(mes_msgitem_pool_t *pool, mes_msgqueue_t *msgitems)
             return ERR_MES_BUF_ID_EXCEED;
         }
         pool->hwm = 0;
-        uint32 size = INIT_MSGITEM_BUFFER_SIZE * sizeof(mes_msgitem_t);
+        uint32 size = INIT_MSGITEM_BUFFER_SIZE * (uint32)sizeof(mes_msgitem_t);
         pool->buffer[pool->buf_idx] = (mes_msgitem_t *)cm_malloc_prot(size);
         if (pool->buffer[pool->buf_idx] == NULL) {
             cm_spin_unlock(&pool->lock);
@@ -818,7 +818,7 @@ void mes_work_proc(mes_msgitem_t *msgitem, uint32 work_idx)
         mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_GET_QUEUE, start_stat_time);
         mes_get_consume_time_start(&start_stat_time);
         app_msg.buffer = msgitem->msg.buffer + sizeof(mes_message_head_t);
-        app_msg.size = msgitem->msg.head->size - sizeof(mes_message_head_t);
+        app_msg.size = msgitem->msg.head->size - (unsigned int)sizeof(mes_message_head_t);
         app_msg.src_inst = (unsigned int)msgitem->msg.head->src_inst;
         MES_GLOBAL_INST_MSG.proc(work_idx, msgitem->msg.head->ruid, &app_msg);
 
@@ -974,8 +974,8 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send)
     mes_profile_t *profile = mq_ctx->profile;
 
     // alloc msgqueue
-    alloc_size = sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
-            sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * profile->channel_cnt;
+    alloc_size = (uint32)sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
+            (uint32)sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * profile->channel_cnt;
     temp_buf = cm_malloc_prot(alloc_size);
     if (temp_buf == NULL) {
         CM_THROW_ERROR_EX(ERR_MEC_CREATE_AREA, "allocate mes_msgqueue_t failed, channel_num %u alloc size %u",

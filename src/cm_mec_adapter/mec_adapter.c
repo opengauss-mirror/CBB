@@ -37,7 +37,7 @@ static void mec_fill_connect_head(
     head->dst_inst = MES_INSTANCE_ID(channel->id);
     head->src_inst = profile->inst_id;
     head->stream_id = MES_CHANNEL_ID(channel->id);
-    head->size = sizeof(mec_message_head_adapter_t);
+    head->size = (unsigned int)sizeof(mec_message_head_adapter_t);
     head->flags = pipe->priority == MES_PRIORITY_ZERO ? 0 : MEC_FLAG_PRIV_LOW_ADAPTER;
     head->serial_no = 0;
     if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
@@ -149,7 +149,7 @@ static int mec_get_message_buf(mes_message_t *msg, const mec_message_head_adapte
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head->flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
     uint32 size = mec_head->size;
     if (MEC_COMPRESS_ADAPTER(mec_head->flags)) {
-        size = mes_get_priority_max_msg_size(priority) - MES_MSG_HEAD_SIZE;
+        size = mes_get_priority_max_msg_size(priority) - (uint32)MES_MSG_HEAD_SIZE;
         if (size < mec_head->size + MES_BUFFER_RESV_SIZE) {
             LOG_RUN_ERR("[mes_mec] max compress size %u smaller than mec size %u, src %u, dst %u, flags %u",
                         size, mec_head->size, mec_head->src_inst, mec_head->dst_inst, mec_head->flags);

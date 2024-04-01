@@ -164,7 +164,7 @@ static inline uint32 cm_crc32c_sb8_align8_lendian(const uint32 **p, uint32 *leng
     uint32       first;
     uint32       second;
 
-    for (; len >= sizeof(uint64); len -= sizeof(uint64)) {
+    for (; len >= (uint32)sizeof(uint64); len -= (uint32)sizeof(uint64)) {
         first = *ptr ^ crc;
         ptr++;
         second = *ptr;
@@ -191,7 +191,7 @@ static inline uint32 cm_crc32c_sb8_align8_bendian(const uint32 **p, uint32 *leng
     uint32 first;
     uint32 second;
 
-    for (; len >= sizeof(uint64); len -= sizeof(uint64)) {
+    for (; len >= (uint32)sizeof(uint64); len -= (uint32)sizeof(uint64)) {
         first = *ptr ^ crc;
         ptr++;
         second = *ptr;
