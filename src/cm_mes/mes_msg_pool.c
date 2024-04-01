@@ -66,7 +66,7 @@ static void mes_format_buf_queue_memory(mes_buf_queue_t *queue)
 {
     mes_buffer_item_t *buf_node = NULL;
     mes_buffer_item_t *buf_node_next = NULL;
-    uint64 buf_item_size = sizeof(mes_buffer_item_t) + queue->buf_size;
+    uint64 buf_item_size = (uint64)sizeof(mes_buffer_item_t) + queue->buf_size;
     char *temp_buffer = queue->addr;
 
     cm_panic(!queue->inited);
@@ -200,7 +200,7 @@ static int mes_create_buffer_chunk(mes_buf_chunk_t *chunk, memory_chunk_t *mem_c
 uint64 mes_calc_message_pool_size(mes_profile_t *profile, uint32 priority)
 {
     uint64 total_size = 0;
-    total_size += sizeof(mes_pool_t);
+    total_size += (uint64)sizeof(mes_pool_t);
 
     uint32 pool_count = profile->buffer_pool_attr[priority].pool_count;
     uint32 queue_count = 0;
@@ -212,7 +212,7 @@ uint64 mes_calc_message_pool_size(mes_profile_t *profile, uint32 priority)
         buf_count = profile->buffer_pool_attr[priority].buf_attr[i].count;
         buf_size = profile->buffer_pool_attr[priority].buf_attr[i].size;
 
-        total_size += queue_count * sizeof(mes_buf_queue_t);
+        total_size += (uint64)(queue_count * sizeof(mes_buf_queue_t));
         total_size += ((uint64)(sizeof(mes_buffer_item_t) + buf_size)) * buf_count;
     }
 
@@ -237,7 +237,7 @@ mes_pool_t *mes_alloc_message_pool(bool32 is_send, uint32 inst_id, uint32 priori
     }
 
     pool->mem_chunk.addr = addr;
-    pool->mem_chunk.offset = sizeof(mes_pool_t);
+    pool->mem_chunk.offset = (uint64)sizeof(mes_pool_t);
     pool->mem_chunk.total_size = total_size;
     return pool; 
 }

@@ -315,7 +315,7 @@ status_t cm_sys_process_start_time(uint64 pid, int64 *process_time)
 
 bool32 cm_sys_process_alived(uint64 pid, int64 start_time)
 {
-    int ret = kill(pid, 0);
+    int ret = kill((pid_t)pid, 0);
     if (ret != CM_SUCCESS && cm_get_os_error() == ESRCH) {
         LOG_RUN_INF("[PROCESS]pid %llu start_time %lld status %d, errno %d is not alived", pid, start_time,
             ret, cm_get_os_error());

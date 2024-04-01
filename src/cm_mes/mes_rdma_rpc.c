@@ -641,7 +641,7 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, 
         // Unified big-endian mode for VERSION
         version_proto_code.version = cs_reverse_uint32(version_proto_code.version);
     }
-    uint32 data_len = sizeof(mes_message_head_t) + sizeof(version_proto_code_t);
+    uint32 data_len = (uint32)(sizeof(mes_message_head_t) + sizeof(version_proto_code_t));
     char *data = (char *)malloc(data_len);
     (void)memcpy_s(data, data_len, &head, sizeof(mes_message_head_t));
     (void)memcpy_s(data + sizeof(mes_message_head_t), data_len, &version_proto_code, sizeof(version_proto_code_t));

@@ -997,7 +997,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
 
     if (is_old_mec_version(version)) {
         buff_list->buffers[0].buf = buff_list->buffers[0].buf + sizeof(mes_message_head_t);
-        buff_list->buffers[0].len = buff_list->buffers[0].len - sizeof(mes_message_head_t);
+        buff_list->buffers[0].len = buff_list->buffers[0].len - (unsigned int)sizeof(mes_message_head_t);
     }
     
     if (pipe->msgbuf == NULL) {
