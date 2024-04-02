@@ -876,6 +876,7 @@ static int mes_start_work_thread_statically(bool32 is_send)
 
 static int mes_init_mq_instance(bool32 is_send)
 {
+    LOG_RUN_INF("[mes] mes_init_mq_instance begin.");
     int ret;
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
     for (uint32 loop = 0; loop < MES_MAX_TASK_NUM; loop++) {
@@ -914,6 +915,7 @@ static int mes_init_mq_instance(bool32 is_send)
         LOG_RUN_ERR("[mes] mes start work thread statically failed, is_send:%u.", is_send);
         return ret;
     }
+    LOG_RUN_INF("[mes] mes_init_mq_instance end.");
     return CM_SUCCESS;
 }
 
