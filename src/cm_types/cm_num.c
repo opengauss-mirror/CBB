@@ -573,6 +573,31 @@ num_errno_t cm_split_num_text(const text_t *num_text, num_part_t *np)
     return cm_num_cal_expn(num_text, np, dot_offset, prec_offset, precision);
 }
 
+status_t cm_str2uint8(const char *str, uint8 *value)
+{
+    char *err = NULL;
+    int ret = cm_check_is_number(str);
+    if (ret != CM_SUCCESS) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint8 failed, the text is not number, text = %s", str);
+        return CM_ERROR;
+    }
+
+    int64 val_int64 = strtoll(str, &err, CM_DEFAULT_DIGIT_RADIX);
+    if (cm_is_err(err)) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint8 failed, text = %s", str);
+        return CM_ERROR;
+    }
+
+    if (val_int64 > CM_MAX_UINT8 || val_int64 < 0) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR,
+            "Convert uint8 failed, the number text is not in the range of uint8, text = %s", str);
+        return CM_ERROR;
+    }
+
+    *value = (uint8)val_int64;
+    return CM_SUCCESS;
+}
+
 status_t cm_str2uint16(const char *str, uint16 *value)
 {
     char *err = NULL;
@@ -673,6 +698,23 @@ status_t cm_str2uint64(const char *str, uint64 *value)
     return CM_SUCCESS;
 }
 
+status_t cm_text2uint8(const text_t *text_src, uint8 *value)
+{
+    char buf[CM_MAX_NUMBER_LEN + 1] = { 0 };
+    text_t text = *text_src;
+
+    cm_trim_text(&text);
+
+    if (text.len > CM_MAX_NUMBER_LEN) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint8 failed, the length of text can't be larger than %u",
+            CM_MAX_NUMBER_LEN);
+        return CM_ERROR;
+    }
+    CM_RETURN_IFERR(cm_text2str(&text, buf, CM_MAX_NUMBER_LEN + 1));
+
+    return cm_str2uint8(buf, value);
+}
+
 status_t cm_text2uint16(const text_t *text_src, uint16 *value)
 {
     char buf[CM_MAX_NUMBER_LEN + 1] = { 0 };
@@ -705,6 +747,23 @@ status_t cm_text2uint32(const text_t *text_src, uint32 *value)
     CM_RETURN_IFERR(cm_text2str(&text, buf, CM_MAX_NUMBER_LEN + 1));
 
     return cm_str2uint32(buf, value);
+}
+
+status_t cm_text2uint64(const text_t *text_src, uint64 *value)
+{
+    char buf[CM_MAX_NUMBER_LEN + 1] = { 0 }; // '00000000000000000000001'
+    text_t text = *text_src;
+
+    cm_trim_text(&text);
+
+    if (text.len > CM_MAX_NUMBER_LEN) {
+        CM_THROW_ERROR_EX(ERR_VALUE_ERROR, "Convert uint64 failed, the length of text can't be larger than %u",
+            CM_MAX_NUMBER_LEN);
+        return CM_ERROR;
+    }
+    CM_RETURN_IFERR(cm_text2str(&text, buf, CM_MAX_NUMBER_LEN + 1));
+
+    return cm_str2uint64(buf, value);
 }
 
 num_errno_t cm_numpart2bigint(const num_part_t *np, int64 *i64)

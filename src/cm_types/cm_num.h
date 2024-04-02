@@ -277,12 +277,15 @@ num_errno_t cm_numpart2bigint(const num_part_t *np, int64 *i64);
 num_errno_t cm_numpart2uint64(const num_part_t *np, uint64 *value);
 num_errno_t cm_numpart2size(const num_part_t *np, int64 *value);
 num_errno_t cm_split_num_text(const text_t *num_text, num_part_t *np);
+status_t cm_str2uint8(const char *str, uint8 *value);
 status_t cm_str2uint16(const char *str, uint16 *value);
 status_t cm_str2uint32(const char *str, uint32 *value);
 status_t cm_str2int32(const char *str, int32 *value);
+status_t cm_str2uint64(const char *str, uint64 *value);
+status_t cm_text2uint8(const text_t *text_src, uint8 *value);
 status_t cm_text2uint16(const text_t *text_src, uint16 *value);
 status_t cm_text2uint32(const text_t *text_src, uint32 *value);
-status_t cm_str2uint64(const char *str, uint64 *value);
+status_t cm_text2uint64(const text_t *text_src, uint64 *value);
 status_t cm_check_is_signed_number(const char *str);
 status_t cm_check_is_number(const char *str);
 
