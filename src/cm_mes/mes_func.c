@@ -2938,7 +2938,7 @@ static void mes_get_heartbeat_thread(mes_thread_set_t *mes_thread_set)
             continue;
         }
 
-        conn = MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[conn_inst_id];
+        conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[conn_inst_id];
         if (!conn->is_start) {
             continue;
         }
