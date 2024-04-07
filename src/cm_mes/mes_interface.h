@@ -62,6 +62,8 @@ extern "C" {
 #define MES_SERIAL(flags)                                 ((flags) & MES_FLAG_SERIAL)
 #define MES_COMPRESS_ALGORITHM(flags)                     (compress_algorithm_t)((flags >> 4) & (0x07))
 #define MES_COMPRESS_LEVEL(flags)                         ((flags >> 7) & (0x1F))
+#define MES_MAX_NAME_LEN 64
+#define MAX_MES_THREAD_NUM 256
 
 typedef unsigned long long ruid_type;
 typedef unsigned int inst_type;
@@ -206,6 +208,16 @@ typedef struct st_mes_msg_list {
     mes_msg_t messages[MES_MAX_INSTANCES];
     unsigned int count;
 } mes_msg_list_t;
+
+typedef struct mes_thread_info {
+    char thread_name[MES_MAX_NAME_LEN];
+    void *thread_info;
+} mes_thread_info_t;
+
+typedef struct mes_thread_set {
+    mes_thread_info_t threads[MAX_MES_THREAD_NUM];
+    int thread_count;
+} mes_thread_set_t;
 
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef void (*mes_thread_deinit_t)();
@@ -545,6 +557,14 @@ void mes_set_worker_deinit_cb(mes_thread_deinit_t callback);
  * @return total memory consumed by mes_init
  */
 long long mes_calc_mem_usage(mes_profile_t *profile);
+
+/*
+ * @brief get all threads
+ * @param mes_thread_set - mes thread value
+ * @return
+ */
+void mes_get_all_threads(mes_thread_set_t *mes_thread_set);
+
 #ifdef __cplusplus
 }
 #endif

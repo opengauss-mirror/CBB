@@ -2859,3 +2859,107 @@ mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, ui
         return channel;
     }
 }
+
+static void mes_get_timer_thread(mes_thread_set_t *mes_thread_set)
+{
+    gs_timer_t *timer = g_timer();
+    if (!timer->init) {
+        return;
+    }
+
+    if (mes_thread_set->thread_count >= MAX_MES_THREAD_NUM) {
+        return;
+    }
+    errno_t err = sprintf_s(mes_thread_set->threads[mes_thread_set->thread_count].thread_name,
+                MES_MAX_NAME_LEN, "mes timer");
+    PRTS_RETVOID_IFERR(err);
+    mes_thread_set->threads[mes_thread_set->thread_count].thread_info = (void *)&timer->thread;
+    mes_thread_set->thread_count++;
+}
+
+static void mes_get_specified_thread(
+    mes_thread_set_t *mes_thread_set, bool8 is_send, char *format)
+{
+    mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    int count = mes_get_started_task_count(is_send);
+    errno_t err;
+    for (int i = 0; i < count; i++) {
+        if (mes_thread_set->thread_count >= MAX_MES_THREAD_NUM) {
+            return;
+        }
+        err = sprintf_s(mes_thread_set->threads[mes_thread_set->thread_count].thread_name,
+                MES_MAX_NAME_LEN, format, i);
+        PRTS_RETVOID_IFERR(err);
+        mes_thread_set->threads[mes_thread_set->thread_count].thread_info = (void *)&mq_ctx->tasks[i].thread;
+        mes_thread_set->thread_count++;
+    }
+}
+
+static inline void mes_get_task_thread(mes_thread_set_t *mes_thread_set)
+{
+    char recv_format[] = "mes proc task : recv queue %d";
+    char send_format[] = "mes proc task : send queue %d";
+    mes_get_specified_thread(mes_thread_set, CM_FALSE, recv_format);
+    mes_get_specified_thread(mes_thread_set, CM_TRUE, send_format);
+}
+
+static void mes_get_tcp_lsnr_thread(mes_thread_set_t *mes_thread_set)
+{
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_TCP) {
+        return;
+    }
+
+    if (mes_thread_set->thread_count >= MAX_MES_THREAD_NUM) {
+        return;
+    }
+
+    errno_t err = sprintf_s(mes_thread_set->threads[mes_thread_set->thread_count].thread_name,
+                MES_MAX_NAME_LEN, "mes tcp lsnr");
+    PRTS_RETVOID_IFERR(err);
+    mes_thread_set->threads[mes_thread_set->thread_count].thread_info =
+        (void *)&MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.thread;
+    mes_thread_set->thread_count++;
+}
+
+static void mes_get_heartbeat_thread(mes_thread_set_t *mes_thread_set)
+{
+    uint32 inst_cnt = MES_GLOBAL_INST_MSG.profile.inst_cnt;
+    uint32 src_inst_id = MES_GLOBAL_INST_MSG.profile.inst_id;
+    uint32 conn_inst_id;
+    mes_conn_t *conn;
+    errno_t err;
+    for (uint32 i = 0; i < inst_cnt; i++) {
+        conn_inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (conn_inst_id == src_inst_id) {
+            continue;
+        }
+
+        if (!MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+            continue;
+        }
+
+        conn = MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[conn_inst_id];
+        if (!conn->is_start) {
+            continue;
+        }
+
+        if (mes_thread_set->thread_count >= MAX_MES_THREAD_NUM) {
+            return;
+        }
+        err = sprintf_s(mes_thread_set->threads[mes_thread_set->thread_count].thread_name,
+                MES_MAX_NAME_LEN, "mes heartbeat %u to %u : %u", src_inst_id, conn_inst_id, i);
+        PRTS_RETVOID_IFERR(err);
+        mes_thread_set->threads[mes_thread_set->thread_count].thread_info =
+            (void *)&conn->thread;
+        mes_thread_set->thread_count++;
+    }
+}
+
+void mes_get_all_threads(mes_thread_set_t *mes_thread_set)
+{
+    mes_get_timer_thread(mes_thread_set);
+    mes_get_task_thread(mes_thread_set);
+    mes_get_receiver_thread(mes_thread_set);
+    mes_get_tcp_lsnr_thread(mes_thread_set);
+    mes_get_heartbeat_thread(mes_thread_set);
+}

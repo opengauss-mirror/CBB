@@ -322,3 +322,20 @@ int mes_remove_send_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, 
         "[mes] mes_remove_send_pipe_from_epoll:priority=%u, channel_id=%u, sock=%d", priority, channel_id, sock);
     return CM_SUCCESS;
 }
+
+void mes_get_receiver_thread(mes_thread_set_t *mes_thread_set)
+{
+    errno_t err;
+    for (uint32 i = 0; i < g_priority_count; i++) {
+        for (uint32 j = 0; j < g_receiver_count[i]; j++) {
+            if (mes_thread_set->thread_count >= MAX_MES_THREAD_NUM) {
+                return;
+            }
+            err = sprintf_s(mes_thread_set->threads[mes_thread_set->thread_count].thread_name,
+                MES_MAX_NAME_LEN, "mes receiver %u: priority_cnt:%u", j, i);
+            PRTS_RETVOID_IFERR(err);
+            mes_thread_set->threads[mes_thread_set->thread_count].thread_info = (void *)&g_receiver[i][j].thread;
+            mes_thread_set->thread_count++;
+        }
+    }
+}
