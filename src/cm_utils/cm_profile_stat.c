@@ -338,14 +338,14 @@ static void cm_profile_stat_entry(thread_t *thread)
 {
     cm_set_thread_name("cm_profile_stat");
 
-    date_t last_check_time = g_timer()->now;
+    date_t last_check_time = g_timer()->monotonic_now;
 
     while (!thread->closed) {
         cm_sleep(STAT_THREAD_SLEEP_TIME);
         if (!LOG_PROFILE_ON) {
             continue;
         }
-        date_t now = g_timer()->now;
+        date_t now = g_timer()->monotonic_now;
         if (now - last_check_time >= DEFAULT_STAT_INTERVAL * MICROSECS_PER_SECOND) {
             last_check_time = now;
             stat_calculate();

@@ -45,6 +45,8 @@ typedef struct st_gs_timer {
     thread_t thread;
     bool32 init;
     uint64 sleep_time;              // ns
+    /* The time continue starts from the system startup, which is not affected by the change of the system time. */
+    volatile uint64 monotonic_now;
 } gs_timer_t;
 
 
@@ -64,7 +66,7 @@ static inline uint64 cm_clock_monotonic_now()
 #endif
     return (uint64)(now.tv_sec) * MICROSECS_PER_SECOND + (uint64)(now.tv_nsec) / NANOSECS_PER_MICROSECS;
 #else
-    uint64 now = GetTickCount();
+    uint64 now = GetTickCount64();
     return (now * MICROSECS_PER_MILLISEC);
 #endif
 }

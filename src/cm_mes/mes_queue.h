@@ -49,7 +49,7 @@ extern "C" {
 typedef struct st_mes_msgitem {
     mes_message_t msg;
     struct st_mes_msgitem *next;
-    int64 enqueue_time;
+    uint64 enqueue_time;
 } mes_msgitem_t;
 
 #ifdef WIN32

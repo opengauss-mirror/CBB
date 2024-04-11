@@ -277,10 +277,10 @@ static int mes_process_event(mes_pipe_t *pipe)
 static void mes_show_connect_error_info(const char *url)
 {
     static uint64 last = 0;
-    if ((cm_clock_monotonic_now() - last) > CM_30X_FIXED * MICROSECS_PER_SECOND) {
+    if ((g_timer()->monotonic_now - last) > CM_30X_FIXED * MICROSECS_PER_SECOND) {
         LOG_DEBUG_ERR("[mes] cs_connect fail, peer_url=%s, err code %d, err msg %s.", url, cm_get_error_code(),
                       cm_get_errormsg(cm_get_error_code()));
-        last = cm_clock_monotonic_now();
+        last = g_timer()->monotonic_now;
     }
 }
 
@@ -937,7 +937,7 @@ int mes_tcp_send_data(const void *msg_data)
         return ERR_MES_SEND_MSG_FAIL;
     }
 
-    pipe->last_send_time = cm_clock_monotonic_now();
+    pipe->last_send_time = g_timer()->monotonic_now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 
@@ -1043,7 +1043,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         }
     }
 
-    pipe->last_send_time = cm_clock_monotonic_now();
+    pipe->last_send_time = g_timer()->monotonic_now;
     mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 
