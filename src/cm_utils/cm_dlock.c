@@ -338,7 +338,8 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
         LOG_DEBUG_ERR("Get lock info from dev failed.");
         return CM_ERROR;
     }
-
+    LOG_DEBUG_INF("first lock occupied, fd %d, inst_id(disk) %lld, inst_id(lock) %lld.", fd, LOCKR_INST_ID(*lock),
+        LOCKW_INST_ID(*lock));
     // if the owner of the lock on the disk is the current instance, we can lock succ
     LOCKR_INST_ID(*lock) = LOCKW_INST_ID(*lock);
     LOCKW_LOCK_CREATE_TIME(*lock) = LOCKR_LOCK_CREATE_TIME(*lock);

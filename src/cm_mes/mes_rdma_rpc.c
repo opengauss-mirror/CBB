@@ -470,7 +470,8 @@ static void mes_rdma_rpc_connection_proc_func(OckRpcServerContext handle, OckRpc
     }
     pipe->recv_pipe.version = version_proto_code->version;
     if (version_proto_code->proto_code != CM_PROTO_CODE) {
-        LOG_RUN_ERR("recv PROTO_CODE message error, CODE(%u), expect(%u).", version_proto_code->proto_code, CM_PROTO_CODE);
+        LOG_RUN_ERR("recv PROTO_CODE message error, CODE(%u), expect(%u).", version_proto_code->proto_code,
+            CM_PROTO_CODE);
         OckRpcServerCleanupCtx(handle);
         return;
     }
@@ -507,7 +508,8 @@ static void mes_rdma_rpc_connection_cmd_func(OckRpcServerContext handle, OckRpcM
         return;
     }
 
-    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d), priority(%d)", head->src_inst, head->caller_tid, MES_PRIORITY(head->flags));
+    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d), priority(%d)", head->src_inst, head->caller_tid,
+        MES_PRIORITY(head->flags));
 
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
@@ -643,6 +645,10 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, 
     }
     uint32 data_len = (uint32)(sizeof(mes_message_head_t) + sizeof(version_proto_code_t));
     char *data = (char *)malloc(data_len);
+    if (data == NULL) {
+        CM_THROW_ERROR(ERR_ALLOC_MEMORY, (uint64)data_len, "malloc memory");
+        return CM_ERROR;
+    }
     (void)memcpy_s(data, data_len, &head, sizeof(mes_message_head_t));
     (void)memcpy_s(data + sizeof(mes_message_head_t), data_len, &version_proto_code, sizeof(version_proto_code_t));
     OckRpcMessage request = {.data = (void*)data, .len = data_len};

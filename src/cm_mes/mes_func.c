@@ -2003,7 +2003,8 @@ int mes_broadcast_request_spx(inst_type* inst_list, unsigned int inst_count,
     flag_type flag, ruid_type* ruid, unsigned int count, ...)
 {
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
-        LOG_RUN_ERR("[mes]disable_request = 1, no support send request, func:mes_broadcast_request_spx");
+        LOG_RUN_ERR(
+            "[mes]disable_request = 1, no support send request and get response, func:mes_broadcast_request_spx");
         return CM_ERROR;
     }
     *ruid = 0;
@@ -2042,7 +2043,8 @@ int mes_broadcast_request_sp(inst_type* inst_list, unsigned int inst_count,
 int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms)
 {
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
-        LOG_RUN_ERR("[mes]disable_request = 1, no support send request, func:mes_broadcast_get_response");
+        LOG_RUN_ERR(
+            "[mes]disable_request = 1, no support send request and get response, func:mes_broadcast_get_response");
         return CM_ERROR;
     }
     MES_RETURN_IF_BAD_RUID(ruid);
