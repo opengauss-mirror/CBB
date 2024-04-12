@@ -76,6 +76,7 @@ static void timer_proc(thread_t *thread)
         tz_min = (int16)cm_get_time_zone();
         timer_temp->tz = tz_min / MINUTES_PER_HOUR;
         timer_temp->host_tz_offset = tz_min * SECONDS_PER_MIN * MICROSECS_PER_SECOND_LL;
+        timer_temp->monotonic_now = cm_clock_monotonic_now();
 #ifdef _WIN32
         cm_sleep(1);
 #else
@@ -104,6 +105,7 @@ status_t cm_start_timer_ex(gs_timer_t *timer, uint64 sleep_time)
     timer->init = CM_TRUE;
     timer->sleep_time = sleep_time;
     LOG_RUN_INF("[mes] start timer, sleep_time:%llu", sleep_time);
+    timer->monotonic_now = cm_clock_monotonic_now();
     return cm_create_thread(timer_proc, 0, timer, &timer->thread);
 }
 

@@ -713,7 +713,7 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
     mes_local_stat(msg->head->cmd);
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
-    msgitem->enqueue_time = g_timer()->now;
+    msgitem->enqueue_time = g_timer()->monotonic_now;
 
     if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
         mes_put_msgitem_to_threadpool(msgitem);
@@ -906,7 +906,7 @@ void mes_task_proc(thread_t *thread)
                       (head)->cmd, is_send, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                       (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                       (head)->flags, my_task_index, mq_ctx->tasks[queue_id + start_task_idx].queue.count, is_empty);
-        if ((g_timer()->now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >= MES_MSG_QUEUE_DISCARD_TIMEOUT) {
+        if ((g_timer()->monotonic_now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >= MES_MSG_QUEUE_DISCARD_TIMEOUT) {
             LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded ");
             mes_release_message_buf(&msgitem->msg);
             continue;

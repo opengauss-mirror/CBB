@@ -1130,7 +1130,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
 
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
-    msgitem->enqueue_time = g_timer()->now;
+    msgitem->enqueue_time = g_timer()->monotonic_now;
 
     if (ENABLE_MES_TASK_THREADPOOL) {
         mes_put_msgitem_to_threadpool(msgitem);
@@ -1366,10 +1366,10 @@ static void mes_stop_channels(void)
 
 static void mes_heartbeat(mes_pipe_t *pipe)
 {
-    if (cm_clock_monotonic_now() - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
+    if (g_timer()->monotonic_now - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
         return;
     }
-    pipe->last_send_time = cm_clock_monotonic_now();
+    pipe->last_send_time = g_timer()->monotonic_now;
 
     uint32 version = CM_INVALID_ID32;
     if (mes_get_pipe_version(&pipe->send_pipe, &version) != CM_SUCCESS) {
