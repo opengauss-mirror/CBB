@@ -40,7 +40,7 @@ static status_t cm_open_scsi_dev(const dlock_t *lock, const char *scsi_dev, int3
 
     *fd = open(scsi_dev, O_RDWR | O_DIRECT | O_SYNC);
     if (*fd < 0) {
-        LOG_DEBUG_ERR("Open dev %s failed, errno %d.", scsi_dev, errno);
+        LOG_RUN_ERR("Open dev %s failed, errno %d.", scsi_dev, errno);
         return CM_ERROR;
     }
 #endif
@@ -324,7 +324,7 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
     int32 ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE != ret) {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
+            LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, errno %d.", lock->lock_addr, scsi_dev, errno);
             return CM_ERROR;
         }
     } else {
@@ -348,7 +348,7 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
             // the lock is hold by another instance
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
+            LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, errno %d.", lock->lock_addr, scsi_dev, errno);
             return CM_ERROR;
         }
     }
@@ -388,7 +388,7 @@ status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lo
             if (ret == CM_DLOCK_ERR_LOCK_OCCUPIED) {
                 LOG_DEBUG_INF("Lock occupied, try to lock again, fd %d.", fd);
             } else {
-                LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu.", lock->lock_addr);
+                LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, errno %d.", lock->lock_addr, scsi_dev, errno);
                 return CM_ERROR;
             }
         }
@@ -449,17 +449,17 @@ status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body, cons
 
     status = cm_get_dlock_info(lock, fd);
     if (CM_SUCCESS != status) {
-        LOG_DEBUG_ERR("Get lock info from dev failed, fd %d.", fd);
+        LOG_RUN_ERR("Get lock info from dev failed, fd %d.", fd);
         return status;
     }
 
     if (LOCKR_INST_ID(*lock) == 0) {
-        LOG_DEBUG_INF("Unlock succ, ther is no lock on disk.");
+        LOG_RUN_INF("Unlock succ, ther is no lock on disk.");
         return CM_SUCCESS;
     }
 
     if (LOCKR_INST_ID(*lock) != LOCKW_INST_ID(*lock)) {
-        LOG_DEBUG_ERR("Unlock failed, this lock is held by another instance, another inst_id(disk) %lld, curr "
+        LOG_RUN_ERR("Unlock failed, this lock is held by another instance, another inst_id(disk) %lld, curr "
                       "inst_id(lock) %lld.",
             LOCKR_INST_ID(*lock), LOCKW_INST_ID(*lock));
         cm_reset_error();
@@ -480,7 +480,7 @@ status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body, cons
     }
     ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
-        LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, ret %d, errno %d.", lock->lock_addr, ret, errno);
+        LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, ret %d, errno %d.", lock->lock_addr, scsi_dev, ret, errno);
         return CM_ERROR;
     }
 #endif
@@ -532,7 +532,7 @@ static status_t cm_seek_dev(const dlock_t *lock, int32 fd)
     }
 
     if (lseek64(fd, (off64_t)lock->lock_addr, SEEK_SET) == -1) {
-        LOG_DEBUG_ERR("Seek failed, addr %llu, errno %d.", lock->lock_addr, errno);
+        LOG_RUN_ERR("Seek failed, addr %llu, errno %d.", lock->lock_addr, errno);
         return CM_ERROR;
     }
 #endif
@@ -548,7 +548,7 @@ status_t cm_erase_dlock(dlock_t *lock, int32 fd)
     CM_RETURN_IFERR(cm_seek_dev(lock, fd));
     size = write(fd, lock->lockr, CM_DEF_BLOCK_SIZE);
     if (size == -1) {
-        LOG_DEBUG_ERR("Write failed, ret %d, errno %d.", size, errno);
+        LOG_RUN_ERR("Write failed, ret %d, errno %d.", size, errno);
         return CM_ERROR;
     }
 #endif
@@ -574,7 +574,7 @@ int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev)
         if (CM_SCSI_ERR_MISCOMPARE == ret) {
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
-            LOG_DEBUG_ERR("Scsi3 caw failed, addr %llu, errno %d.", lock->lock_addr, errno);
+            LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, errno %d.", lock->lock_addr, scsi_dev, errno);
             return CM_ERROR;
         }
     }
@@ -591,7 +591,7 @@ status_t cm_get_dlock_info(dlock_t *lock, int32 fd)
     CM_RETURN_IFERR(cm_seek_dev(lock, fd));
     size = read(fd, lock->lockr, CM_DEF_BLOCK_SIZE);
     if (size == -1) {
-        LOG_DEBUG_ERR("Read lockr info failed, ret %d, errno %d.", size, errno);
+        LOG_RUN_ERR("Read lockr info failed, ret %d, errno %d.", size, errno);
         return CM_ERROR;
     }
 #endif
