@@ -123,7 +123,7 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
 
     inst_type cur_node = MES_GLOBAL_INST_MSG.profile.inst_id;
     if (SECUREC_UNLIKELY(head->src_inst >= MES_MAX_INSTANCES || head->dst_inst >= MES_MAX_INSTANCES ||
-                         head->src_inst == cur_node || head->dst_inst != cur_node)) {
+        head->src_inst == cur_node || head->dst_inst != cur_node)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid instance id");
         return ERR_MES_INVALID_MSG_HEAD;
     }
@@ -791,7 +791,7 @@ static int mes_accept(cs_pipe_t *recv_pipe)
         return CM_ERROR;
     }
     cm_rwlock_unlock(&mes_pipe->recv_lock);
-    (void)mes_connect(msg.head->src_inst);  //Trigger send pipe to be connected
+    (void)mes_connect(msg.head->src_inst);  // Trigger send pipe to be connected
     LOG_RUN_INF("[mes] mes_accept: channel id %u receive ok, src_inst:%u, dst_inst:%u, flags:%u, priority:%u",
                 (uint32)child, msg.head->src_inst, msg.head->dst_inst, msg.head->flags, priority);
     return CM_SUCCESS;

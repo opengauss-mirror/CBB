@@ -135,7 +135,7 @@ int mec_accept(cs_pipe_t *pipe)
     }
     cm_rwlock_unlock(&mes_pipe->recv_lock);
 
-    (void)mes_connect(mec_head.src_inst);  //Trigger send pipe to be connected
+    (void)mes_connect(mec_head.src_inst);  // Trigger send pipe to be connected
     LOG_RUN_INF("[mes_mec] mec_accept: channel id %u receive ok, src_inst:%d, dst_inst:%d, flags:%u",
         (uint32)channel->id, mec_head.src_inst, mec_head.dst_inst, mec_head.flags);
     return CM_SUCCESS;
@@ -179,7 +179,7 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
     }
 
     if (SECUREC_UNLIKELY(mec_head->src_inst >= MEC_MAX_NODE_COUNT_ADAPTER ||
-                         mec_head->src_inst == MEC_INVALID_NODE_ID_ADAPTER)) {
+        mec_head->src_inst == MEC_INVALID_NODE_ID_ADAPTER)) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:invalid src_inst %u", mec_head->src_inst);
         return CM_ERROR;
     }
@@ -192,9 +192,9 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
     }
 
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.algorithm == COMPRESS_NONE &&
-                         MEC_COMPRESS_ADAPTER(mec_head->flags))) {
+        MEC_COMPRESS_ADAPTER(mec_head->flags))) {
         LOG_DEBUG_ERR("[mes_mec] rcvhead:compress is not enable, but recv compress pkt. head_flags=%u",
-                      mec_head->flags);
+            mec_head->flags);
         return CM_ERROR;
     }
 

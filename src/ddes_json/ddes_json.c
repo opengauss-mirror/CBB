@@ -820,7 +820,7 @@ static status_t get_str_buf_print_address(str_buf *print_buffer, int32 will_appe
     }
     will_append_to_buf_len += print_buffer->offset + 1;
 
-    if (will_append_to_buf_len <= print_buffer->len) {
+    if ((uint32)will_append_to_buf_len <= print_buffer->len) {
         *print_address = print_buffer->buf + print_buffer->offset;
         return CM_SUCCESS;
     }
