@@ -449,20 +449,26 @@ void mes_send_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
     bool32 broken = CM_FALSE;
 
     /*
-     * we don't use send pipe to recv any message,
-     * so it's safe here to recv message from socket without lock,
-     * we expect to recv nothing(0 byte) or error(pipe is broken).
+     * SSL_write and SSL_read can't be used simultaneously without lock,
+     * TCP is duplex.
      */
-    if (event & EPOLLIN) {
-        broken = (mes_read_pipe_data(pipe) != CM_SUCCESS);
+    cm_rwlock_wlock(&pipe->send_lock);
+    if (pipe->send_pipe_active) {
+        if (event & EPOLLIN) {
+            broken = (mes_read_pipe_data(pipe) != CM_SUCCESS);
+        } else {
+            broken = CM_TRUE;
+        }
+
+        if (broken) {
+            mes_close_send_pipe_nolock(pipe);
+        }
     } else {
         broken = CM_TRUE;
     }
+    cm_rwlock_unlock(&pipe->send_lock);
 
     if (broken) {
-        cm_rwlock_wlock(&pipe->send_lock);
-        mes_close_send_pipe_nolock(pipe);
-        cm_rwlock_unlock(&pipe->send_lock);
         LOG_RUN_ERR("[mes] instance %u, send pipe closed, event=%u", inst_id, event);
     }
 }
