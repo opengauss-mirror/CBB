@@ -52,6 +52,11 @@ static inline void cm_bilist_init(bilist_t *bilist)
     bilist->head = bilist->tail = NULL;
 }
 
+static inline void cm_bilist_node_init(bilist_node_t *node)
+{
+    node->prev = node->next = NULL;
+}
+
 static inline bilist_node_t *cm_bilist_tail(bilist_t *bilist)
 {
     return bilist->tail;
@@ -69,10 +74,15 @@ static inline bool32 cm_bilist_empty(const bilist_t *bilist)
 
 static inline void cm_bilist_concat(bilist_t *bilist1, bilist_t *bilist2)
 {
+    if (bilist2->count == 0) {
+        return;
+    }
+
     if (bilist1->count == 0) {
         *bilist1 = *bilist2;
         return;
     }
+
     bilist1->tail->next = bilist2->head;
     if (bilist2->head != NULL) {
         bilist2->head->prev = bilist1->tail;
