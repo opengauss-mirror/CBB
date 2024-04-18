@@ -353,6 +353,26 @@ static inline void cm_unlatch(latch_t *latch, latch_statis_t *stat)
     cm_spin_unlock(&latch->lock);
 }
 
+static inline void cm_unlatch_x(latch_t *latch, latch_statis_t *stat)
+{
+    spin_statis_t *stat_spin = NULL;
+    spin_statis_instance_t *stat_spin_ex = NULL;
+
+    if (LATCH_NEED_STAT(stat)) {
+        stat_spin = (latch->stat == LATCH_STATUS_S) ? &stat->s_spin : &stat->x_spin;
+        stat_spin_ex = &stat->spin_stat;
+    }
+
+    cm_spin_lock_with_stat(&latch->lock, stat_spin, stat_spin_ex);
+
+    if (latch->stat == LATCH_STATUS_X) {
+        latch->sid = 0;
+        latch->stat = LATCH_STATUS_IDLE;
+    }
+
+    cm_spin_unlock(&latch->lock);
+}
+
 static inline const char *cm_latch_stat(uint16 stat)
 {
     switch (stat) {
