@@ -129,7 +129,9 @@ int mec_accept(cs_pipe_t *pipe)
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
     mes_pipe->recv_pipe.socket_timeout = MES_GLOBAL_INST_MSG.profile.socket_timeout;
-    if (mes_add_recv_pipe_to_epoll(channel->id, priority, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
+    mes_pipe->recv_version++;
+    if (mes_add_recv_pipe_to_epoll(channel->id, priority,
+        mes_pipe->recv_version, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
         cm_rwlock_unlock(&mes_pipe->recv_lock);
         return CM_ERROR;
     }

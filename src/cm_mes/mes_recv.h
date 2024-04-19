@@ -30,11 +30,11 @@
 
 int mes_start_receivers(uint32 priority_count, unsigned int *recv_task_count, mes_event_proc_t event_proc);
 void mes_stop_receivers();
-int mes_add_recv_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int sock);
+int mes_add_recv_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock);
 int mes_remove_recv_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int sock);
 int mes_start_sender_monitor();
 void mes_stop_sender_monitor();
-int mes_add_send_pipe_to_epoll(mes_priority_t priority, uint32 channel_id, int sock);
+int mes_add_send_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock);
 int mes_remove_send_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, int sock);
 void mes_get_receiver_thread(mes_thread_set_t *mes_thread_set);
 

@@ -365,7 +365,9 @@ void mes_tcp_try_connect(uintptr_t pipePtr)
     }
 
     cm_rwlock_wlock(&pipe->send_lock);
-    if (mes_add_send_pipe_to_epoll(pipe->priority, pipe->channel->id, cs_get_pipe_sock(&send_pipe)) != CM_SUCCESS) {
+    pipe->send_version++;
+    if (mes_add_send_pipe_to_epoll(pipe->channel->id, pipe->priority,
+        pipe->send_version, cs_get_pipe_sock(&send_pipe)) != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] add to epoll failed, src_inst:%d, dst_inst:%d, channel_id=%u, priority=%u, fd=%d, errno=%d",
             head->src_inst, head->dst_inst, (uint32)MES_CHANNEL_ID(pipe->channel->id), (uint32)pipe->priority,
             cs_get_pipe_sock(&send_pipe), errno);
@@ -440,7 +442,7 @@ static int32 mes_read_pipe_data(mes_pipe_t *pipe)
     return CM_SUCCESS;
 }
 
-void mes_send_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
+void mes_send_pipe_event_proc(uint16 channel_id, uint16 priority, uint32 version, uint32 event)
 {
     uint32 inst_id = channel_id >> CHANNEL_ID_BITS;
     uint32 channel_idx = channel_id & CHANNEL_ID_MASK;
@@ -448,23 +450,33 @@ void mes_send_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
     mes_pipe_t *pipe = &channel->pipe[priority];
     bool32 broken = CM_FALSE;
 
+    if (version != pipe->send_version) {
+        /* notification is outdated, ignore it */
+        return;
+    }
+
+    if (!pipe->send_pipe_active) {
+        /* pipe is already closed */
+        return;
+    }
+
     /*
      * SSL_write and SSL_read can't be used simultaneously without lock,
      * TCP is duplex.
      */
     cm_rwlock_wlock(&pipe->send_lock);
-    if (pipe->send_pipe_active) {
-        if (event & EPOLLIN) {
-            broken = (mes_read_pipe_data(pipe) != CM_SUCCESS);
-        } else {
-            broken = CM_TRUE;
-        }
+    if (version == pipe->send_version) {
+        if (pipe->send_pipe_active) {
+            if (event & EPOLLIN) {
+                broken = (mes_read_pipe_data(pipe) != CM_SUCCESS);
+            } else {
+                broken = CM_TRUE;
+            }
 
-        if (broken) {
-            mes_close_send_pipe_nolock(pipe);
+            if (broken) {
+                mes_close_send_pipe_nolock(pipe);
+            }
         }
-    } else {
-        broken = CM_TRUE;
     }
     cm_rwlock_unlock(&pipe->send_lock);
 
@@ -473,7 +485,7 @@ void mes_send_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
     }
 }
 
-void mes_recv_pipe_event_proc(uint32 channel_id, uint32 priority, uint32 event)
+void mes_recv_pipe_event_proc(uint16 channel_id, uint16 priority, uint32 version, uint32 event)
 {
     uint32 inst_id = channel_id >> CHANNEL_ID_BITS;
     uint32 channel_idx = channel_id & CHANNEL_ID_MASK;
@@ -792,7 +804,9 @@ static int mes_accept(cs_pipe_t *recv_pipe)
     mes_pipe->recv_pipe_active = CM_TRUE;
     mes_pipe->recv_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
     mes_pipe->recv_pipe.socket_timeout = MES_GLOBAL_INST_MSG.profile.socket_timeout;
-    if (mes_add_recv_pipe_to_epoll(channel->id, priority, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
+    mes_pipe->recv_version++;
+    if (mes_add_recv_pipe_to_epoll(channel->id, priority,
+        mes_pipe->recv_version, cs_get_pipe_sock(&mes_pipe->recv_pipe)) != CM_SUCCESS) {
         cm_rwlock_unlock(&mes_pipe->recv_lock);
         return CM_ERROR;
     }
