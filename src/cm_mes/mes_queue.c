@@ -907,7 +907,8 @@ void mes_task_proc(thread_t *thread)
                       (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                       (head)->flags, my_task_index, mq_ctx->tasks[queue_id + start_task_idx].queue.count, is_empty);
         if (MES_GLOBAL_INST_MSG.profile.max_wait_time != CM_INVALID_INT32) {
-            if ((g_timer()->monotonic_now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >= MES_MSG_QUEUE_DISCARD_TIMEOUT) {
+            if ((g_timer()->monotonic_now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >=
+                MES_GLOBAL_INST_MSG.profile.max_wait_time) {
                 LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded ");
                 mes_release_message_buf(&msgitem->msg);
                 continue;
