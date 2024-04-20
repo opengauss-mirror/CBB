@@ -71,6 +71,12 @@ static log_file_handle_t g_logger[LOG_COUNT] = {
         .file_inode = 0 },
     [LOG_BLACKBOX] = {
         .file_handle = CM_INVALID_FD,
+        .file_inode = 0 },
+    [LOG_DMS_EVT_TRC] = {
+        .file_handle = CM_INVALID_FD,
+        .file_inode = 0 },
+    [LOG_DMS_RFM_TRC] = {
+        .file_handle = CM_INVALID_FD,
         .file_inode = 0 }
 };
 
@@ -750,7 +756,8 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     // It is possible to fail because of the open file.
     if (log_file_handle->file_handle != CM_INVALID_FD && buf != NULL) {
         // Replace the string terminator '\0' with newline character '\n'.
-        if (log_file_handle->log_type != LOG_MEC && log_file_handle->log_type != LOG_BLACKBOX) {
+        if (log_file_handle->log_type != LOG_MEC && log_file_handle->log_type != LOG_BLACKBOX &&
+            log_file_handle->log_type != LOG_DMS_RFM_TRC && log_file_handle->log_type != LOG_DMS_EVT_TRC) {
             buf[size] = '\n';
             size++;
         }
@@ -1518,6 +1525,13 @@ void cm_write_trace_log(uint64 tracekey, const char *format, ...)
     buf_text.len = (uint32)strlen(buf);
     cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
     va_end(args);
+}
+
+void cm_write_dynamic_trace_log(uint32 type, char* buf, uint32 size)
+{
+    log_file_handle_t *log_file_handle = &g_logger[type];
+
+    cm_stat_and_write_log(log_file_handle, buf, size, CM_TRUE, cm_write_log_file);
 }
 
 #define BLACKBOX_PRINT_LINE_LEN 16
