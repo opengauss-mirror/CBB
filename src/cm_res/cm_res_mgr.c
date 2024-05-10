@@ -203,23 +203,38 @@ void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat)
     json_destroy(statJson, NULL, &(statJson->allocator));
 }
 
-// get detail stats info
-int cm_res_get_instance_count(cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat)
+int cm_res_get_cm_version(unsigned long long *version, cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat)
 {
     if (cm_res_mgr->so_hanle == NULL) {
-        return 0;
+        return CM_SUCCESS;
+    }
+    json_t *statJson = (json_t *)res_stat;
+
+    text_t key;
+    key.str = (char *)"version";
+    key.len = (uint32)strlen(key.str);
+    return json_get_uint64(statJson, &key, version);
+}
+
+// get detail stats info
+int cm_res_get_instance_count(unsigned int *inst_count, cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat)
+{
+    if (cm_res_mgr->so_hanle == NULL) {
+        return CM_SUCCESS;
     }
     json_t *statJson = (json_t *)res_stat;
 
     text_t key;
     key.str = (char *)"inst_count";
     key.len = (uint32)strlen(key.str);
-    uint64 inst_count = 0;
-    status_t ret = json_get_uint64(statJson, &key, &inst_count);
+    uint64 inst_count_tmp = 0ULL;
+    status_t ret = json_get_uint64(statJson, &key, &inst_count_tmp);
     if (ret != CM_SUCCESS) {
-        return -1;
+        return CM_ERROR;
     }
-    return (int)inst_count;
+
+    *inst_count = (uint32)inst_count_tmp;
+    return CM_SUCCESS;
 }
 
 const cm_res_inst_info_ptr_t cm_res_get_instance_info(cm_res_mgr_t *cm_res_mgr,

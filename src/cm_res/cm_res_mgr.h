@@ -130,8 +130,9 @@ void cm_res_free_stat(cm_res_mgr_t *cm_res_mgr, cm_res_stat_ptr_t res_stat);
 status_t cm_res_init_memctx(cm_res_mem_ctx_t *res_mem_ctx);
 void cm_res_uninit_memctx(cm_res_mem_ctx_t *res_mem_ctx);
 
+int cm_res_get_cm_version(unsigned long long *version, cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat);
 // get detail stats info
-int cm_res_get_instance_count(cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat);
+int cm_res_get_instance_count(unsigned int *inst_count, cm_res_mgr_t *cm_res_mgr, const cm_res_stat_ptr_t res_stat);
 typedef void *cm_res_inst_info_ptr_t;
 const cm_res_inst_info_ptr_t cm_res_get_instance_info(cm_res_mgr_t *cm_res_mgr,
     const cm_res_stat_ptr_t res_stat, unsigned int instance_idx);
