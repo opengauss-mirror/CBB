@@ -914,11 +914,13 @@ int mes_tcp_send_data(const void *msg_data)
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
     }
 
-    LOG_DEBUG_INF("[mes] begin tcp send data, cmd=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, "
+    if (head->cmd != MES_CMD_HEARTBEAT) {
+        LOG_DEBUG_INF("[mes] begin tcp send data, cmd=%u, ruid=%llu, ruid->rid=%llu, ruid->rsn=%llu, src_inst=%u, "
                   "dst_inst=%u, size=%u, flags:%u, pipe version:%u, channel_id %u.",
                   (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                   (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                   (head)->flags, version, MES_CHANNEL_ID(pipe->channel->id));
+    }
 
     if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
         PROC_DIFF_ENDIAN(head);
