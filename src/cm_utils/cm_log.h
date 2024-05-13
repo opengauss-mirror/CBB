@@ -167,6 +167,7 @@ status_t cm_set_log_module_name(const char *module_name, int32 len);
 void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, const char *code_file_name,
     uint32 code_line_num, const char *module_name, bool32 need_rec_filelog, const char *format, va_list args);
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
+status_t cm_recovery_log_file(log_type_t log_type);
 
 #define LOG_BLACKBOX_INF(format, ...)                                 \
     do {                                                              \

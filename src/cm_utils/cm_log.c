@@ -1385,6 +1385,40 @@ void cm_log_set_path_permissions(uint16 val)
     g_log_param.log_path_permissions = log_path_perm;
 }
 
+
+static void cm_recovery_left_log_file(log_file_handle_t *log_file_handle, char *file_name)
+{
+    char filename_gz[CM_FILE_NAME_BUFFER_SIZE] = {0};
+    PRTS_RETVOID_IFERR(snprintf_s(filename_gz, CM_FILE_NAME_BUFFER_SIZE, CM_MAX_FILE_NAME_LEN, "%s.%s", file_name, "gz"));
+    cm_log_remove_file(filename_gz);
+    cm_compress_log_file(log_file_handle, file_name, CM_FILE_NAME_BUFFER_SIZE);
+    return;
+}
+
+status_t  cm_recovery_log_file(log_type_t log_type)
+{
+    log_file_handle_t *log_file_handle = &g_logger[log_type];
+    char *left_file_name[CM_MAX_LOG_FILE_COUNT_LARGER];
+    uint32 left_file_count = 0;
+
+    CM_RETURN_IFERR(cm_log_get_bak_file_list(left_file_name, &left_file_count, log_file_handle->file_name, CM_FALSE));
+
+    if (left_file_count > 0) {
+        for (uint32 i = 0; i < left_file_count; i++) {
+            if (i >= CM_MAX_LOG_FILE_COUNT_LARGER) {
+                break;
+            }
+            if (left_file_name[i]) {
+                cm_recovery_left_log_file(log_file_handle, left_file_name[i]);
+                cm_log_remove_file(left_file_name[i]);
+                CM_FREE_PROT_PTR(left_file_name[i]);
+            }
+        }
+    }
+
+    return CM_SUCCESS;
+}
+
 void cm_fync_logfile(void)
 {
 #ifndef _WIN32
