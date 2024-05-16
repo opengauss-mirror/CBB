@@ -31,8 +31,9 @@
 
 typedef union un_ev_data {
     struct {
-        uint32 id;
-        uint32 priority;
+        uint16 id;
+        uint16 priority;
+        uint32 version;
     };
     struct {
         uint64 data;
@@ -163,7 +164,7 @@ void mes_stop_receivers()
     }
 }
 
-int mes_add_recv_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int sock)
+int mes_add_recv_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock)
 {
     if ((uint32)priority >= g_priority_count) {
         LOG_RUN_ERR("[mes] invaid priority");
@@ -173,7 +174,8 @@ int mes_add_recv_pipe_to_epoll(uint32 channel_id, mes_priority_t priority, int s
     struct epoll_event ev = {0};
     ev_data_t ev_data;
     ev_data.id = channel_id;
-    ev_data.priority = (uint32)priority;
+    ev_data.priority = (uint16)priority;
+    ev_data.version = version;
     ev.events = EPOLLIN;
     ev.data.u64 = ev_data.data;
 
@@ -255,7 +257,7 @@ static void mes_recv_proc(thread_t *thread)
 
         for (int i = 0; i < nfds; i++) {
             ev_data.data = events[i].data.u64;
-            receiver->proc(ev_data.id, ev_data.priority, events[i].events);
+            receiver->proc(ev_data.id, ev_data.priority, ev_data.version, events[i].events);
         }
     }
 
@@ -287,14 +289,15 @@ void mes_stop_sender_monitor()
     LOG_RUN_INF("[mes] stop sender monitor finish");
 }
 
-int mes_add_send_pipe_to_epoll(mes_priority_t priority, uint32 channel_id, int sock)
+int mes_add_send_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock)
 {
     receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
 
     struct epoll_event ev = {0};
     ev_data_t ev_data;
     ev_data.id = channel_id;
-    ev_data.priority = (uint32)priority;
+    ev_data.priority = (uint16)priority;
+    ev_data.version = version;
     ev.events = EPOLLIN;
     ev.data.u64 = ev_data.data;
 

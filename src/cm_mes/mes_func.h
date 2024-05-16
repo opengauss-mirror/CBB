@@ -174,6 +174,8 @@ typedef struct st_mes_pipe {
     mes_priority_t priority;
     struct st_mes_channel *channel;
     char *msgbuf;
+    uint32 send_version;
+    uint32 recv_version;
 } mes_pipe_t;
 
 typedef struct st_mes_channel {
@@ -232,7 +234,7 @@ typedef struct st_mes_waiting_room_pool {
     mes_room_freelist_t room_freelists[CM_MAX_ROOM_FREELIST_NUM];
 } mes_waiting_room_pool_t;
 
-typedef void (*mes_event_proc_t)(uint32 channel_id, uint32 priority, uint32 event);
+typedef void (*mes_event_proc_t)(uint16 channel_id, uint16 priority, uint32 version, uint32 event);
 typedef struct st_receiver {
     uint32 priority;
     uint32 id;
