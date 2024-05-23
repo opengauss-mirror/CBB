@@ -107,6 +107,7 @@ typedef enum en_cm_errno {
     /* Error code for access interface of SCSI */
     ERR_SCSI_LOCK_OCCUPIED = 136,
     ERR_SCSI_REG_CONFLICT = 137,
+    ERR_SCSI_INVOKED_FAILED = 138,
 
     /* invalid configuration errors: 200 - 299 */
     ERR_INIT_LOGGER = 200,
@@ -283,6 +284,7 @@ typedef status_t (*cm_error_handler)(const char *file, uint32 line, cm_errno_t c
     va_list args);
 status_t cm_set_log_error(const char *file, uint32 line, cm_errno_t code, const char *format, va_list args);
 void cm_init_error_handler(cm_error_handler handler);
+char *cm_get_os_error_msg(int32 error_no);
 #define T2S(text) cm_t2s((text)->str, (text)->len)
 #define T2S_EX(text) cm_t2s_ex((text)->str, (text)->len)
 #define T2S_CASE(text, flag) cm_t2s_case((text)->str, (text)->len, (flag))

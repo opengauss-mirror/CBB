@@ -236,11 +236,11 @@ int32 perctrl_register_impl(const char *iof_dev, int64 sark, perctrl_packet_t *r
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
 
     ddes_init_get(ack);
-    if (ack->head->result == CM_ERROR) {
+    if (ack->head->result != CM_SUCCESS) {
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode rgister failed.");
+        LOG_DEBUG_ERR("[PERCTRL]rgister failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -268,11 +268,11 @@ int32 perctrl_unregister_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
 
     ddes_init_get(ack);
-    if (ack->head->result == CM_ERROR) {
+    if (ack->head->result != CM_SUCCESS) {
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode unrgister failed.");
+        LOG_DEBUG_ERR("[PERCTRL]unrgister failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -304,7 +304,7 @@ status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode reverse failed.");
+        LOG_DEBUG_ERR("[PERCTRL]reverse failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -336,7 +336,7 @@ status_t perctrl_release_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode release failed.");
+        LOG_DEBUG_ERR("[PERCTRL]release failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -368,7 +368,7 @@ status_t perctrl_clear_impl(const char *iof_dev, int64 rk, perctrl_packet_t *req
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode clear failed.");
+        LOG_DEBUG_ERR("[PERCTRL]clear failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -400,7 +400,7 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, perctrl
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode preempt failed.");
+        LOG_DEBUG_ERR("[PERCTRL]preempt failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -433,11 +433,11 @@ int32 perctrl_caw_impl(const char *scsi_dev, ctrl_params_t *params, uint64 block
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
 
-    if (ack->head->result == CM_ERROR) {
+    if (ack->head->result != CM_SUCCESS) {
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode caw failed.");
+        LOG_DEBUG_ERR("[PERCTRL]caw failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -476,7 +476,7 @@ status_t perctrl_read_impl(ctrl_params_t *params, const char *iof_dev, perctrl_p
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode read failed.");
+        LOG_DEBUG_ERR("[PERCTRL]read failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -517,7 +517,7 @@ status_t perctrl_write_impl(ctrl_params_t *params, const char *iof_dev, perctrl_
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode write failed.");
+        LOG_DEBUG_ERR("[PERCTRL]write failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -553,7 +553,7 @@ status_t perctrl_inql_impl(const char *iof_dev, inquiry_data_t *inquiry_data, pe
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode inql failed.");
+        LOG_DEBUG_ERR("[PERCTRL]inql failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -591,7 +591,7 @@ status_t perctrl_rkeys_impl(ctrl_params_t *params, const char *iof_dev, int64 *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode rkeys failed.");
+        LOG_DEBUG_ERR("[PERCTRL]rkeys failed, %s.", errmsg);
         return CM_ERROR;
     }
 
@@ -653,7 +653,7 @@ status_t perctrl_rres_impl(const char *iof_dev, int64 *rk, uint32 *generation, p
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("encode rres failed.");
+        LOG_DEBUG_ERR("[PERCTRL]rres failed, %s.", errmsg);
         return CM_ERROR;
     }
 

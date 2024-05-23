@@ -110,6 +110,7 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     /* Error msg for access interface of SCSI */
     [ERR_SCSI_LOCK_OCCUPIED] = "The lock is already occupied",
     [ERR_SCSI_REG_CONFLICT] = "Register conflict, rk %llu",
+    [ERR_SCSI_INVOKED_FAILED] = "Failed to invoke the SCSI interface, %s",
     /* invalid configuration errors: 200 - 299 */
     [ERR_INIT_LOGGER]              = "Failed to init logger module",
     [ERR_PARSE_CFG_STR]            = "Failed to parse dcf_config, the cfg_str is %s",
@@ -388,6 +389,19 @@ char *cm_t2s_ex(const char *buf, uint32 len)
     return g_tls_error.t2s_buf2;
 }
 
+char *cm_get_os_error_msg(int32 error_no)
+{
+    int32 iret;
+
+    iret = snprintf_s(g_tls_error.t2s_buf2, CM_T2S_BUFFER_SIZE, CM_T2S_BUFFER_SIZE - 1, 
+                    "OS errno:%d, OS error msg:%s", error_no, strerror(error_no));
+    if (iret == -1) {
+        CM_THROW_ERROR(ERR_SYSTEM_CALL, iret);
+        return "Secure C lib has thrown an error.";
+    }
+
+    return g_tls_error.t2s_buf2;
+}
 
 #ifdef __cplusplus
 }
