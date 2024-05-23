@@ -41,9 +41,9 @@ int32 cm_iof_register(iof_reg_out_t *iof_out)
     ret = perctrl_scsi3_register(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_CONFLICT == ret) {
+            // ignore this fail
             LOG_RUN_INF(
                 "Scsi3 register conflict, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
-            return CM_IOF_ERR_DUP_OP;
         } else {
             LOG_RUN_ERR(
                 "Scsi3 register failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
@@ -54,8 +54,15 @@ int32 cm_iof_register(iof_reg_out_t *iof_out)
     // Any host can perform reservation operations, but at least one host must perform
     ret = perctrl_scsi3_reserve(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
-        LOG_RUN_ERR("Scsi3 reserve failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
-        return CM_ERROR;
+        if (CM_SCSI_ERR_CONFLICT == ret) {
+            // ignore this fail
+            LOG_RUN_INF(
+                "Scsi3 register conflict, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
+        } else {
+            LOG_RUN_ERR(
+                "Scsi3 reserve failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
+            return CM_ERROR;
+        }
     }
     LOG_RUN_INF("IOfence register succ, rk %lld, dev %s.", CM_OUT_SCSI_RK(iof_out), iof_out->dev);
 
@@ -75,9 +82,9 @@ int32 cm_iof_unregister(iof_reg_out_t *iof_out)
     ret = perctrl_scsi3_unregister(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_CONFLICT == ret) {
+            // ignore this fail
             LOG_RUN_INF(
                 "Scsi3 unregister conflict, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
-            return CM_IOF_ERR_DUP_OP;
         } else {
             LOG_RUN_ERR(
                 "Scsi3 unregister failed, rk %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out), iof_out->dev, errno);
