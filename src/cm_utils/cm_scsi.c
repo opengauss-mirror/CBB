@@ -401,6 +401,7 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
     if (hdr.status != 0) {
         if (hdr.status == SAM_RESERVATION_CONFLICT) {
             LOG_DEBUG_INF("SCSI reserve get confict return, rk %lld.", rk);
+            return CM_SCSI_ERR_CONFLICT;
         } else {
             LOG_DEBUG_ERR("SCSI reserve failed, status %d.", hdr.status);
             return CM_ERROR;

@@ -240,11 +240,11 @@ int32 perctrl_register_impl(const char *iof_dev, int64 sark, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]rgister failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]rgister failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
-    return ack->head->result;
+    return CM_SUCCESS;
 }
 
 int32 perctrl_scsi3_register(const char *iof_dev, int64 sark)
@@ -272,11 +272,11 @@ int32 perctrl_unregister_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]unrgister failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]unrgister failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
-    return ack->head->result;
+    return CM_SUCCESS;
 }
 
 int32 perctrl_scsi3_unregister(const char *iof_dev, int64 rk)
@@ -304,8 +304,8 @@ status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]reverse failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]reverse failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -336,8 +336,8 @@ status_t perctrl_release_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]release failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]release failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -368,8 +368,8 @@ status_t perctrl_clear_impl(const char *iof_dev, int64 rk, perctrl_packet_t *req
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]clear failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]clear failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -400,8 +400,8 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, perctrl
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]preempt failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]preempt failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -437,11 +437,11 @@ int32 perctrl_caw_impl(const char *scsi_dev, ctrl_params_t *params, uint64 block
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]caw failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]caw failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
-    return ack->head->result;
+    return CM_SUCCESS;
 }
 
 int32 perctrl_scsi3_caw(const char *scsi_dev, uint64 block_addr, char *buff, int32 buff_len)
@@ -476,8 +476,8 @@ status_t perctrl_read_impl(ctrl_params_t *params, const char *iof_dev, perctrl_p
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]read failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]read failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -517,8 +517,8 @@ status_t perctrl_write_impl(ctrl_params_t *params, const char *iof_dev, perctrl_
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]write failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]write failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     return CM_SUCCESS;
@@ -553,8 +553,8 @@ status_t perctrl_inql_impl(const char *iof_dev, inquiry_data_t *inquiry_data, pe
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]inql failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]inql failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     text_t extra_info = CM_NULL_TEXT;
@@ -591,8 +591,8 @@ status_t perctrl_rkeys_impl(ctrl_params_t *params, const char *iof_dev, int64 *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]rkeys failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]rkeys failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     text_t extra_info = CM_NULL_TEXT;
@@ -653,8 +653,8 @@ status_t perctrl_rres_impl(const char *iof_dev, int64 *rk, uint32 *generation, p
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]rres failed, %s.", errmsg);
-        return CM_ERROR;
+        LOG_DEBUG_ERR("[PERCTRL]rres failed, result:%d, %s.", ack->head->result, errmsg);
+        return ack->head->result;
     }
 
     text_t extra_info = CM_NULL_TEXT;
