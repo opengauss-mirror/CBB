@@ -37,6 +37,7 @@ extern "C" {
 #define MES_MAX_PRIORITY_NUM 8
 #define MES_MIN_TASK_NUM (1)
 #define MES_MAX_TASK_NUM (128)
+#define MES_INFO_LEN 8
 
 /* only for mes head flags */
 // Bits 1-2 and 3 indicate the priority and supports eight types of priority.
@@ -221,6 +222,24 @@ typedef struct mes_thread_set {
     mes_thread_info_t threads[MAX_MES_THREAD_NUM];
     int thread_count;
 } mes_thread_set_t;
+
+typedef struct st_mes_worker_info {
+    unsigned char is_active;
+    unsigned int tid;
+    mes_priority_t priority;
+    unsigned long long get_msgitem_time;
+    unsigned long long msg_ruid;
+    unsigned int msg_src_inst;
+    char data[MES_INFO_LEN];
+} mes_worker_info_t;
+
+typedef struct st_mes_task_priority_info {
+    mes_priority_t priority;
+    unsigned int worker_num;
+    unsigned long long inqueue_msgitem_num;
+    unsigned long long finished_msgitem_num;
+    unsigned long long msgitem_free_num;
+} mes_task_priority_info_t;
 
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef void (*mes_thread_deinit_t)();
@@ -574,6 +593,10 @@ void mes_get_all_threads(mes_thread_set_t *mes_thread_set);
  * @return
  */
 void mes_set_elapsed_switch(unsigned char elapsed_switch);
+
+void mes_set_cur_msg_info(unsigned int work_id, void *data, unsigned int size);
+int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_info);
+int mes_get_worker_priority_info(unsigned int priority_id, mes_task_priority_info_t *mes_task_priority_info);
 
 #ifdef __cplusplus
 }
