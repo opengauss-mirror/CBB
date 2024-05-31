@@ -150,6 +150,8 @@ extern "C" {
 #define CM_ALIGN4_FLOOR(size) ((((size) & 0x03) == 0) ? (size) : ((size) - ((size) & 0x03)))
 #define CM_ALIGN_8K(size)     (((size) + 0x00001FFF) & 0xFFFFE000)
 
+#define CM_CACHE_LINE_SIZE 64
+
 #define IS_BIG_ENDIAN (*(uint32 *)"\x01\x02\x03\x04" == (uint32)0x01020304)
 
 #define OFFSET_OF offsetof
