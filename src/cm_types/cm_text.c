@@ -544,6 +544,21 @@ status_t cm_str2bigint(const char *str, int64 *value)
     return CM_SUCCESS;
 }
 
+status_t cm_text2int(const text_t *text_src, int32 *value)
+{
+    char buf[CM_MAX_NUMBER_LEN + 1] = {0};
+    text_t text = *text_src;
+
+    cm_trim_text(&text);
+
+    if (text.len > CM_MAX_NUMBER_LEN) {
+        return CM_ERROR;
+    }
+
+    CM_RETURN_IFERR(cm_text2str(&text, buf, CM_MAX_NUMBER_LEN + 1));
+    return cm_str2int(buf, value);
+}
+
 status_t cm_text2bigint(const text_t *text_src, int64 *value)
 {
     char buf[CM_MAX_NUMBER_LEN + 1] = {0};  // '00000000000000000000000000000001'

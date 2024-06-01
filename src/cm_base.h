@@ -26,4 +26,16 @@
 
 #include "securec.h"
 
+#ifdef WIN32
+#if defined(DDES_EXPORTS)
+#define DDES_DECLARE __declspec(dllexport)
+#elif defined(DDES_IMPORTS)
+#define DDES_DECLARE __declspec(dllimport)
+#else
+#define DDES_DECLARE
+#endif
+#else
+#define DDES_DECLARE __attribute__((visibility("default")))
+#endif
+
 #endif
