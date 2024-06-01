@@ -20,7 +20,8 @@ LIBS = -lpthread -ldl -lrt -llz4 -Wl,--whole-archive -lsecurec -Wl,--no-whole-ar
 
 SOURCE=$(wildcard ./*c ./cm_concurrency/*.c ./cm_defines/*.c ./cm_mes/*.c ./cm_network/*.c ./cm_protocol/*.c \
 ./cm_security/*.c ./cm_struct/*.c ./cm_time/*.c ./cm_types/*.c ./cm_utils/*.c ./cm_utils/protocol/*.c ./cm_res/*.c \
-./ddes_json/*.c ./ddes_lexer/*.c ./ddes_perctrl/interface/*.c ./cm_compress/*.c ./cm_mec_adapter/*.c)
+./ddes_json/*.c ./ddes_lexer/*.c ./ddes_perctrl/interface/*.c ./cm_compress/*.c ./cm_mec_adapter/*.c \
+/ddes_fi/*.c)
 
 OBJS = $(patsubst %.c,%.o,$(SOURCE))
 
