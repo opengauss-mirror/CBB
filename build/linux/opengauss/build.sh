@@ -113,7 +113,10 @@ export PATH=$GCC_PATH/gcc/bin:$PATH
 
 export CBB_LIBRARYS=$(pwd)/../../../library
 
-[ -d "${CBB_LIBRARYS}" ] && rm -rf ${CBB_LIBRARYS}
+[ -d "${CBB_LIBRARYS}/huawei_security" ] && rm -rf ${CBB_LIBRARYS}/huawei_security
+[ -d "${CBB_LIBRARYS}/openssl" ] && rm -rf ${CBB_LIBRARYS}/openssl
+[ -d "${CBB_LIBRARYS}/zlib" ] && rm -rf ${CBB_LIBRARYS}/zlib
+[ -d "${CBB_LIBRARYS}/lz4" ] && rm -rf ${CBB_LIBRARYS}/lz4
 mkdir -p $CBB_LIBRARYS/huawei_security
 mkdir -p $CBB_LIBRARYS/openssl
 mkdir -p $CBB_LIBRARYS/zlib
