@@ -91,8 +91,10 @@ typedef struct st_mes_task_priority {
     uint8 start_task_idx;
     uint8 reserved;
     mes_priority_t priority;
+    char aligned1[CM_CACHE_LINE_SIZE];
     uint32 push_cursor;
     uint32 pop_cursor;
+    char aligned2[CM_CACHE_LINE_SIZE];
 } mes_task_priority_t;
 
 typedef struct st_mes_mq_priority {

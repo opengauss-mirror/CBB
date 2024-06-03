@@ -81,9 +81,13 @@ typedef struct st_mes_buf_chunk {
     uint32 buf_size;
     uint8 chunk_no;
     volatile uint8 queue_num;
-    volatile uint8 current_no;
-    uint8 reserved;
+    uint8 reserved[2];
     mes_buf_queue_t *queues;
+    char aligned1[CM_CACHE_LINE_SIZE];
+    union {
+        volatile uint8 current_no;
+        char aligned2[CM_CACHE_LINE_SIZE];
+    };
 } mes_buf_chunk_t;
 
 typedef struct st_mes_pool {
