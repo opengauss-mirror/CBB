@@ -167,6 +167,19 @@ status_t perctrl_init(perctrl_pipes_t *perctrl, const char* name)
     return CM_SUCCESS;
 }
 
+status_t exec_perctrl_send_and_receive(perctrl_packet_t *req, perctrl_packet_t *ack)
+{
+    status_t status = perctrl_send(g_perctrl.req_pipe.wfd, req);
+    if (status != CM_SUCCESS) {
+        return status;
+    }
+    status = perctrl_receive(g_perctrl.res_pipe.rfd, ack);
+    if (status < 0) {
+        return status;
+    }
+    return CM_SUCCESS;
+}
+
 status_t exec_perctrl_cmd(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     status_t status;
@@ -178,24 +191,17 @@ status_t exec_perctrl_cmd(perctrl_packet_t *req, perctrl_packet_t *ack)
                 cm_spin_unlock(&g_init_lock);
                 return status;
             }
+            status = exec_perctrl_init_logger();
+            if (status != CM_SUCCESS) {
+                cm_spin_unlock(&g_init_lock);
+                return status;
+            }
             g_is_init = CM_TRUE;
         }
         cm_spin_unlock(&g_init_lock);
     }
-
     cm_spin_lock(&g_init_lock, NULL);
-    status = perctrl_send(g_perctrl.req_pipe.wfd, req);
-    if (status != CM_SUCCESS) {
-        cm_spin_unlock(&g_init_lock);
-        return status;
-    }
-
-    status = perctrl_receive(g_perctrl.res_pipe.rfd, ack);
-    if (status < 0) {
-        cm_spin_unlock(&g_init_lock);
-        return status;
-    }
-
+    status = exec_perctrl_send_and_receive(req, ack);
     cm_spin_unlock(&g_init_lock);
     return CM_SUCCESS;
 }
@@ -226,6 +232,41 @@ status_t perctrl_uninit()
 }
 
 #endif
+
+int32 exec_perctrl_init_logger()
+{
+    perctrl_packet_t req = {0};
+    perctrl_packet_t ack = {0};
+    status_t ret = init_req_and_ack(&req, &ack);
+    if (ret != CM_SUCCESS) {
+        return ret;
+    }
+    int32 errcode = -1;
+    char *errmsg = NULL;
+    log_param_t *parent_log_param = cm_log_param_instance();
+    req.head->cmd = PERCTRL_CMD_INIT_LOG;
+    char buf[MAX_PACKET_LEN];
+    PRTS_RETURN_IFERR(snprintf_s(buf, MAX_PACKET_LEN, MAX_PACKET_LEN - 1,
+        "log_home=%s|log_level=%u|log_backup_file_count=%u|max_log_file_size=%llu|log_file_permissions=%u|log_path_permissions=%u|"
+        "log_bak_file_permissions=%u|log_compressed=%hu",
+        parent_log_param->log_home, parent_log_param->log_level,
+        parent_log_param->log_backup_file_count, parent_log_param->max_log_file_size,
+        parent_log_param->log_file_permissions, parent_log_param->log_path_permissions,
+        parent_log_param->log_bak_file_permissions, (uint16)parent_log_param->log_compressed));
+    CM_RETURN_IFERR(ddes_put_str(&req, buf));
+    CM_RETURN_IFERR(exec_perctrl_send_and_receive(&req, &ack));
+    ddes_init_get(&ack);
+    if (ack.head->result != CM_SUCCESS) {
+        (void)ddes_get_int32(&ack, &errcode);
+        (void)ddes_get_str(&ack, &errmsg);
+        CM_THROW_ERROR_EX(errcode, "%s", errmsg);
+        LOG_RUN_ERR("[PERCTRL]init loggers failed, result:%d, %s.", ack.head->result, errmsg);
+        return ack.head->result;
+    }
+
+    return CM_SUCCESS;
+}
+
 int32 perctrl_register_impl(const char *iof_dev, int64 sark, perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 errcode = -1;
@@ -240,7 +281,7 @@ int32 perctrl_register_impl(const char *iof_dev, int64 sark, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]rgister failed, result:%d, %s.", ack->head->result, errmsg);
+        LOG_RUN_ERR("[PERCTRL]rgister failed, result:%d, %s.", ack->head->result, errmsg);
         return ack->head->result;
     }
 
@@ -272,7 +313,7 @@ int32 perctrl_unregister_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]unrgister failed, result:%d, %s.", ack->head->result, errmsg);
+        LOG_RUN_ERR("[PERCTRL]unrgister failed, result:%d, %s.", ack->head->result, errmsg);
         return ack->head->result;
     }
 
@@ -306,7 +347,7 @@ status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, scsi_reserv_type_e 
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]reverse failed, result:%d, %s.", ack->head->result, errmsg);
+        LOG_RUN_ERR("[PERCTRL]reverse failed, result:%d, %s.", ack->head->result, errmsg);
         return ack->head->result;
     }
 
@@ -340,7 +381,7 @@ status_t perctrl_release_impl(const char *iof_dev, int64 rk, scsi_reserv_type_e 
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]release failed, result:%d, %s.", ack->head->result, errmsg);
+        LOG_RUN_ERR("[PERCTRL]release failed, result:%d, %s.", ack->head->result, errmsg);
         return ack->head->result;
     }
 
@@ -406,7 +447,7 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, scsi_re
         (void)ddes_get_int32(ack, &errcode);
         (void)ddes_get_str(ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_DEBUG_ERR("[PERCTRL]preempt failed, result:%d, %s.", ack->head->result, errmsg);
+        LOG_RUN_ERR("[PERCTRL]preempt failed, result:%d, %s.", ack->head->result, errmsg);
         return ack->head->result;
     }
 
