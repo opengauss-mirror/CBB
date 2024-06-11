@@ -117,7 +117,7 @@ status_t get_param_ssl_notify_time(cbb_param_t param_type, const char *param_val
 status_t get_param_string(cbb_param_t param_type, const char *param_value, param_value_t *out_value)
 {
     errno_t errcode = EOK;
-    CM_CHECK_NULL_PTR(param_value);
+    CM_RETURN_ERR_IF_NULL_PTR(param_value);
     switch (param_type) {
         case CBB_PARAM_SSL_CA:
             errcode = strncpy_s(out_value->ssl_ca, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,

@@ -153,7 +153,7 @@ static void add_to_free_list(cm_hash_bucket_t *free_list, cm_hash_item_t *item)
 
 status_t cm_hash_pool_create(cm_hash_profile_t *profile, cm_hash_pool_t *pool)
 {
-    CM_CHECK_NULL_PTR(profile);
+    CM_RETURN_ERR_IF_NULL_PTR(profile);
     MEMS_RETURN_IFERR(memset_sp(pool, sizeof(cm_hash_pool_t), 0, sizeof(cm_hash_pool_t)));
     MEMS_RETURN_IFERR(memcpy_sp(&pool->profile, sizeof(cm_hash_profile_t), (void *)profile, sizeof(cm_hash_profile_t)));
 

@@ -40,6 +40,7 @@
 #include "cm_rwlock.h"
 #include "mes_interface.h"
 #include "mes_type.h"
+#include "mes_stat.h"
 #include "mes_task_threadpool_interface.h"
 
 #ifdef __cplusplus
@@ -121,7 +122,6 @@ typedef pthread_mutex_t mes_mutex_t;
         (msg)->size = (((mes_message_head_t *)(buf))->size - sizeof(mes_message_head_t));   \
         (msg)->src_inst = ((unsigned int)((mes_message_head_t *)(buf))->src_inst);          \
     } while (0);
-
 
 #define MES_MESSAGE_ATTACH(msg, buf)               \
     do {                                           \
@@ -350,10 +350,6 @@ typedef struct st_mes_global_ptr {
     mes_elapsed_stat_t* g_mes_elapsed_stat;
 } mes_global_ptr_t;
 
-uint64 cm_get_time_usec(void);
-
-void mes_local_stat(uint32 cmd);
-
 status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size);
 
 static inline void mes_get_consume_time_start(uint64 *stat_time)
@@ -383,6 +379,20 @@ static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
     }
     return;
 }
+
+void mes_mutex_destroy(mes_mutex_t *mutex);
+int mes_mutex_create(mes_mutex_t *mutex);
+#ifndef WIN32
+void mes_get_timespec(struct timespec *tim, uint32 timeout);
+#endif
+bool32 mes_mutex_timed_lock(mes_mutex_t *mutex, uint32 timeout);
+void mes_mutex_unlock(mes_mutex_t *mutex);
+void mes_protect_when_timeout(mes_waiting_room_t *room);
+void mes_protect_when_brcast_timeout(mes_waiting_room_t *room);
+
+mes_waiting_room_t *mes_ruid_get_room(unsigned long long ruid);
+bool8 ruid_matches_room_rsn(unsigned long long *ruid, unsigned long long room_rsn);
+
 int mes_connect(inst_type inst_id);
 void mes_disconnect_nowait(inst_type inst_id);
 void mes_disconnect(inst_type inst_id);
@@ -397,7 +407,6 @@ int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priorit
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
 int mes_connect_single(inst_type inst_id);
 mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, uint32 flags);
-void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 #ifdef __cplusplus
 }
 #endif
