@@ -13,11 +13,11 @@
  * See the Mulan PSL v2 for more details.
  * -------------------------------------------------------------------------
  *
- * mes_send.c
+ * mes_interface_impl.c
  *
  *
  * IDENTIFICATION
- *    src/cm_mes/mes_send.c
+ *    src/cm_mes/mes_interface_impl.c
  *
  * -------------------------------------------------------------------------
  */
