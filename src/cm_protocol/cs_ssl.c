@@ -1107,6 +1107,23 @@ static bool32 ssl_check_is_gmtls(ssl_config_t *config)
     return !CM_IS_EMPTY_STR(config->gm_key_file) && !CM_IS_EMPTY_STR(config->gm_cert_file);
 }
 
+static status_t cs_ssl_set_multi_cert_auth(SSL_CTX *ctx, ssl_config_t *config)
+{
+    /* Verify cert and key files */
+    if (cs_ssl_set_cert_auth(ctx, config->cert_file, config->key_file, config->key_password) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+
+    /* Verify gm cert and gm key files */
+    if(ssl_check_is_gmtls(config)) {
+        if (cs_ssl_set_cert_auth(ctx, config->gm_cert_file, config->gm_key_file, config->key_password) != CM_SUCCESS) {
+            LOG_DEBUG_ERR("[SSL] cs_ssl_set_cert_auth:verify gm cert and gm key files failed");
+            return CM_ERROR;
+        }
+   	 }
+     return CM_SUCCESS;
+}
+
 /**
  * create a new ssl context object.
  * @param [in]   ca_file      SSL CA file path
@@ -1196,17 +1213,10 @@ static SSL_CTX *cs_ssl_create_context(ssl_config_t *config, bool32 is_client)
     }
 
     /* Verify cert and key files */
-    if (cs_ssl_set_cert_auth(ctx, config->cert_file, config->key_file, config->key_password) != CM_SUCCESS) {
+    if (cs_ssl_set_multi_cert_auth(ctx, config) != CM_SUCCESS) {
         return NULL;
     }
 
-    /* Verify gm cert and gm key files */
-    if(ssl_check_is_gmtls(config)) {
-    	if (cs_ssl_set_cert_auth(ctx, config->gm_cert_file, config->gm_key_file, config->key_password) != CM_SUCCESS) {
-    		LOG_DEBUG_ERR("[SSL] cs_ssl_set_cert_auth:verify gm cert and gm key files failed");
-  	      	return NULL;
-   	 }
-    }
     /* Server specific check: Must have certificate and key file */
     if (!is_client && config->key_file == NULL && config->cert_file == NULL) {
         CM_SSL_FREE_CTX_AND_RETURN(SSL_INITERR_NO_USABLE_CTX, ctx, NULL);
@@ -1481,10 +1491,10 @@ status_t cs_ssl_accept_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    CM_CHECK_NULL_PTR(ctx);
+    CM_RETURN_ERR_IF_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    CM_CHECK_NULL_PTR(ssl);
+    CM_RETURN_ERR_IF_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 
@@ -1526,10 +1536,10 @@ status_t cs_ssl_connect_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    CM_CHECK_NULL_PTR(ctx);
+    CM_RETURN_ERR_IF_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    CM_CHECK_NULL_PTR(ssl);
+    CM_RETURN_ERR_IF_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 

@@ -842,33 +842,22 @@ static bool32 mes_is_empty_queue_count(const mq_context_t *mq_ctx, mes_priority_
     return CM_TRUE;
 }
 
-void mes_task_proc(thread_t *thread)
+void mes_task_proc_inner(thread_t *thread)
 {
-    char thread_name[CM_MAX_THREAD_NAME_LEN];
     task_arg_t *arg = (task_arg_t *)thread->argument;
+    mq_context_t *mq_ctx = arg->mq_ctx;
+    cm_event_t *event = &arg->event;
     uint32 my_task_index = arg->index;
     bool32 is_send = arg->is_send;
-    mq_context_t *mq_ctx = arg->mq_ctx;
-    mes_msgqueue_t finished_msgitem_queue;
     mes_msgitem_t *msgitem;
-    mes_init_msgqueue(&finished_msgitem_queue);
     mes_msgqueue_t *my_queue = &mq_ctx->tasks[my_task_index].queue;
     mes_context_t *mes_ctx = (mes_context_t *)mq_ctx->mes_ctx;
+    mes_msgqueue_t finished_msgitem_queue;
+    mes_init_msgqueue(&finished_msgitem_queue);
 
-    if (is_send) {
-        PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_sender_%u", my_task_index));
-    } else {
-        PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_worker_%u", my_task_index));
-    }
-    cm_set_thread_name(thread_name);
-
-    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
-    if (!is_send && cb_thread_init != NULL) {
-        cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
-        LOG_RUN_INF("[mes] mes_task_proc thread init callback: cb_thread_init done");
-    }
 
     mes_task_priority_t *task_priority = mes_get_task_priority(my_task_index, is_send);
+    CM_RETURN_IF_NULL_PTR(task_priority);
     mes_priority_t priority = task_priority->priority;
     bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
     uint32 start_task_idx = task_priority->start_task_idx;
@@ -880,7 +869,7 @@ void mes_task_proc(thread_t *thread)
     while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         is_empty = mes_is_empty_queue_count(mq_ctx, priority);
         if (is_empty) {
-            if (cm_event_timedwait(&arg->event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
+            if (cm_event_timedwait(event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
                 continue;
             }
         }
@@ -925,6 +914,35 @@ void mes_task_proc(thread_t *thread)
             mes_free_msgitems(&mq_ctx->pool, &finished_msgitem_queue);
         }
     }
+
+    mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
+    if (!is_send && cb_thread_deinit != NULL) {
+        cb_thread_deinit();
+        LOG_RUN_INF("[mes] mes_task_proc thread deinit callback: cb_thread_deinit done");
+    }
+    LOG_RUN_INF("[mes] work thread closed, tid:%lu, close:%u", thread->id, thread->closed);
+}
+
+void mes_task_proc(thread_t *thread)
+{
+    char thread_name[CM_MAX_THREAD_NAME_LEN];
+    task_arg_t *arg = (task_arg_t *)thread->argument;
+    uint32 my_task_index = arg->index;
+    bool32 is_send = arg->is_send;
+
+    if (is_send) {
+        PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_sender_%u", my_task_index));
+    } else {
+        PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_worker_%u", my_task_index));
+    }
+    cm_set_thread_name(thread_name);
+
+    mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
+    if (!is_send && cb_thread_init != NULL) {
+        cb_thread_init(CM_FALSE, (char **)&thread->reg_data);
+        LOG_RUN_INF("[mes] mes_task_proc thread init callback: cb_thread_init done");
+    }
+    mes_task_proc_inner(thread);
 
     mes_thread_deinit_t cb_thread_deinit = mes_get_worker_deinit_cb();
     if (!is_send && cb_thread_deinit != NULL) {
@@ -1143,4 +1161,36 @@ status_t mes_check_send_head_info(const mes_message_head_t *head)
     }
 
     return CM_SUCCESS;
+}
+
+static int mes_get_queue_count_internal(const mq_context_t *mq_ctx, mes_priority_t priority)
+{
+    if (mq_ctx == NULL) {
+        return 0;
+    }
+    const mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority];
+    if (task_priority == NULL) {
+        return 0;
+    }
+
+    uint32 start_task_index = task_priority->start_task_idx;
+    uint32 end_task_index = start_task_index + task_priority->task_num;
+    uint32 total = 0;
+    for (uint32 i = start_task_index; i < end_task_index; i++) {
+        total += mq_ctx->tasks[i].queue.count;
+    }
+    return (int)total;
+}
+
+int mes_get_queue_count(bool8 is_send, mes_priority_t priority)
+{
+    if (SECUREC_UNLIKELY(priority >= MES_PRIORITY_CEIL)) {
+        LOG_RUN_ERR("[mes] mes_get_queue_count, invalid priority %u.", priority);
+        return -1;
+    }
+
+    if (is_send) {
+        return mes_get_queue_count_internal(&MES_GLOBAL_INST_MSG.send_mq, priority);
+    }
+    return mes_get_queue_count_internal(&MES_GLOBAL_INST_MSG.recv_mq, priority);
 }
