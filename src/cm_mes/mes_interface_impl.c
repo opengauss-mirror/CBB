@@ -306,6 +306,7 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     int32 wait_time = 0;
     mes_message_t msg;
     mes_waiting_room_t *room = mes_ruid_get_room(ruid);
+    CM_ASSERT(room != NULL);
 
     if (room == NULL) {
         LOG_DEBUG_ERR("[mes]ruid%llu:(%llu-%llu) gives invalid room",
@@ -504,6 +505,7 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
     MES_RETURN_IF_BAD_RUID(ruid);
     int32 wait_time = 0;
     mes_waiting_room_t *room = mes_ruid_get_room(ruid);
+    CM_ASSERT(room != NULL);
 
     for (;;) {
         if (room->req_count == 0) {

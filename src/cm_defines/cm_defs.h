@@ -217,19 +217,11 @@ void cm_free_prot(void *pointer);
     } while (0)
 
 // check the pointer to NULL
-#define CM_RETURN_ERR_IF_NULL_PTR(pointer)      \
+#define CM_CHECK_NULL_PTR(pointer)      \
     do {                          \
         if (SECUREC_UNLIKELY((pointer) == NULL)) { \
             CM_THROW_ERROR(ERR_NULL_PTR, (uint64)0, "the value is null"); \
             return CM_ERROR;     \
-        }                        \
-    } while (0)
-
-#define CM_RETURN_IF_NULL_PTR(pointer)      \
-    do {                          \
-        if (SECUREC_UNLIKELY((pointer) == NULL)) { \
-            CM_THROW_ERROR(ERR_NULL_PTR, (uint64)0, "the value is null"); \
-            return;              \
         }                        \
     } while (0)
 
