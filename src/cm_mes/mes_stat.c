@@ -32,9 +32,9 @@ static void mes_consume_time_init(const mes_profile_t *profile)
     for (uint32 j = 0; j < CM_MAX_MES_MSG_CMD; j++) {
         g_mes_elapsed_stat.time_consume_stat[j].cmd = j;
         for (int i = 0; i < MES_TIME_CEIL; i++) {
-            g_mes_elapsed_stat.time_consume_stat[j].time[i] = 0;
-            g_mes_elapsed_stat.time_consume_stat[j].count[i] = 0;
-            GS_INIT_SPIN_LOCK(g_mes_elapsed_stat.time_consume_stat[j].lock[i]);
+            g_mes_elapsed_stat.time_consume_stat[j].cmd_time_stats[i].time = 0;
+            g_mes_elapsed_stat.time_consume_stat[j].cmd_time_stats[i].count = 0;
+            GS_INIT_SPIN_LOCK(g_mes_elapsed_stat.time_consume_stat[j].cmd_time_stats[i].lock);
         }
     }
     g_mes_elapsed_stat.mes_elapsed_switch = profile->mes_elapsed_switch;
@@ -126,12 +126,12 @@ void mes_set_elapsed_switch(unsigned char elapsed_switch)
 
 uint64 mes_get_elapsed_time(unsigned int cmd, mes_time_stat_t type)
 {
-    return g_mes_elapsed_stat.time_consume_stat[cmd].time[type];
+    return g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].time;
 }
 
 uint64 mes_get_elapsed_count(unsigned int cmd, mes_time_stat_t type)
 {
-    return (uint64)g_mes_elapsed_stat.time_consume_stat[cmd].count[type];
+    return (uint64)g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count;
 }
 
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time)
@@ -139,8 +139,8 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
     unsigned long long cnt = 0;
     unsigned long long time = 0;
     for (int type = 0; type < MES_TIME_CEIL; ++type) {
-        cnt += g_mes_elapsed_stat.time_consume_stat[cmd].count[type];
-        time += g_mes_elapsed_stat.time_consume_stat[cmd].time[type];
+        cnt += g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count;
+        time += g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].time;
     }
     if (event_cnt != NULL) {
         *event_cnt = cnt;

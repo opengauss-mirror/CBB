@@ -162,7 +162,7 @@ typedef struct st_mes_profile {
     mes_buffer_pool_attr_t buffer_pool_attr[MES_PRIORITY_CEIL];
     unsigned int channel_cnt;
     unsigned int priority_cnt;
-    unsigned int mes_elapsed_switch;
+    unsigned char mes_elapsed_switch;
     unsigned char rdma_rpc_use_busypoll;    // busy poll need to occupy the cpu core
     unsigned char rdma_rpc_is_bind_core;
     unsigned char rdma_rpc_bind_core_start;
@@ -564,6 +564,13 @@ long long mes_calc_mem_usage(mes_profile_t *profile);
  * @return
  */
 void mes_get_all_threads(mes_thread_set_t *mes_thread_set);
+
+/*
+ * @brief set elapsed_switch
+ * @param elapsed_switch - elapsed_switch value
+ * @return
+ */
+void mes_set_elapsed_switch(unsigned char elapsed_switch);
 
 #ifdef __cplusplus
 }
