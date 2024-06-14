@@ -1491,10 +1491,10 @@ status_t cs_ssl_accept_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    CM_RETURN_ERR_IF_NULL_PTR(ctx);
+    CM_CHECK_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    CM_RETURN_ERR_IF_NULL_PTR(ssl);
+    CM_CHECK_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 
@@ -1536,10 +1536,10 @@ status_t cs_ssl_connect_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     status_t status;
 
     ctx = SSL_CTX_PTR(link->ssl_ctx);
-    CM_RETURN_ERR_IF_NULL_PTR(ctx);
+    CM_CHECK_NULL_PTR(ctx);
 
     ssl = cs_ssl_create_socket(ctx, sock);
-    CM_RETURN_ERR_IF_NULL_PTR(ssl);
+    CM_CHECK_NULL_PTR(ssl);
     link->tcp.sock = sock;
     link->ssl_sock = (ssl_sock_t *)ssl;
 

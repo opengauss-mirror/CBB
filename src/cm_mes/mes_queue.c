@@ -857,7 +857,6 @@ void mes_task_proc_inner(thread_t *thread)
 
 
     mes_task_priority_t *task_priority = mes_get_task_priority(my_task_index, is_send);
-    CM_RETURN_IF_NULL_PTR(task_priority);
     mes_priority_t priority = task_priority->priority;
     bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
     uint32 start_task_idx = task_priority->start_task_idx;

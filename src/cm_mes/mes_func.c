@@ -971,7 +971,7 @@ void mes_notify_msg_recv(mes_message_t *msg)
     }
 
     mes_waiting_room_t *room = mes_ruid_get_room(msg->head->ruid);
-    CM_RETURN_IF_NULL_PTR(room);
+    CM_ASSERT(room != NULL);
     while (room->room_status == STATUS_BCAST_SENDING) {
         cm_usleep(1);
     }
@@ -2071,7 +2071,7 @@ void mes_discard_response(ruid_type ruid)
         return;
     }
     mes_waiting_room_t *room = mes_ruid_get_room(*(unsigned long long *)(&ruid));
-    CM_RETURN_IF_NULL_PTR(room);
+    CM_ASSERT(room != NULL);
     cm_spin_lock(&room->lock, NULL);
     if (room->rsn == ((ruid_t *)(&ruid))->rsn && room->check_rsn != ((ruid_t *)(&ruid))->rsn) {
         room->rsn = (uint64)cm_atomic_inc((atomic_t *)(&room->rsn));
