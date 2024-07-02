@@ -110,6 +110,16 @@ typedef enum en_mes_time_stat {
     MES_TIME_CEIL
 } mes_time_stat_t;
 
+typedef enum en_mes_mem_stat {
+    MEM_RECEIVE_BUF_POOL = 0,
+    MEM_CHANNEL_MEM = 1,
+    MEM_ROOM_BROADCAST = 2,
+    MEM_RECEIVE_MSGQUEUE = 3,
+    MEM_RECEIVE_MSGITEM = 4,
+    // bottom, please add above.
+    MES_MEM_STAT_ROW_RESULT_COUNT
+} mes_mem_stat_t;
+
 typedef enum en_compress_algorithm {
     COMPRESS_NONE = 0,
     COMPRESS_LZ4 = 1,
@@ -240,6 +250,13 @@ typedef struct st_mes_task_priority_info {
     unsigned long long finished_msgitem_num;
     unsigned long long msgitem_free_num;
 } mes_task_priority_info_t;
+
+typedef struct st_mes_mem_info_stat {
+    const char *area;
+    unsigned long long total;
+    unsigned long long used;
+    double used_percentage;
+} mes_mem_info_stat_t;
 
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef void (*mes_thread_deinit_t)();
@@ -597,6 +614,20 @@ void mes_set_elapsed_switch(unsigned char elapsed_switch);
 void mes_set_cur_msg_info(unsigned int work_id, void *data, unsigned int size);
 int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_info);
 int mes_get_worker_priority_info(unsigned int priority_id, mes_task_priority_info_t *mes_task_priority_info);
+
+/*
+ * @brief collect the memory usage of the CBB.
+ * @return
+ */
+void mes_collect_mem_usage_stat();
+
+/*
+ * @brief retrieve cbb mem statistics
+ * @[in]param mem_id - the type of buffer
+ * @[in]param mes_mem_stat_row_result - the info of the happenings of every cbb item mem
+ * @return
+ */
+void mes_get_mem_usage_stat_row(mes_mem_stat_t mem_id, mes_mem_info_stat_t *mes_mem_stat_row_result);
 
 #ifdef __cplusplus
 }
