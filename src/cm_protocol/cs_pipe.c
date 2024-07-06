@@ -661,7 +661,7 @@ status_t cs_call_timed(cs_pipe_t *pipe, cs_packet_t *req, cs_packet_t *ack)
 
 
 #define LOOPBACK_ADDRESS "127.0.0.1"
-void cm_get_remote_host(cs_pipe_t *pipe, char *os_host)
+void cs_get_remote_host(cs_pipe_t *pipe, char *os_host)
 {
     if (pipe->type == CS_TYPE_TCP || pipe->type == CS_TYPE_SSL) {
         (void)cm_inet_ntop((struct sockaddr *)&pipe->link.tcp.remote.addr, os_host, (int)CM_HOST_NAME_BUFFER_SIZE);
