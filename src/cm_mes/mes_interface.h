@@ -186,6 +186,9 @@ typedef struct st_mes_profile {
     struct {
         // Indicates whether to connected to other instances during MES initialization
         unsigned int conn_created_during_init : 1;
+        // mes_with_ip: for IP white list check, decides whether local IP is sent in msg or not
+        unsigned int mes_with_ip : 1; // 0: IP address is NOT sent, 1: IP address is sent
+        unsigned int ip_white_list_on : 1; // 0: disable IP white list check, 1: enable IP white list
         // 0:support send request and get response 1:no support send request and get response
         unsigned int disable_request : 1;
         // Indicates whether to maintain the message execution sequence at the thread level between instances.
