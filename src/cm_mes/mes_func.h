@@ -316,28 +316,53 @@ int mes_send_bufflist(mes_bufflist_t *buff_list);
 void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg);
 
 typedef struct st_mes_command_stat {
-    uint32 cmd;
-    int64 send_count;
-    int64 recv_count;
-    int64 local_count;
-    atomic32_t occupy_buf;
-    spinlock_t lock;
+    union {
+        struct {
+            uint32 cmd;
+            int64 send_count;
+            int64 recv_count;
+            int64 local_count;
+            atomic32_t occupy_buf;
+            spinlock_t lock;
+        };
+        char padding[CM_CACHE_LINE_SIZE];
+    };
 } mes_command_stat_t;
 
+typedef struct st_mes_command_time_stat {
+    union {
+        struct {
+            uint64 time;
+            int64 count;
+            spinlock_t lock;
+        };
+        char padding[CM_CACHE_LINE_SIZE];
+    };
+}mes_command_time_stat_t;
+
 typedef struct st_mes_time_consume {
-    uint32 cmd; // command
-    uint64 time[MES_TIME_CEIL];
-    int64 count[MES_TIME_CEIL];
-    spinlock_t lock[MES_TIME_CEIL];
+    mes_command_time_stat_t cmd_time_stats[MES_TIME_CEIL];
+    union {
+        uint32 cmd;
+        char aligned1[CM_CACHE_LINE_SIZE];
+    };
 } mes_time_consume_t;
 
 typedef struct st_mes_elapsed_stat {
-    bool32 mes_elapsed_switch;
+    char aligned1[CM_CACHE_LINE_SIZE];
+    union {
+        bool8 mes_elapsed_switch;
+        char aligned2[CM_CACHE_LINE_SIZE];
+    };
     mes_time_consume_t time_consume_stat[CM_MAX_MES_MSG_CMD];
 } mes_elapsed_stat_t;
 
 typedef struct st_mes_stat {
-    bool32 mes_elapsed_switch;
+    char aligned1[CM_CACHE_LINE_SIZE];
+    union {
+        bool8 mes_elapsed_switch;
+        char aligned2[CM_CACHE_LINE_SIZE];
+    };
     mes_command_stat_t mes_command_stat[CM_MAX_MES_MSG_CMD];
 } mes_stat_t;
 
@@ -364,10 +389,10 @@ static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint6
 {
     if (g_mes_elapsed_stat.mes_elapsed_switch) {
         uint64 elapsed_time = cm_get_time_usec() - start_time;
-        cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]), NULL);
-        g_mes_elapsed_stat.time_consume_stat[cmd].time[type] += elapsed_time;
-        cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].lock[type]));
-        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].count[type]));
+        cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock), NULL);
+        g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].time += elapsed_time;
+        cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock));
+        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count));
     }
     return;
 }
@@ -375,7 +400,7 @@ static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint6
 static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
 {
     if (g_mes_elapsed_stat.mes_elapsed_switch) {
-        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].count[type]));
+        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count));
     }
     return;
 }
