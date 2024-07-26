@@ -50,6 +50,8 @@ typedef enum en_log_type {
     LOG_TRACE,
     LOG_PROFILE,
     LOG_BLACKBOX,
+    LOG_DMS_EVT_TRC,
+    LOG_DMS_RFM_TRC,
     LOG_COUNT // LOG COUNT
 } log_type_t;
 
@@ -57,6 +59,14 @@ typedef enum en_log_type {
 typedef void (*usr_cb_log_output_t)(int log_type, int log_level,
     const char *code_file_name, unsigned int code_line_num,
     const char *module_name, const char *format, ...);
+
+typedef void (*usr_cb_log_trace_t)(int log_type, int log_level,
+    const char *code_file_name, unsigned int code_line_num,
+    const char *module_name, const char *format, ...);
+
+typedef void (*usr_cb_dyn_trc_set_flag_t)(unsigned char val);
+
+typedef unsigned char (*usr_cb_dyn_trc_log_t)(void);
 
 typedef struct st_log_param {
     char log_home[CM_MAX_LOG_HOME_LEN];
@@ -72,6 +82,9 @@ typedef struct st_log_param {
     volatile uint64 max_audit_file_size;
     bool32 log_instance_startup;
     usr_cb_log_output_t log_write;
+    usr_cb_log_trace_t dyn_trace;
+    usr_cb_dyn_trc_set_flag_t dyn_trc_set_flag;
+    usr_cb_dyn_trc_log_t dyn_trc_trace_logs;
     volatile bool32 log_suppress_enable;
     char instance_name[CM_MAX_NAME_LEN];
     volatile uint32 audit_level;
@@ -120,6 +133,9 @@ log_param_t *cm_log_param_instance(void);
 
 #define LOG_MODULE_NAME (cm_log_param_instance()->log_module_name)
 
+#define CM_DYNAMIC_TRACE_ENABLED (cm_log_param_instance()->dyn_trace != NULL)
+#define CM_DYN_TRC_TRACE_LOGS (cm_log_param_instance()->dyn_trc_trace_logs())
+
 typedef struct st_log_file_handle {
     spinlock_t lock;
     char file_name[CM_FULL_PATH_BUFFER_SIZE]; // log file with the path
@@ -161,6 +177,7 @@ void cm_write_alarm_log(uint32 warn_id, const char *format, ...) CM_CHECK_FMT(2,
 void cm_write_normal_log(log_type_t log_type, log_level_t log_level, const char *code_file_name, uint32 code_line_num,
     const char *module_name, bool32 need_rec_filelog, const char *format, ...) CM_CHECK_FMT(7, 8);
 void cm_write_trace_log(uint64 tracekey, const char *format, ...);
+void cm_write_dynamic_trace_log(uint32 type, char* buf, uint32 size);
 void cm_fync_logfile(void);
 void cm_close_logfile(void);
 status_t cm_set_log_module_name(const char *module_name, int32 len);
@@ -168,6 +185,14 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
     uint32 code_line_num, const char *module_name, bool32 need_rec_filelog, const char *format, va_list args);
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
+
+#define LOG_DYNAMIC_TRACE(format, ...)                                                                          \
+    do {                                                                                                        \
+        if (CM_DYNAMIC_TRACE_ENABLED) {                                                                         \
+            cm_log_param_instance()->dyn_trace(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,  \
+                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                        \
+        };                                                                                                      \
+    } while (0)
 
 #define LOG_BLACKBOX_INF(format, ...)                                 \
     do {                                                              \
@@ -178,6 +203,10 @@ status_t cm_recovery_log_file(log_type_t log_type);
 
 #define LOG_DEBUG_INF(format, ...)                                                                               \
     do {                                                                                                         \
+        if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
+            cm_log_param_instance()->dyn_trace(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,   \
+                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
+        }                                                                                                        \
         if (LOG_DEBUG_INF_ON) {                                                                                  \
             if (LOG_REG_CB) {                                                                                    \
                 cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,    \
@@ -191,6 +220,10 @@ status_t cm_recovery_log_file(log_type_t log_type);
 
 #define LOG_DEBUG_WAR(format, ...)                                                                               \
     do {                                                                                                         \
+        if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
+            cm_log_param_instance()->dyn_trace(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,   \
+                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
+        }                                                                                                        \
         if (LOG_DEBUG_WAR_ON) {                                                                                  \
             if (LOG_REG_CB) {                                                                                    \
                 cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,    \
@@ -203,6 +236,10 @@ status_t cm_recovery_log_file(log_type_t log_type);
     } while (0)
 #define LOG_DEBUG_ERR(format, ...)                                                                               \
     do {                                                                                                         \
+        if (CM_DYNAMIC_TRACE_ENABLED) {                                                                           \
+            cm_log_param_instance()->dyn_trace(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,  \
+                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
+        }                                                                                                        \
         if (LOG_DEBUG_ERR_ON) {                                                                                  \
             if (LOG_REG_CB) {                                                                                    \
                 cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,   \
@@ -212,6 +249,13 @@ status_t cm_recovery_log_file(log_type_t log_type);
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
+    } while (0)
+
+#define CM_SS_DYN_TRC_SET_TRACE_FLAG(val)                       \
+    do {                                                        \
+        if (CM_DYNAMIC_TRACE_ENABLED) {                         \
+            cm_log_param_instance()->dyn_trc_set_flag(val);     \
+        }                                                       \
     } while (0)
 
 // 10s print 5 times
@@ -351,6 +395,16 @@ void cm_write_mec_log(const char *format, ...);
         }                                                         \
     } while (0)
 
+#define LOG_DMS_EVENT_TRACE(buf, size)                              \
+    do {                                                            \
+        cm_write_dynamic_trace_log(LOG_DMS_EVT_TRC, buf, size);     \
+    } while (0)
+
+#define LOG_DMS_REFORM_TRACE(buf, size)                             \
+    do {                                                            \
+        cm_write_dynamic_trace_log(LOG_DMS_RFM_TRC, buf, size);     \
+    } while (0)
+
 #define LOG_PROFILE(format, ...)                                                                                     \
     do {                                                                                                             \
         if (LOG_PROFILE_ON) {                                                                                        \
@@ -445,6 +499,15 @@ typedef enum st_warn_name {
 #define LOG_INHIBIT_LEVEL3          10000       // every 10000 logs record one log
 #define LOG_INHIBIT_LEVEL4          100000      // every 100000 logs record one log
 #define LOG_INHIBIT_LEVEL5          1000000     // every 1000000 logs record one log
+
+#define LOG_DMS_EVENT_TRACE_INHIBIT(level, buf, size)                   \
+    do {                                                                \
+        static uint32 _log_inhibit_ = 0;                                \
+        if (_log_inhibit_ % (level) == 0) {                             \
+            LOG_DMS_EVENT_TRACE(buf, size);                             \
+        }                                                               \
+        _log_inhibit_++;                                                \
+    } while (0)
 
 #define LOG_DEBUG_ERR_INHIBIT(level, format, ...)                       \
     do {                                                                \

@@ -174,6 +174,7 @@ void cm_reset_error(void)
 {
     g_tls_error.code = 0;
     g_tls_error.message[0] = '\0';
+    CM_SS_DYN_TRC_SET_TRACE_FLAG(CM_FALSE);
 }
 
 int cm_get_os_error(void)
@@ -277,6 +278,8 @@ void cm_set_error(const char *file, uint32 line, cm_errno_t code, const char *fo
 {
     va_list args;
     va_start(args, format);
+
+    CM_SS_DYN_TRC_SET_TRACE_FLAG(CM_TRUE);
 
     if (g_error_handler == NULL) {
         cm_set_error_default(code, format, args);

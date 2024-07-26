@@ -1007,10 +1007,11 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
     }
 
-    LOG_DEBUG_INF("[mes] Begin tcp send buffer, buff list cnt=%u, cmd=%u, ruid=%llu(%llu-%llu), src_inst=%u, "
-                  "dst_inst=%u, size=%u, flags=%u, pipe version=%u, channel_id %u.",
-                  buff_list->cnt, (head)->cmd, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
-                  (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
+    LOG_DEBUG_INF("[mes][%llu(%llu-%llu)]tcpsndlist, cnt=%u, cmd=%u, src=%u, "
+                  "dst=%u, sz=%u, flags=%u, pver=%u, cid %u.",
+                  (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
+                  (uint64)MES_RUID_GET_RSN((head)->ruid), buff_list->cnt, (head)->cmd,
+                  (head)->src_inst, (head)->dst_inst, (head)->size,
                   (head)->flags, version, MES_CHANNEL_ID(pipe->channel->id));
 
     if (CS_DIFFERENT_ENDIAN(pipe->send_pipe.options)) {
