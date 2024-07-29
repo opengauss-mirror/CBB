@@ -318,8 +318,6 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
         LOG_DEBUG_INF("[mes]room wait canceled by caller, ruid%llu:(%llu-%llu), room(%llu-%llu)",
             (uint64)ruid, (uint64)MES_RUID_GET_RID(ruid), (uint64)MES_RUID_GET_RSN(ruid),
             (uint64)room->room_index, (uint64)room->rsn);
-        LOG_DYNAMIC_TRACE("[MES][%llu][%llu-%llu]wait canceled",
-            (uint64)ruid, room->room_index, room->rsn);
         mes_protect_when_timeout(room);
         mes_free_room(room);
         return CM_SUCCESS;
@@ -331,10 +329,8 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
             if (wait_time >= timeout_ms || MES_WAITS_INTERRUPTED) {
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_timeout(room);
-                LOG_DEBUG_WAR("[mes]room wait timeout, ruid=%llu(%llu-%llu), INT=%u",
+                LOG_DYN_TRC_WAR("[MES][%llu][%llu-%llu]RWT, INT=%u",
                     (uint64)ruid, (uint64)room->room_index, room->rsn, MES_WAITS_INTERRUPTED);
-                LOG_DYNAMIC_TRACE("[MES][%llu][%llu-%llu]RWT, INT=%u",
-                    (uint64)ruid, (uint64)room->room_index, MES_WAITS_INTERRUPTED);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;
             }
