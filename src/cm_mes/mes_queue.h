@@ -137,7 +137,10 @@ typedef struct st_mq_context_t {
     void *mes_ctx;
     mes_mq_priority_t priority;
     spinlock_t msg_pool_init_lock;
-    mes_pool_t *msg_pool[MES_MAX_INSTANCES][MES_PRIORITY_CEIL];
+    bool8 enable_inst_dimension;
+    mes_msg_pool_t *single_pool;
+    mes_msg_inst_pool_set_t inst_pool_set;
+    bool8 msg_pool_inited;
 } mq_context_t;
 
 #define PROC_DIFF_ENDIAN(head)                                      \

@@ -60,22 +60,23 @@ uint64 mes_calc_room_pool()
     return total_mem;
 }
 
-uint64 mes_calc_buffer_pool_mem(mes_profile_t *profile)
+uint64 mes_calc_buffer_pool_mem(mes_profile_t *profile, bool8 is_send)
 {
-    uint64 total_mem = 0;
-    for (uint32 i = 0; i < profile->priority_cnt; i++) {
-        total_mem += mes_calc_message_pool_size(profile, i);
+    if (is_send && profile->send_directly &&
+        (profile->enable_compress_priority == 0 || profile->algorithm == COMPRESS_NONE ||
+        profile->algorithm >= COMPRESS_CEIL)) {
+        return 0;
     }
-    return total_mem;
+    return profile->msg_pool_attr.total_size;
 }
 
 long long mes_calc_mem_usage(mes_profile_t *profile)
 {
     // mes send buffer pool
     uint64 total_mem = 0;
-    total_mem += mes_calc_buffer_pool_mem(profile) * (CM_MAX_INSTANCES - 1);
+    total_mem += mes_calc_buffer_pool_mem(profile, CM_TRUE);
     // mes receive buffer pool
-    total_mem += mes_calc_buffer_pool_mem(profile) * CM_MAX_INSTANCES;
+    total_mem += mes_calc_buffer_pool_mem(profile, CM_FALSE);
     // mes channels
     total_mem += mes_calc_channels_mem(profile->channel_cnt);
     // mes room pool
@@ -90,13 +91,13 @@ static void calc_percentage(mes_mem_info_stat_t *mem_stat_row_results)
     mem_stat_row_results->used_percentage = used_percentage;
 }
 
-uint64 mes_get_mem_remain_from_pool(mes_pool_t *pool)
+uint64 mes_get_mem_remain_from_pool(mes_msg_pool_t *pool)
 {
     uint64 remain_size = 0;
-    for (uint32 i = 0; i < pool->count; i++) {
-        mes_buf_chunk_t *chunk = &pool->chunk[i];
-        for (uint32 j = 0; j < chunk->queue_num; j++) {
-            mes_buf_queue_t *queue = &chunk->queues[j];
+    for (uint8 buf_pool_no = 0; buf_pool_no < pool->buf_pool_count; buf_pool_no++) {
+        mes_msg_buffer_inner_pool_t *shared_pool = &pool->buf_pool[buf_pool_no]->shared_pool;
+        for (uint32 qn = 0; qn < shared_pool->queue_num; qn++) {
+            mes_buf_queue_t *queue = &shared_pool->queues[qn];
             remain_size += (uint64)queue->count * queue->buf_size;
         }
     }
@@ -106,17 +107,13 @@ uint64 mes_get_mem_remain_from_pool(mes_pool_t *pool)
 uint64 mes_calc_buffer_pool_remain(bool32 is_send)
 {
     uint64 remain_size = 0;
-    mes_pool_t *pool;
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
 
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (is_send && (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id)) {
-            continue;
-        }
-        for (uint32 priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
-            pool = mq_ctx->msg_pool[inst_id][priority];
-            remain_size += mes_get_mem_remain_from_pool(pool);
+    if (!mq_ctx->enable_inst_dimension) {
+        remain_size = mes_get_mem_remain_from_pool(mq_ctx->single_pool);
+    } else {
+        for (int inst_id = 0; inst_id < mq_ctx->inst_pool_set.inst_pool_count; inst_id++) {
+            remain_size += mes_get_mem_remain_from_pool(mq_ctx->inst_pool_set.inst_pool[inst_id]);
         }
     }
     return remain_size;
@@ -140,8 +137,7 @@ static uint64 get_msg_item_unused_num()
 void mes_collect_mem_usage_stat()
 {
     // mes receive buffer pool
-    g_mes_mem_info_stat[MEM_RECEIVE_BUF_POOL].total =
-        mes_calc_buffer_pool_mem(&MES_GLOBAL_INST_MSG.profile) * (MES_GLOBAL_INST_MSG.profile.inst_cnt);
+    g_mes_mem_info_stat[MEM_RECEIVE_BUF_POOL].total = mes_calc_buffer_pool_mem(&MES_GLOBAL_INST_MSG.profile, CM_FALSE);
     g_mes_mem_info_stat[MEM_RECEIVE_BUF_POOL].used =
         g_mes_mem_info_stat[MEM_RECEIVE_BUF_POOL].total - mes_calc_buffer_pool_remain(CM_FALSE);
     calc_percentage(&g_mes_mem_info_stat[MEM_RECEIVE_BUF_POOL]);

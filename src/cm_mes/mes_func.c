@@ -21,6 +21,8 @@
  *
  * -------------------------------------------------------------------------
  */
+#include <float.h>
+#include <math.h>
 #include "mes_func.h"
 #include "cm_ip.h"
 #include "cm_memory.h"
@@ -343,44 +345,18 @@ static int mes_set_priority_task_worker_num(mes_priority_t priority, uint32 task
     return CM_SUCCESS;
 }
 
-static int mes_set_buffer_pool(const mes_profile_t *profile)
+int mes_set_msg_pool(mes_profile_t *profile)
 {
-    for (uint32 priority = 0; priority < profile->priority_cnt; priority++) {
-        uint32 pool_count = profile->buffer_pool_attr[priority].pool_count;
-        uint32 queue_count = profile->buffer_pool_attr[priority].queue_count;
-
-        if ((pool_count == 0) || (pool_count > MES_MAX_BUFFPOOL_NUM)) {
-            LOG_RUN_ERR("[mes] pool_count %u is invalid, legal scope is [1, %d], priority:%u.",
-                        pool_count, MES_MAX_BUFFPOOL_NUM, priority);
-            return CM_ERROR;
-        }
-
-        if ((queue_count == 0) || (queue_count > MES_MAX_BUFFER_QUEUE_NUM)) {
-            LOG_RUN_ERR("[mes] pool_queue_count %u is invalid, legal scope is [1, %d], priority:%u.",
-                        queue_count, MES_MAX_BUFFER_QUEUE_NUM, priority);
-            return CM_ERROR;
-        }
-
-        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].pool_count = pool_count;
-        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].queue_count = queue_count;
-
-        uint32 max_index = 0;
-        for (uint32 i = 0; i < pool_count; i++) {
-            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size =
-                    profile->buffer_pool_attr[priority].buf_attr[i].size + (unsigned int)sizeof(mes_message_head_t);
-            MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].count =
-                    profile->buffer_pool_attr[priority].buf_attr[i].count;
-            if (MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[max_index].size <
-                MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[i].size) {
-                max_index = i;
-            }
-        }
-
-        // for compress reserved
-        MES_GLOBAL_INST_MSG.profile.buffer_pool_attr[priority].buf_attr[max_index].size += MES_BUFFER_RESV_SIZE;
+    int ret = mes_check_msg_pool_attr(profile, &MES_GLOBAL_INST_MSG.profile, CM_TRUE, NULL);
+    if (ret != CM_SUCCESS) {
+        return ret;
     }
 
-    return CM_SUCCESS;
+    ret = mes_check_message_pool_size(profile);
+    if (ret != CM_SUCCESS) {
+        return ret;
+    }
+    return ret;
 }
 
 void mes_set_specified_priority_enable_compress(mes_priority_t priority, bool8 enable_compress)
@@ -545,11 +521,6 @@ static int mes_set_profile(mes_profile_t *profile)
         return ret;
     }
 
-    ret = mes_set_buffer_pool(profile);
-    if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes]: set buffer pool failed.");
-        return ret;
-    }
     MES_GLOBAL_INST_MSG.profile.pipe_type = profile->pipe_type;
     MES_GLOBAL_INST_MSG.profile.conn_created_during_init = profile->conn_created_during_init;
     MES_GLOBAL_INST_MSG.profile.frag_size = profile->frag_size;
@@ -589,6 +560,12 @@ static int mes_set_profile(mes_profile_t *profile)
     if (ret != EOK) {
         LOG_RUN_ERR("[mes]: set work_task_count failed.");
         return ERR_MES_MEMORY_COPY_FAIL;
+    }
+
+    ret = mes_set_msg_pool(profile);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes]: set msg pool failed.");
+        return ret;
     }
 
     // pipe work method and bind core
@@ -842,32 +819,16 @@ static int mes_start_work_thread_statically(bool32 is_send)
 
 static int mes_init_mq_instance(bool32 is_send)
 {
-    LOG_RUN_INF("[mes] mes_init_mq_instance begin.");
-    int ret;
     mq_context_t *mq_ctx = is_send ? &MES_GLOBAL_INST_MSG.send_mq : &MES_GLOBAL_INST_MSG.recv_mq;
+    
+    LOG_RUN_INF("[mes] mes_init_mq_instance begin, is_send:%u.", is_send);
+    int ret;
     for (uint32 loop = 0; loop < MES_MAX_TASK_NUM; loop++) {
         mq_ctx->tasks[loop].choice = 0;
         mes_init_msgqueue(&mq_ctx->tasks[loop].queue);
     }
 
     mes_init_msgitem_pool(&mq_ctx->pool);
-    GS_INIT_SPIN_LOCK(mq_ctx->msg_pool_init_lock);
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (is_send && (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id)) {
-            continue;
-        }
-        for (uint32 priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
-            if (mes_init_message_pool(is_send, inst_id, priority) != CM_SUCCESS) {
-                for (uint32 k = 0; k < i; k++) {
-                    for (uint32 priority1 = 0; priority1 < priority; priority1++) {
-                        mes_destroy_message_pool(is_send, inst_id, priority1);
-                    }
-                }
-                return CM_ERROR;
-            }
-        }
-    }
 
     mq_ctx->priority.assign_task_idx = 0;
     ret = mes_init_priority_task(is_send);
@@ -876,12 +837,23 @@ static int mes_init_mq_instance(bool32 is_send)
         return ret;
     }
 
+    mq_ctx->enable_inst_dimension = MES_GLOBAL_INST_MSG.profile.msg_pool_attr.enable_inst_dimension;
+    mq_ctx->msg_pool_inited = CM_FALSE;
+    GS_INIT_SPIN_LOCK(mq_ctx->msg_pool_init_lock);
+    ret = mes_init_message_pool(is_send);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes][msg pool] mes init message pool failed, is_send:%u.",
+            is_send);
+        return ret;
+    }
+
     ret = mes_start_work_thread_statically(is_send);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] mes start work thread statically failed, is_send:%u.", is_send);
         return ret;
     }
-    LOG_RUN_INF("[mes] mes_init_mq_instance end.");
+
+    LOG_RUN_INF("[mes] mes_init_mq_instance end, is_send:%u.", is_send);
     return CM_SUCCESS;
 }
 
@@ -1489,7 +1461,7 @@ void mes_uninit(void)
         mes_task_threadpool_uninit();
     }
     mes_destroy_msgitem_pool();
-    mes_destroy_all_message_pool();
+    mes_deinit_all_message_pool();
     mes_stop_channels();
     mes_destroy_resource();
     mes_destroy_all_broadcast_msg();
