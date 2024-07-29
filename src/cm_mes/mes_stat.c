@@ -27,6 +27,47 @@
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
 
+int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_info)
+{
+    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+    if (worker_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[worker_id].is_start) {
+        return CM_ERROR;
+    }
+    mes_worker_info->tid = mq_ctx->work_thread_idx[worker_id].tid;
+    mes_worker_info->priority = mq_ctx->work_thread_idx[worker_id].priority;
+    mes_worker_info->get_msgitem_time = mq_ctx->work_thread_idx[worker_id].get_msgitem_time;
+    mes_worker_info->is_active = mq_ctx->work_thread_idx[worker_id].is_active;
+    mes_worker_info->msg_ruid = mq_ctx->work_thread_idx[worker_id].msg_ruid;
+    mes_worker_info->msg_src_inst = mq_ctx->work_thread_idx[worker_id].msg_src_inst;
+    errno_t ret = memcpy_s(mes_worker_info->data, sizeof(mes_worker_info->data),
+        mq_ctx->work_thread_idx[worker_id].data, sizeof(mes_worker_info->data));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes] memcpy_s failed.");
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
+int mes_get_worker_priority_info(unsigned int priority_id, mes_task_priority_info_t *mes_task_priority_info)
+{
+    if (priority_id >= MES_GLOBAL_INST_MSG.profile.priority_cnt) {
+        return CM_ERROR;
+    }
+
+    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+    mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority_id];
+    if (!task_priority->is_set) {
+        return CM_ERROR;
+    }
+
+    mes_task_priority_info->priority = task_priority->priority;
+    mes_task_priority_info->worker_num = task_priority->task_num;
+    mes_task_priority_info->inqueue_msgitem_num = task_priority->inqueue_msgitem_num;
+    mes_task_priority_info->finished_msgitem_num = task_priority->finished_msgitem_num;
+    mes_task_priority_info->msgitem_free_num = 0;
+    return CM_SUCCESS;
+}
+
 static void mes_consume_time_init(const mes_profile_t *profile)
 {
     for (uint32 j = 0; j < CM_MAX_MES_MSG_CMD; j++) {

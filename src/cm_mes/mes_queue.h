@@ -95,6 +95,8 @@ typedef struct st_mes_task_priority {
     uint32 push_cursor;
     uint32 pop_cursor;
     char aligned2[CM_CACHE_LINE_SIZE];
+    uint64_t finished_msgitem_num;
+    uint64_t inqueue_msgitem_num;
 } mes_task_priority_t;
 
 typedef struct st_mes_mq_priority {
@@ -116,6 +118,13 @@ typedef struct st_task_arg {
     void *mq_ctx;
     uint32 index;
     cm_event_t event;
+    uint32 tid;
+    mes_priority_t priority;
+    uint64 get_msgitem_time;
+    uint64 msg_ruid;
+    uint32 msg_src_inst;
+    bool8 is_active;
+    char data[MES_INFO_LEN];
 } task_arg_t;
 
 typedef struct st_mq_context_t {

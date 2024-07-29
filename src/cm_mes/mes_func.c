@@ -331,6 +331,8 @@ static int mes_set_priority_task_worker_num(mes_priority_t priority, uint32 task
     task_priority->task_num = (uint8)task_num;
     task_priority->start_task_idx = (uint8)mq_ctx->priority.assign_task_idx;
     task_priority->priority = priority;
+    task_priority->finished_msgitem_num = 0;
+    task_priority->inqueue_msgitem_num = 0;
     mq_ctx->priority.assign_task_idx += task_num;
 
     LOG_RUN_INF("[mes] set priority %u start_task_idx %hhu task num %u, is_send:%u.",
@@ -768,6 +770,18 @@ static int mes_start_work_thread_statically(bool32 is_send)
         mq_ctx->work_thread_idx[loop].is_send = is_send;
         mq_ctx->work_thread_idx[loop].mq_ctx = mq_ctx;
         mq_ctx->work_thread_idx[loop].index = loop;
+        mq_ctx->work_thread_idx[loop].tid = CM_INVALID_ID32;
+        mq_ctx->work_thread_idx[loop].is_active = CM_FALSE;
+        mq_ctx->work_thread_idx[loop].priority = CM_INVALID_ID32;
+        mq_ctx->work_thread_idx[loop].get_msgitem_time = CM_INVALID_ID64;
+        mq_ctx->work_thread_idx[loop].msg_ruid = CM_INVALID_ID64;
+        mq_ctx->work_thread_idx[loop].msg_src_inst = CM_INVALID_ID32;
+        if (memset_s(&mq_ctx->work_thread_idx[loop].data, sizeof(mq_ctx->work_thread_idx[loop].data), 0,
+            sizeof(mq_ctx->work_thread_idx[loop].data)) != EOK) {
+            LOG_RUN_ERR("[mes] memset failed.");
+            return CM_ERROR;
+        }
+
         if (need_serial) {
             mq_ctx->work_thread_idx[loop].is_start = CM_FALSE;
             continue;
