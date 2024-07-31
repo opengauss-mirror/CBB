@@ -189,7 +189,6 @@ typedef struct st_mes_waiting_room {
     mes_mutex_t broadcast_mutex; // broadcast acks wake up mes_wait_acks
     spinlock_t lock;             // protect rsn
     void *msg_buf;
-    void *broadcast_msg[MES_MAX_INSTANCES];
     uint32 err_code;
     atomic32_t req_count;
     atomic32_t ack_count;
@@ -232,6 +231,8 @@ typedef struct st_mes_waiting_room_pool {
     uint32 next_freelist;
     mes_waiting_room_t waiting_rooms[CM_MAX_MES_ROOMS];
     mes_room_freelist_t room_freelists[CM_MAX_ROOM_FREELIST_NUM];
+    void **broadcast_msg[MES_MAX_INSTANCES];
+    spinlock_t inst_broadcast_msg_lock;
 } mes_waiting_room_pool_t;
 
 typedef void (*mes_event_proc_t)(uint16 channel_id, uint16 priority, uint32 version, uint32 event);
@@ -246,6 +247,7 @@ typedef struct st_receiver {
 typedef struct st_mes_context {
     mes_lsnr_t lsnr;
     mes_channel_t **channels;
+    spinlock_t inst_channel_lock;
     mes_conn_t conn_arr[MES_MAX_INSTANCES];
     mes_waiting_room_pool_t wr_pool;
     receiver_t sender_monitor;
@@ -309,6 +311,7 @@ extern mes_callback_t g_cbb_mes_callback;
 #define MES_WAITING_ROOM_POOL MES_GLOBAL_INST_MSG.mes_ctx.wr_pool
 #define MES_TASK_THREADPOOL &MES_GLOBAL_INST_MSG.task_tpool
 #define ENABLE_MES_TASK_THREADPOOL (MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool == CM_TRUE)
+#define MES_BROADCAST_MSG MES_WAITING_ROOM_POOL.broadcast_msg
 
 bool32 mes_connection_ready(uint32 inst_id);
 int mes_send_bufflist(mes_bufflist_t *buff_list);
@@ -432,6 +435,9 @@ int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priorit
 status_t mes_get_inst_net_add_index(inst_type inst_id, uint32 *index);
 int mes_connect_single(inst_type inst_id);
 mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, uint32 flags);
+void mes_destroy_all_broadcast_msg();
+int mes_init_single_inst_broadcast_msg(unsigned int inst_id);
+int mes_ensure_inst_channel_exist(unsigned int inst_id);
 #ifdef __cplusplus
 }
 #endif

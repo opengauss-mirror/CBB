@@ -85,7 +85,6 @@ static status_t mec_handle_cross_cluster_head_info(mec_message_head_adapter_t *m
 
 static status_t mec_check_connect_head_info(const mec_message_head_adapter_t *mec_head)
 {
-    mes_context_t *mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
     uint32 cur_node = MES_GLOBAL_INST_MSG.profile.inst_id;
 
     if (mec_head->cmd != (uint8)MEC_CMD_CONNECT_ADAPTER) {
@@ -99,10 +98,7 @@ static status_t mec_check_connect_head_info(const mec_message_head_adapter_t *me
             "[mes_mec] invalid channel %u or src_inst %u, cur=%u", mec_head->stream_id, mec_head->src_inst, cur_node);
         return CM_ERROR;
     }
-    if (mes_ctx->channels[mec_head->src_inst] == NULL) {
-        LOG_RUN_WAR("[mes_mec] channel for inst[%u] not already malloc, can't accept now.", mec_head->src_inst);
-        return CM_ERROR;
-    }
+    CM_RETURN_IFERR(mes_ensure_inst_channel_exist(mec_head->src_inst));
     return CM_SUCCESS;
 }
 
