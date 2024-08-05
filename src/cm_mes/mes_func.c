@@ -62,13 +62,15 @@ usr_cb_decrypt_pwd_t usr_cb_decrypt_pwd = NULL;
 
 static inline void mes_clean_recv_broadcast_msg(mes_waiting_room_t *room)
 {
-    uint32 i;
     mes_message_t msg;
-    for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        if (room->broadcast_msg[i] != NULL) {
-            MES_MESSAGE_ATTACH(&msg, room->broadcast_msg[i]);
+    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; ++inst_id) {
+        if (MES_BROADCAST_MSG[inst_id] == NULL) {
+            continue;
+        }
+        if (MES_BROADCAST_MSG[inst_id][room->room_index] != NULL) {
+            MES_MESSAGE_ATTACH(&msg, MES_BROADCAST_MSG[inst_id][room->room_index]);
             mes_release_message_buf(&msg);
-            room->broadcast_msg[i] = NULL;
+            MES_BROADCAST_MSG[inst_id][room->room_index] = NULL;
         }
     }
 }
@@ -611,6 +613,33 @@ static int mes_set_profile(mes_profile_t *profile)
     return CM_SUCCESS;
 }
 
+int mes_init_single_inst_broadcast_msg(unsigned int inst_id)
+{
+    size_t alloc_size = sizeof(void *) * CM_MAX_MES_ROOMS;
+    char *temp_buf = (char *)cm_malloc_prot(alloc_size);
+    if (temp_buf == NULL) {
+        LOG_RUN_ERR("allocate broadcast failed, inst_id %u alloc size %zu", inst_id, alloc_size);
+        return ERR_MES_MALLOC_FAIL;
+    }
+    int ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
+    if (ret != EOK) {
+        CM_FREE_PROT_PTR(temp_buf);
+        return ERR_MES_MEMORY_SET_FAIL;
+    }
+    MES_WAITING_ROOM_POOL.broadcast_msg[inst_id] = (void **)temp_buf;
+    return CM_SUCCESS;
+}
+
+static int mes_init_broadcast_msg()
+{
+    GS_INIT_SPIN_LOCK(MES_WAITING_ROOM_POOL.inst_broadcast_msg_lock);
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; ++i) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        CM_RETURN_IFERR(mes_init_single_inst_broadcast_msg(inst_id));
+    }
+    return CM_SUCCESS;
+}
+
 static int mes_init_session_room(void)
 {
     mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
@@ -656,6 +685,14 @@ static int mes_init_session_room(void)
         room->room_index = (uint16)i;
         freelist_idx = MES_ROOM_ID_TO_FREELIST_ID(i);
         cm_bilist_add_tail(&room->node, (bilist_t *)&wrpool->room_freelists[freelist_idx].list);
+    }
+
+    int ret = mes_init_broadcast_msg();
+    if (ret != CM_SUCCESS) {
+        mes_destroy_all_broadcast_msg();
+        mes_clean_session_mutex(CM_MAX_MES_ROOMS);
+        LOG_RUN_ERR("mes_init_broadcast_msg failed.");
+        return ret;
     }
     return CM_SUCCESS;
 }
@@ -912,6 +949,7 @@ static int mes_init_resource(void)
 
     ret = mes_init_pipe_resource();
     if (ret != CM_SUCCESS) {
+        mes_destroy_all_broadcast_msg();
         mes_clean_session_mutex(CM_MAX_MES_ROOMS);
         LOG_RUN_ERR("[mes] mes_init_pipe_room failed.");
         return ret;
@@ -969,10 +1007,24 @@ static bool8 inline mes_check_msg_recv(mes_message_t *msg, mes_waiting_room_t *r
 {
     CM_ASSERT(room->room_status != STATUS_BCAST_SENDING);
     bool8 bcast_check = room->room_status != STATUS_BCAST_SENT ||
-        room->broadcast_msg[msg->head->src_inst] == NULL;
+        MES_BROADCAST_MSG[msg->head->src_inst][room->room_index] == NULL;
     bool8 rsn_check = ruid_matches_room_rsn(&msg->head->ruid, room->rsn) &&
         ((ruid_t *)&(msg->head->ruid))->rsn > room->check_rsn;
     return bcast_check && rsn_check;
+}
+
+void mes_ensure_inst_broadcast_msg_exist(unsigned int inst_id)
+{
+    if (MES_BROADCAST_MSG[inst_id] == NULL) {
+        cm_spin_lock(&MES_WAITING_ROOM_POOL.inst_broadcast_msg_lock, NULL);
+        if (MES_BROADCAST_MSG[inst_id] == NULL) {
+            if (mes_init_single_inst_broadcast_msg(inst_id) != CM_SUCCESS) {
+                cm_spin_unlock(&MES_WAITING_ROOM_POOL.inst_broadcast_msg_lock);
+                cm_panic(0);
+            }
+        }
+        cm_spin_unlock(&MES_WAITING_ROOM_POOL.inst_broadcast_msg_lock);
+    }
 }
 
 void mes_notify_msg_recv(mes_message_t *msg)
@@ -991,13 +1043,14 @@ void mes_notify_msg_recv(mes_message_t *msg)
     }
 
     cm_spin_lock(&room->lock, NULL);
+    mes_ensure_inst_broadcast_msg_exist(msg->head->src_inst);
     if (mes_check_msg_recv(msg, room)) {
         if (room->room_status == STATUS_PTP_SENT) {
             room->msg_buf = msg->buffer;
             room->check_rsn = ((ruid_t *)&(msg->head->ruid))->rsn;
             mes_mutex_unlock(&room->mutex);
         } else if (room->room_status == STATUS_BCAST_SENT) {
-            room->broadcast_msg[msg->head->src_inst] = msg->buffer;
+            MES_BROADCAST_MSG[msg->head->src_inst][room->room_index] = msg->buffer;
             (void)cm_atomic32_inc(&room->ack_count);
             if (room->ack_count >= room->req_count) {
                 room->check_rsn = ((ruid_t *)&(msg->head->ruid))->rsn;
@@ -1415,6 +1468,12 @@ void mes_stop_heartbeat_thread()
     LOG_RUN_INF("[mes] mes_stop_heartbeat_thread end");
 }
 
+void mes_destroy_all_broadcast_msg()
+{
+    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; ++inst_id) {
+        CM_FREE_PROT_PTR(MES_WAITING_ROOM_POOL.broadcast_msg[inst_id]);
+    }
+}
 
 void mes_uninit(void)
 {
@@ -1433,6 +1492,7 @@ void mes_uninit(void)
     mes_destroy_all_message_pool();
     mes_stop_channels();
     mes_destroy_resource();
+    mes_destroy_all_broadcast_msg();
     mes_deinit_ssl();
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_DONE;
     (void)memset_s(&MES_GLOBAL_INST_MSG, sizeof(mes_instance_t), 0, sizeof(mes_instance_t));
@@ -1553,6 +1613,22 @@ int mes_connect_thread_start(uint32 inst_id)
     }
     cm_event_notify(&conn->event);
     LOG_DEBUG_INF("[mes] mes_connect_thread_start, inst_id=%u, event_notify to try connect", inst_id);
+    return CM_SUCCESS;
+}
+
+int mes_ensure_inst_channel_exist(unsigned int inst_id)
+{
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] == NULL) {
+        cm_spin_lock(&MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock, NULL);
+        if (MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] == NULL) {
+            if (mes_init_single_inst_channel(inst_id) != CM_SUCCESS) {
+                cm_spin_unlock(&MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock);
+                return CM_ERROR;
+            }
+        }
+        cm_spin_unlock(&MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock);
+        return CM_SUCCESS;
+    }
     return CM_SUCCESS;
 }
 
@@ -1740,9 +1816,8 @@ int mes_add_instance(const mes_addr_t *inst_net_addr)
     if (i == profile->inst_cnt) {
         profile->inst_cnt++;
     }
-    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst] == NULL) {
+    if (mes_ensure_inst_channel_exist(dst_inst) != CM_SUCCESS) {
         cm_spin_unlock(&g_profile_lock);
-        LOG_RUN_ERR("[mes] mes_add_instance, inst %u channel is NULL", dst_inst);
         return CM_ERROR;
     }
     cm_spin_unlock(&g_profile_lock);
@@ -1933,6 +2008,7 @@ int mes_update_instance(unsigned int inst_cnt, const mes_addr_t *inst_net_addrs)
             if (new_inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
                 continue;
             }
+            CM_RETURN_IFERR(mes_ensure_inst_channel_exist(new_inst_id));
             if (mes_connect(new_inst_id) != CM_SUCCESS) {
                 LOG_DEBUG_INF("[mes] update profile, connect to new node %u failed", new_inst_id);
                 return CM_ERROR;
@@ -2110,13 +2186,15 @@ int mes_is_different_endian(inst_type dst_inst)
 {
     if (SECUREC_UNLIKELY(dst_inst >= MES_MAX_INSTANCES)) {
         LOG_RUN_ERR("[mes] mes_is_different_endian, invalid dst_inst: %u.", dst_inst);
-        return -1;
+        return CM_FALSE;
     }
-
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst] == NULL) {
+        return CM_FALSE;
+    }
     int channel_id = MES_CALLER_TID_TO_CHANNEL_ID((uint32)MES_CURR_TID);
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[dst_inst][channel_id];
     if (channel == NULL) {
-        return -1;
+        return CM_FALSE;
     }
     return CS_DIFFERENT_ENDIAN(channel->pipe[MES_PRIORITY_ZERO].send_pipe.options);
 }
@@ -2126,6 +2204,10 @@ bool32 mes_connection_ready_with_count(uint32 inst_id, uint32 *ready_count)
     uint32 i, j;
     if (inst_id >= MES_MAX_INSTANCES) {
         LOG_RUN_ERR("check tcp connection is failed, inst id:%u", inst_id);
+        return CM_FALSE;
+    }
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] == NULL) {
+        LOG_RUN_ERR("check tcp connection is failed, inst id:%u channel is not exist", inst_id);
         return CM_FALSE;
     }
 

@@ -62,20 +62,17 @@ int mes_alloc_channels(void)
     errno_t ret;
     size_t alloc_size;
     char *temp_buf;
-    uint32 i, j;
-    mes_channel_t *channel;
 
-    // alloc channel
     if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
         LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
         return ERR_MES_PARAM_INVALID;
     }
 
-    alloc_size = sizeof(mes_channel_t *) * MES_MAX_INSTANCES +
-            sizeof(mes_channel_t) * MES_MAX_INSTANCES * MES_GLOBAL_INST_MSG.profile.channel_cnt;
+    // alloc channel pointer array
+    alloc_size = sizeof(mes_channel_t *) * MES_MAX_INSTANCES;
     temp_buf = (char *)cm_malloc_prot(alloc_size);
     if (temp_buf == NULL) {
-        LOG_RUN_ERR("allocate mes_channel_t failed, channel_cnt %u alloc size %zu",
+        LOG_RUN_ERR("allocate mes_channel_t pointer array failed, channel_cnt %u alloc size %zu",
                     MES_GLOBAL_INST_MSG.profile.channel_cnt, alloc_size);
         return ERR_MES_MALLOC_FAIL;
     }
@@ -84,23 +81,37 @@ int mes_alloc_channels(void)
         CM_FREE_PROT_PTR(temp_buf);
         return ERR_MES_MEMORY_SET_FAIL;
     }
-
     MES_GLOBAL_INST_MSG.mes_ctx.channels = (mes_channel_t **)temp_buf;
-    temp_buf += (sizeof(mes_channel_t *) * MES_MAX_INSTANCES);
-    for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        MES_GLOBAL_INST_MSG.mes_ctx.channels[i] = (mes_channel_t *)temp_buf;
-        temp_buf += sizeof(mes_channel_t) * MES_GLOBAL_INST_MSG.profile.channel_cnt;
-    }
 
+    // alloc channel
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; ++i) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        CM_RETURN_IFERR(mes_init_single_inst_channel(inst_id));
+    }
+    GS_INIT_SPIN_LOCK(MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock);
+    return CM_SUCCESS;
+}
+
+int mes_init_single_inst_channel(unsigned int inst_id)
+{
+    size_t alloc_size = sizeof(mes_channel_t) * MES_GLOBAL_INST_MSG.profile.channel_cnt;
+    char *temp_buf = (char *)cm_malloc_prot(alloc_size);
+    if (temp_buf == NULL) {
+        LOG_RUN_ERR("allocate mes_channel_t failed, inst_id %u alloc size %zu", inst_id, alloc_size);
+        return ERR_MES_MALLOC_FAIL;
+    }
+    int ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
+    if (ret != EOK) {
+        CM_FREE_PROT_PTR(temp_buf);
+        return ERR_MES_MEMORY_SET_FAIL;
+    }
+    MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] = (mes_channel_t *)temp_buf;
     // init channel
-    for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        for (j = 0; j < MES_GLOBAL_INST_MSG.profile.channel_cnt; j++) {
-            channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[i][j];
-            channel->id = (i << CHANNEL_ID_BITS) | j;
-            mes_init_channels_param(channel);
-        }
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; ++i) {
+        mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
+        channel->id = (inst_id << CHANNEL_ID_BITS) | i;
+        mes_init_channels_param(channel);
     }
-
     return CM_SUCCESS;
 }
 
@@ -588,6 +599,9 @@ void mes_tcp_disconnect(uint32 inst_id, bool32 wait)
     uint32 priority_cnt = MES_GLOBAL_INST_MSG.profile.priority_cnt;
     mes_conn_t *conn = &MES_GLOBAL_INST_MSG.mes_ctx.conn_arr[inst_id];
     conn->is_connect = CM_FALSE;
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] == NULL) {
+        return;
+    }
     for (i = 0; i < channel_cnt; i++) {
         channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         for (j = 0; j < priority_cnt; j++) {
@@ -626,8 +640,10 @@ void mes_free_channels(void)
         return;
     }
 
+    for (uint32 i = 0; i < MES_MAX_INSTANCES; ++i) {
+        CM_FREE_PROT_PTR(MES_GLOBAL_INST_MSG.mes_ctx.channels[i]);
+    }
     CM_FREE_PROT_PTR(MES_GLOBAL_INST_MSG.mes_ctx.channels);
-    MES_GLOBAL_INST_MSG.mes_ctx.channels = NULL;
     return;
 }
 
@@ -795,6 +811,7 @@ static int mes_accept(cs_pipe_t *recv_pipe)
     }
 
     uint8 child = MES_CALLER_TID_TO_CHANNEL_ID(msg.head->caller_tid);
+    CM_RETURN_IFERR(mes_ensure_inst_channel_exist(msg.head->src_inst));
     channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg.head->src_inst][child];
     mes_priority_t priority = MES_PRIORITY(msg.head->flags);
     mes_pipe_t *mes_pipe = &channel->pipe[priority];
@@ -869,6 +886,7 @@ int mes_init_tcp_resource(void)
 
     ret = mes_alloc_channels();
     if (ret != CM_SUCCESS) {
+        mes_free_channels();
         LOG_RUN_ERR("mes init channels failed.");
         return ret;
     }

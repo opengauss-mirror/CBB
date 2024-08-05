@@ -320,6 +320,7 @@ int mes_init_rdma_rpc_resource(void)
 
     ret = mes_alloc_channels();
     if (ret != CM_SUCCESS) {
+        mes_free_channels();
         LOG_RUN_ERR("mes init channels failed.");
         return ret;
     }
@@ -793,6 +794,9 @@ void mes_rdma_rpc_disconnect_handle(uint32 inst_id, bool32 wait)
 {
     LOG_RUN_INF("mes_rdma_rpc_disconnect_handle start, inst_id(%u)", inst_id);
     for (uint32_t i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; ++i) {
+        if (MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] == NULL) {
+            return;
+        }
         mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
         for (uint32 j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
             mes_pipe_t *pipe = &channel->pipe[j];

@@ -43,6 +43,14 @@ uint64 mes_calc_channels_mem(uint32 channel_cnt)
     return total_mem;
 }
 
+uint64 mes_calc_room_pool()
+{
+    uint64 total_mem = (uint64)sizeof(mes_waiting_room_pool_t);
+    // broadcast_msg
+    total_mem += sizeof(void *) * CM_MAX_MES_ROOMS * MES_MAX_INSTANCES;
+    return total_mem;
+}
+
 uint64 mes_calc_buffer_pool_mem(mes_profile_t *profile)
 {
     uint64 total_mem = 0;
@@ -62,6 +70,6 @@ long long mes_calc_mem_usage(mes_profile_t *profile)
     // mes channels
     total_mem += mes_calc_channels_mem(profile->channel_cnt);
     // mes room pool
-    total_mem += (uint64)sizeof(mes_waiting_room_pool_t);
+    total_mem += mes_calc_room_pool();
     return total_mem;
 }

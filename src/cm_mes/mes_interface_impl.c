@@ -28,22 +28,24 @@
 
 static inline void mes_clean_broadcast_msg_ptr(mes_waiting_room_t *room)
 {
-    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
-        if (room->broadcast_msg[i] != NULL) {
-            room->broadcast_msg[i] = NULL;
+    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; ++inst_id) {
+        if (MES_BROADCAST_MSG[inst_id] != NULL) {
+            MES_BROADCAST_MSG[inst_id][room->room_index] = NULL;
         }
     }
 }
 
 static inline void mes_copy_recv_broadcast_msg(mes_waiting_room_t *room, mes_msg_list_t* responses)
 {
-    uint32 i;
     responses->count = 0;
-    for (i = 0; i < MES_MAX_INSTANCES; i++) {
-        if (room->broadcast_msg[i] != NULL) {
+    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; ++inst_id) {
+        if (MES_BROADCAST_MSG[inst_id] == NULL) {
+            continue;
+        }
+        if (MES_BROADCAST_MSG[inst_id][room->room_index] != NULL) {
             mes_msg_t* msg = &responses->messages[responses->count];
-            MES_MSG_ATTACH(msg, room->broadcast_msg[i]);
-            room->broadcast_msg[i] = NULL;
+            MES_MSG_ATTACH(msg, MES_BROADCAST_MSG[inst_id][room->room_index]);
+            MES_BROADCAST_MSG[inst_id][room->room_index] = NULL;
             responses->count++;
         }
     }

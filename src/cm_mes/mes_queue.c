@@ -696,6 +696,10 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
         return MES_SEND_DATA(msg->buffer);
     }
 
+    if (MES_GLOBAL_INST_MSG.mes_ctx.channels[msg->head->dst_inst] == NULL) {
+        LOG_RUN_ERR("[mes] mes send data to dst_inst[%u] is not exist.", msg->head->dst_inst);
+        return CM_ERROR;
+    }
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[msg->head->dst_inst][channel_id];
     mes_priority_t priority = MES_PRIORITY(msg->head->flags);
     mes_pipe_t *pipe = &channel->pipe[priority];
@@ -1185,6 +1189,11 @@ status_t mes_check_send_head_info(const mes_message_head_t *head)
 
     if (SECUREC_UNLIKELY(MES_PRIORITY(head->flags) >= MES_PRIORITY_CEIL)) {
         MES_LOG_ERR_HEAD_EX(head, "invalid priority");
+        return CM_ERROR;
+    }
+
+    if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst] == NULL)) {
+        MES_LOG_ERR_HEAD_EX(head, "invalid dst_inst channel");
         return CM_ERROR;
     }
 
