@@ -154,7 +154,7 @@ typedef struct st_mq_context_t {
 
 #ifndef WIN32
 void delete_compress_thread_key(void);
-void create_compress_ctx();
+status_t create_compress_ctx();
 #endif
 
 void mes_init_msgitem_pool(mes_msgitem_pool_t *pool);
