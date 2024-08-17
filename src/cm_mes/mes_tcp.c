@@ -253,6 +253,8 @@ static int mes_process_event(mes_pipe_t *pipe)
         return ERR_MES_SOCKET_FAIL;
     }
 
+    mes_msg_size_stats(head.size);
+
     ret = mes_get_message_buf(&msg, &head);
     if (ret != CM_SUCCESS) {
         MES_LOG_ERR_HEAD_EX(&head, "mes_get_message_buf failed");

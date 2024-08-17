@@ -47,7 +47,8 @@ static spinlock_t g_profile_lock;
 static mes_global_ptr_t g_mes_ptr = {
     .g_cbb_mes_ptr = &g_cbb_mes,
     .g_mes_stat_ptr = &g_mes_stat,
-    .g_mes_elapsed_stat = &g_mes_elapsed_stat
+    .g_mes_elapsed_stat = &g_mes_elapsed_stat,
+    .g_mes_msg_size_stat_ptr = &g_mes_msg_size_stat
 };
 
 #define MES_CONNECT(pipe) g_cbb_mes_callback.connect_func(pipe)
