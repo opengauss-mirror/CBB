@@ -37,10 +37,10 @@ void mes_send_stat(uint32 cmd);
 void mes_recv_message_stat(const mes_message_t *msg);
 
 uint64 cm_get_time_usec(void);
-
 void mes_local_stat(uint32 cmd);
-
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
+void mes_msg_size_stats(uint32 size);
+
 #ifdef __cplusplus  
 }
 #endif
