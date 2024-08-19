@@ -249,7 +249,7 @@ static inline void cm_latch_x2ix(latch_t *latch, uint32 sid, latch_statis_t *sta
         cm_spin_unlock(&latch->lock);
         return;
     }
-    latch->stat = LATCH_STATUS_X;
+    latch->stat = LATCH_STATUS_IX;
     cm_spin_unlock(&latch->lock);
 }
 
