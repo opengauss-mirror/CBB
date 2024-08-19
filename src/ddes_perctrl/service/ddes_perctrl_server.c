@@ -120,14 +120,16 @@ int32 exec_scsi3_unregister(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_scsi3_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    int32 fd;
+    int32 fd, type;
     int64 rk;
     char *iof_dev = NULL;
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_get_int32(req, &type));
+
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
-    status_t ret = cm_scsi3_reserve(fd, rk);
+    status_t ret = cm_scsi3_reserve(fd, rk, type);
     LOG_RUN_INF("Exec reserve ret %d, iof_dev: %s, rk: %lld, fd: %d.", ret, iof_dev, rk, fd);
     (void)close(fd);
     return ret;
@@ -135,14 +137,15 @@ int32 exec_scsi3_reserve(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_scsi3_release(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    int32 fd;
+    int32 fd, type;
     int64 rk;
     char *iof_dev = NULL;
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int64(req, &rk));
+    CM_RETURN_IFERR(ddes_get_int32(req, &type));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
-    status_t ret = cm_scsi3_release(fd, rk);
+    status_t ret = cm_scsi3_release(fd, rk, type);
     LOG_RUN_INF("Exec release ret %d, iof_dev: %s, rk: %lld, fd: %d.", ret, iof_dev, rk, fd);
     (void)close(fd);
     return ret;
@@ -165,7 +168,7 @@ int32 exec_scsi3_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
 
 int32 exec_scsi3_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
 {
-    int32 fd;
+    int32 fd, type;
     int64 rk;
     int64 sark;
     char *iof_dev = NULL;
@@ -173,8 +176,9 @@ int32 exec_scsi3_preempt(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int64(req, &rk));
     CM_RETURN_IFERR(ddes_get_int64(req, &sark));
+    CM_RETURN_IFERR(ddes_get_int32(req, &type));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
-    status_t ret = cm_scsi3_preempt(fd, rk, sark);
+    status_t ret = cm_scsi3_preempt(fd, rk, sark, type);
     LOG_RUN_INF("Exec preempt ret %d, iof_dev: %s, rk: %lld, sark: %lld, fd: %d,.", ret, iof_dev, rk, sark, fd);
     (void)close(fd);
     return ret;

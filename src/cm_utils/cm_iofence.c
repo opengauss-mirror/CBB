@@ -52,7 +52,7 @@ int32 cm_iof_register(iof_reg_out_t *iof_out)
     }
 
     // Any host can perform reservation operations, but at least one host must perform
-    ret = perctrl_scsi3_reserve(iof_out->dev, CM_OUT_SCSI_RK(iof_out));
+    ret = perctrl_scsi3_reserve(iof_out->dev, CM_OUT_SCSI_RK(iof_out), iof_out->type);
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_CONFLICT == ret) {
             // ignore this fail
@@ -106,7 +106,7 @@ status_t cm_iof_kick(iof_reg_out_t *iof_out)
     if (iof_out == NULL) {
         return CM_ERROR;
     }
-    status = perctrl_scsi3_preempt(iof_out->dev, CM_OUT_SCSI_RK(iof_out), CM_OUT_SCSI_SARK(iof_out));
+    status = perctrl_scsi3_preempt(iof_out->dev, CM_OUT_SCSI_RK(iof_out), CM_OUT_SCSI_SARK(iof_out), iof_out->type);
     if (CM_SUCCESS != status) {
         LOG_RUN_ERR("Scsi3 preempt failed, rk %lld, rk_kick %lld, dev %s, errno %d.", CM_OUT_SCSI_RK(iof_out),
             CM_OUT_SCSI_SARK(iof_out), iof_out->dev, errno);

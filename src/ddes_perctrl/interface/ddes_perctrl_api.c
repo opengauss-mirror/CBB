@@ -327,13 +327,15 @@ int32 perctrl_scsi3_unregister(const char *iof_dev, int64 rk)
     return perctrl_unregister_impl(iof_dev, rk, &req, &ack);
 }
 
-status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, perctrl_packet_t *req, perctrl_packet_t *ack)
+status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, scsi_reserv_type_e type,
+    perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 errcode = -1;
     char *errmsg = NULL;
     req->head->cmd = PERCTRL_CMD_REVERSE;
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)rk));
+    CM_RETURN_IFERR(ddes_put_int32(req, type));
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
 
@@ -348,7 +350,7 @@ status_t perctrl_reserve_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
     return CM_SUCCESS;
 }
 
-status_t perctrl_scsi3_reserve(const char *iof_dev, int64 rk)
+status_t perctrl_scsi3_reserve(const char *iof_dev, int64 rk, scsi_reserv_type_e type)
 {
     perctrl_packet_t req = {0};
     perctrl_packet_t ack = {0};
@@ -356,16 +358,18 @@ status_t perctrl_scsi3_reserve(const char *iof_dev, int64 rk)
     if (ret != CM_SUCCESS) {
         return ret;
     }
-    return perctrl_reserve_impl(iof_dev, rk, &req, &ack);
+    return perctrl_reserve_impl(iof_dev, rk, type, &req, &ack);
 }
 
-status_t perctrl_release_impl(const char *iof_dev, int64 rk, perctrl_packet_t *req, perctrl_packet_t *ack)
+status_t perctrl_release_impl(const char *iof_dev, int64 rk, scsi_reserv_type_e type,
+    perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 errcode = -1;
     char *errmsg = NULL;
     req->head->cmd = PERCTRL_CMD_RELEASE;
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)rk));
+    CM_RETURN_IFERR(ddes_put_int32(req, type));
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
 
@@ -380,7 +384,7 @@ status_t perctrl_release_impl(const char *iof_dev, int64 rk, perctrl_packet_t *r
     return CM_SUCCESS;
 }
 
-status_t perctrl_scsi3_release(const char *iof_dev, int64 rk)
+status_t perctrl_scsi3_release(const char *iof_dev, int64 rk, scsi_reserv_type_e type)
 {
     perctrl_packet_t req = {0};
     perctrl_packet_t ack = {0};
@@ -388,7 +392,7 @@ status_t perctrl_scsi3_release(const char *iof_dev, int64 rk)
     if (ret != CM_SUCCESS) {
         return ret;
     }
-    return perctrl_release_impl(iof_dev, rk, &req, &ack);
+    return perctrl_release_impl(iof_dev, rk, type, &req, &ack);
 }
 
 status_t perctrl_clear_impl(const char *iof_dev, int64 rk, perctrl_packet_t *req, perctrl_packet_t *ack)
@@ -423,7 +427,8 @@ status_t perctrl_scsi3_clear(const char *iof_dev, int64 rk)
     return perctrl_clear_impl(iof_dev, rk, &req, &ack);
 }
 
-status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, perctrl_packet_t *req, perctrl_packet_t *ack)
+status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, scsi_reserv_type_e type,
+    perctrl_packet_t *req, perctrl_packet_t *ack)
 {
     int32 errcode = -1;
     char *errmsg = NULL;
@@ -431,6 +436,7 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, perctrl
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)rk));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)sark));
+    CM_RETURN_IFERR(ddes_put_int32(req, type));
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
     if (ack->head->result != CM_SUCCESS) {
@@ -444,7 +450,7 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, perctrl
     return CM_SUCCESS;
 }
 
-status_t perctrl_scsi3_preempt(const char *iof_dev, int64 rk, int64 sark)
+status_t perctrl_scsi3_preempt(const char *iof_dev, int64 rk, int64 sark, scsi_reserv_type_e type)
 {
     perctrl_packet_t req = {0};
     perctrl_packet_t ack = {0};
@@ -452,7 +458,7 @@ status_t perctrl_scsi3_preempt(const char *iof_dev, int64 rk, int64 sark)
     if (ret != CM_SUCCESS) {
         return ret;
     }
-    return perctrl_preempt_impl(iof_dev, rk, sark, &req, &ack);
+    return perctrl_preempt_impl(iof_dev, rk, sark, type, &req, &ack);
 }
 
 int32 perctrl_caw_impl(const char *scsi_dev, ctrl_params_t *params, uint64 block_addr, perctrl_packet_t *req,

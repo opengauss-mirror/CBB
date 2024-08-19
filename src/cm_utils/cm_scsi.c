@@ -354,11 +354,10 @@ int32 cm_scsi3_unregister(int32 fd, int64 rk)
     return CM_SUCCESS;
 }
 
-status_t cm_scsi3_reserve(int32 fd, int64 rk)
+status_t cm_scsi3_reserve(int32 fd, int64 rk, uint32 type)
 {
     uchar cdb[10] = { 0 };
     int32 scope = 0;
-    uint32 type = 0x06;
     int32 servact = 0x01;
     uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
@@ -411,11 +410,10 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
     return CM_SUCCESS;
 }
 
-status_t cm_scsi3_release(int32 fd, int64 rk)
+status_t cm_scsi3_release(int32 fd, int64 rk, uint32 type)
 {
     uchar cdb[10] = { 0 };
     int32 scope = 0;
-    uint32 type = 0x06;
     int32 servact = 0x02;
     uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = { 0 };
@@ -515,11 +513,10 @@ status_t cm_scsi3_clear(int32 fd, int64 rk)
     return CM_SUCCESS;
 }
 
-status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
+status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark, uint32 type)
 {
     uchar cdb[10] = {0};
     uint32 scope = 0;
-    uint32 type = 0x06;
     uint32 servact = 0x04;
     uint16 param_len = CM_SCSI_XFER_DATA_LEN_24;
     uchar sense_buffer[CM_SCSI_SENSE_LEN] = {0};
