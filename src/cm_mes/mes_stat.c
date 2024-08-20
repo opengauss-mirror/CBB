@@ -251,7 +251,7 @@ void mes_msg_size_stats(uint32 size)
 {
     if (g_mes_elapsed_stat.mes_elapsed_switch) {
         uint32 index = cmd_size_to_histogram_index(size);
-        size_histogram_t *hist = &g_mes_msg_size_stat.histogram[index];
+        size_histogram_t *hist = &g_mes_msg_size_stat.histograms[index];
         cm_spin_lock(&hist->lock, NULL);
         hist->count++;
         hist->min_size = (hist->min_size > size) ? size : hist->min_size;

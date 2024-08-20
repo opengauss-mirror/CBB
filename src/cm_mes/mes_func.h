@@ -396,7 +396,7 @@ typedef struct st_mes_msg_size_stats {
      * 9  --  > 32KB
      */
     size_histogram_t histograms[CMD_SIZE_HISTOGRAM_COUNT];
-};
+} mes_msg_size_stats_t;
 
 extern mes_elapsed_stat_t g_mes_elapsed_stat;
 extern mes_stat_t g_mes_stat;
