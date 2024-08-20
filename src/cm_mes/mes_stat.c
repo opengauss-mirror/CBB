@@ -26,6 +26,7 @@
 
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
+mes_msg_size_stats_t g_mes_msg_size_stat;
 
 int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_info)
 {
@@ -82,6 +83,18 @@ static void mes_consume_time_init(const mes_profile_t *profile)
     return;
 }
 
+static void mes_msg_size_stats_init()
+{
+    for (uint32 i = 0; i < CMD_SIZE_HISTOGRAM_COUNT; i++) {
+        size_histogram_t *hist = &g_mes_msg_size_stat.histograms[i];
+        GS_INIT_SPIN_LOCK(hist->lock);
+        hist->count = 0;
+        hist->max_size = 0;
+        hist->avg_size = 0;
+        hist->min_size = CM_INVALID_ID64;
+    }
+}
+
 void mes_init_stat(const mes_profile_t *profile)
 {
     g_mes_stat.mes_elapsed_switch = profile->mes_elapsed_switch;
@@ -93,6 +106,7 @@ void mes_init_stat(const mes_profile_t *profile)
         g_mes_stat.mes_command_stat[i].occupy_buf = 0;
     }
     mes_consume_time_init(profile);
+    mes_msg_size_stats_init();
     return;
 }
 
@@ -188,5 +202,62 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
     }
     if (event_time != NULL) {
         *event_time = time;
+    }
+}
+
+#ifdef WIN32
+static uint32 cmd_size_to_histogram_index(uint32 size)
+{
+    uint32 index = 0;
+    if (size <= (1 << CMD_SIZE_2_MIN_POWER)) {
+        return 0;
+    } else if (size > (1 << CMD_SIZE_2_MAX_POWER)) {
+        return CMD_SIZE_HISTOGRAM_COUNT - 1;
+    } else {
+        uint32 clz = 0;
+        uint32 bits = CMD_SIZE_2_MAX_POWER;
+        bool32 is_2_power = (size & (size - 1)) == 0;
+        while ((size & (1 << bits)) == 0) {
+            bits--;
+            clz++;
+        }
+
+        index = CMD_SIZE_2_MAX_POWER - CMD_SIZE_2_MIN_POWER - clz;
+        index += (is_2_power ? 0 : 1);
+        return index;
+    }
+}
+#else
+static uint32 cmd_size_to_histogram_index(uint32 size)
+{
+    if (SECUREC_UNLIKELY(size == 0)) {
+        return 0;
+    }
+
+    uint32 clz = __builtin_clz(size);
+    bool32 is_2_power = (size & (size - 1)) == 0;
+    uint32 index = 31 - clz + (is_2_power ? 0 : 1);
+    if (index <= CMD_SIZE_2_MIN_POWER) {
+        return 0;
+    } else if (index <= CMD_SIZE_2_MAX_POWER) {
+        return index - CMD_SIZE_2_MIN_POWER;
+    } else {
+        return CMD_SIZE_HISTOGRAM_COUNT - 1;
+    }
+}
+#endif
+
+void mes_msg_size_stats(uint32 size)
+{
+    if (g_mes_elapsed_stat.mes_elapsed_switch) {
+        uint32 index = cmd_size_to_histogram_index(size);
+        size_histogram_t *hist = &g_mes_msg_size_stat.histogram[index];
+        cm_spin_lock(&hist->lock, NULL);
+        hist->count++;
+        hist->min_size = (hist->min_size > size) ? size : hist->min_size;
+        hist->max_size = (hist->max_size < size) ? size : hist->max_size;
+        double f = 1.0 / (hist->count + 1);
+        hist->avg_size = (uint64)(hist->avg_size * hist->count * f + size * f);
+        cm_spin_unlock(&hist->lock);
     }
 }

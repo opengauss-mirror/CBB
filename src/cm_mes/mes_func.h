@@ -369,13 +369,44 @@ typedef struct st_mes_stat {
     mes_command_stat_t mes_command_stat[CM_MAX_MES_MSG_CMD];
 } mes_stat_t;
 
+#define CMD_SIZE_HISTOGRAM_COUNT 10
+#define CMD_SIZE_2_MIN_POWER 7
+#define CMD_SIZE_2_MAX_POWER 15
+
+typedef struct st_size_histogram {
+    spinlock_t lock;
+    uint64 min_size;
+    uint64 max_size;
+    uint64 avg_size;
+    uint64 count;
+    char reserved[CM_CACHE_LINE_SIZE - sizeof(spinlock_t) - 4 * sizeof(uint64)];
+} size_histogram_t;
+
+typedef struct st_mes_msg_size_stats {
+    /*
+     * 0  --  128B
+     * 1  --  256B
+     * 2  --  512B
+     * 3  --  1KB
+     * 4  --  2KB
+     * 5  --  4KB
+     * 6  --  8KB
+     * 7  --  16KB
+     * 8  --  32KB
+     * 9  --  > 32KB
+     */
+    size_histogram_t histograms[CMD_SIZE_HISTOGRAM_COUNT];
+};
+
 extern mes_elapsed_stat_t g_mes_elapsed_stat;
 extern mes_stat_t g_mes_stat;
+extern mes_msg_size_stats_t g_mes_msg_size_stat;
 
 typedef struct st_mes_global_ptr {
     mes_instance_t* g_cbb_mes_ptr;
     mes_stat_t* g_mes_stat_ptr;
     mes_elapsed_stat_t* g_mes_elapsed_stat;
+    mes_msg_size_stats_t* g_mes_msg_size_stat_ptr;
 } mes_global_ptr_t;
 
 status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size);
@@ -394,6 +425,7 @@ static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint6
         uint64 elapsed_time = cm_get_time_usec() - start_time;
         cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock), NULL);
         g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].time += elapsed_time;
+        g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count++;
         cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock));
         cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count));
     }
