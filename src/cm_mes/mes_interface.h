@@ -173,7 +173,9 @@ typedef struct st_mes_profile {
     mes_buffer_pool_attr_t buffer_pool_attr[MES_PRIORITY_CEIL];
     unsigned int channel_cnt;
     unsigned int priority_cnt;
-    unsigned char mes_elapsed_switch;
+    unsigned char mes_elapsed_switch : 1;
+    unsigned char mes_size_histogram_switch : 1;
+    unsigned char mes_switch_reserved : 6;
     unsigned char rdma_rpc_use_busypoll;    // busy poll need to occupy the cpu core
     unsigned char rdma_rpc_is_bind_core;
     unsigned char rdma_rpc_bind_core_start;

@@ -383,6 +383,7 @@ typedef struct st_size_histogram {
 } size_histogram_t;
 
 typedef struct st_mes_msg_size_stats {
+    bool32 enable;
     /*
      * 0  --  128B
      * 1  --  256B
