@@ -46,12 +46,19 @@ status_t perctrl_receive(int32 fd, perctrl_packet_t *msg);
 status_t perctrl_send(int32 fd, perctrl_packet_t *msg);
 
 // The upper-layer caller needs to process the signal SIGPIPE.
+typedef enum en_scsi_reserv_type {
+    RESERV_TYPE_EXC_WRITE = 0x01,        /* readable by all, only reserv owner can write */
+    RESERV_TYPE_EXC_ACCESS = 0x03,       /* only reserv owner can read/write */
+    RESERV_TYPE_REGISTER_WRITE = 0x05,   /* readable by all, only registers can write */
+    RESERV_TYPE_REGISTER_ACCESS = 0x06,  /* only registers can read/write */
+} scsi_reserv_type_e;
+
 int32 perctrl_scsi3_register(const char *iof_dev, int64 sark);
 int32 perctrl_scsi3_unregister(const char *iof_dev, int64 rk);
-status_t perctrl_scsi3_reserve(const char *iof_dev, int64 rk);
-status_t perctrl_scsi3_release(const char *iof_dev, int64 rk);
+status_t perctrl_scsi3_reserve(const char *iof_dev, int64 rk, scsi_reserv_type_e type);
+status_t perctrl_scsi3_release(const char *iof_dev, int64 rk, scsi_reserv_type_e type);
 status_t perctrl_scsi3_clear(const char *iof_dev, int64 rk);
-status_t perctrl_scsi3_preempt(const char *iof_dev, int64 rk, int64 sark);
+status_t perctrl_scsi3_preempt(const char *iof_dev, int64 rk, int64 sark, scsi_reserv_type_e type);
 int32 perctrl_scsi3_caw(const char *scsi_dev, uint64 block_addr, char *buff, int32 buff_len);
 status_t perctrl_scsi3_read(const char *iof_dev, int32 block_addr, uint16 block_count, char *buff, int32 buff_len);
 status_t perctrl_scsi3_write(const char *iof_dev, int32 block_addr, uint16 block_count, char *buff, int32 buff_len);
