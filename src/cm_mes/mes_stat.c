@@ -83,8 +83,9 @@ static void mes_consume_time_init(const mes_profile_t *profile)
     return;
 }
 
-static void mes_msg_size_stats_init()
+static void mes_msg_size_stats_init(bool32 enable)
 {
+    g_mes_msg_size_stat.enable = enable;
     for (uint32 i = 0; i < CMD_SIZE_HISTOGRAM_COUNT; i++) {
         size_histogram_t *hist = &g_mes_msg_size_stat.histograms[i];
         GS_INIT_SPIN_LOCK(hist->lock);
@@ -106,7 +107,7 @@ void mes_init_stat(const mes_profile_t *profile)
         g_mes_stat.mes_command_stat[i].occupy_buf = 0;
     }
     mes_consume_time_init(profile);
-    mes_msg_size_stats_init();
+    mes_msg_size_stats_init((bool32)profile->mes_size_histogram_switch);
     return;
 }
 
@@ -208,24 +209,19 @@ void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigne
 #ifdef WIN32
 static uint32 cmd_size_to_histogram_index(uint32 size)
 {
-    uint32 index = 0;
-    if (size <= (1 << CMD_SIZE_2_MIN_POWER)) {
-        return 0;
-    } else if (size > (1 << CMD_SIZE_2_MAX_POWER)) {
-        return CMD_SIZE_HISTOGRAM_COUNT - 1;
-    } else {
-        uint32 clz = 0;
-        uint32 bits = CMD_SIZE_2_MAX_POWER;
-        bool32 is_2_power = (size & (size - 1)) == 0;
-        while ((size & (1 << bits)) == 0) {
-            bits--;
-            clz++;
+    static uint32 array[CMD_SIZE_HISTOGRAM_COUNT] = {128, 256, 512, 1024, 2048,
+        4096, 8192, 16384, 32768, CM_MAX_UINT32};
+    int32 left = 0, right = CMD_SIZE_HISTOGRAM_COUNT - 1;
+    int32 mid;
+    while (left < right) {
+        mid = (left + right) / 2;
+        if (array[mid] < size) {
+            left = mid + 1;
+        } else {
+            right = mid;
         }
-
-        index = CMD_SIZE_2_MAX_POWER - CMD_SIZE_2_MIN_POWER - clz;
-        index += (is_2_power ? 0 : 1);
-        return index;
     }
+    return right;
 }
 #else
 static uint32 cmd_size_to_histogram_index(uint32 size)
@@ -249,15 +245,15 @@ static uint32 cmd_size_to_histogram_index(uint32 size)
 
 void mes_msg_size_stats(uint32 size)
 {
-    if (g_mes_elapsed_stat.mes_elapsed_switch) {
+    if (g_mes_msg_size_stat.enable) {
         uint32 index = cmd_size_to_histogram_index(size);
         size_histogram_t *hist = &g_mes_msg_size_stat.histograms[index];
         cm_spin_lock(&hist->lock, NULL);
-        hist->count++;
         hist->min_size = (hist->min_size > size) ? size : hist->min_size;
         hist->max_size = (hist->max_size < size) ? size : hist->max_size;
         double f = 1.0 / (hist->count + 1);
         hist->avg_size = (uint64)(hist->avg_size * hist->count * f + size * f);
+        hist->count++;
         cm_spin_unlock(&hist->lock);
     }
 }
