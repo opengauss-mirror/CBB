@@ -55,21 +55,25 @@ void destroy_compress_ctx(void *compress_ctx)
 }
 
 #ifndef WIN32
-static pthread_key_t g_compress_thread_key;
+static pthread_key_t g_compress_thread_key = PTHREAD_KEYS_MAX;
 
 void delete_compress_thread_key(void)
 {
-    if (g_compress_thread_key == 0) {
-        LOG_RUN_WAR("[mes] delete_compress_thread_key, thread key is 0");
+    if (g_compress_thread_key == PTHREAD_KEYS_MAX) {
+        LOG_RUN_WAR("[mes] delete_compress_thread_key, thread key is invalid");
         return;
     }
 
     (void)pthread_key_delete(g_compress_thread_key);
 }
 
-void create_compress_ctx()
+status_t create_compress_ctx()
 {
-    (void)pthread_key_create(&g_compress_thread_key, destroy_compress_ctx);
+    if (pthread_key_create(&g_compress_thread_key, destroy_compress_ctx) != 0) {
+        LOG_RUN_ERR("[mes] create_compress_ctx failed");
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
 }
 
 int get_mes_compress_ctx_core(mes_compress_ctx_t **ctx)

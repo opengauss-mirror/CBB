@@ -1517,8 +1517,7 @@ int mes_init(mes_profile_t *profile)
     LOG_RUN_INF("[mes] mes_init start");
 
 #ifndef WIN32
-    static pthread_once_t once_key = PTHREAD_ONCE_INIT;
-    if (pthread_once(&once_key, create_compress_ctx) != 0) {
+    if (create_compress_ctx() != CM_SUCCESS) {
         return CM_ERROR;
     }
 #endif
