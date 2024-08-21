@@ -71,6 +71,13 @@ static inline uint64 cm_clock_monotonic_now()
 #endif
 }
 
+static inline int64 cm_scn_delta(void)
+{
+    return CM_UNIX_EPOCH + CM_HOST_TIMEZONE;
+}
+
+date_t cm_timeval2date(struct timeval tv);
+
 #ifdef __cplusplus
 }
 #endif
