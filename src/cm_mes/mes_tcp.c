@@ -1003,7 +1003,8 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     mes_pipe_t *pipe = &channel->pipe[priority];
 
     if (!pipe->send_pipe_active) {
-        LOG_DEBUG_ERR("[mes] send pipe to dst_inst[%u] priority[%u] is not ready.", head->dst_inst, priority);
+        LOG_RUN_ERR_INHIBIT(LOG_INHIBIT_LEVEL4, "[mes] send pipe to dst_inst[%u] priority[%u] is not ready.",
+                            head->dst_inst, priority);
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
