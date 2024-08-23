@@ -519,7 +519,7 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
                 room->ack_count = 0; // invalid broadcast ack
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_brcast_timeout(room);
-                LOG_DEBUG_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast, INT=%u",
+                LOG_DYN_TRC_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast, INT=%u",
                     room->room_index, room->rsn - 1, MES_WAITS_INTERRUPTED);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;

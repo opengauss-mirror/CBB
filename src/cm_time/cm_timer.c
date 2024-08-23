@@ -114,3 +114,10 @@ void cm_close_timer(gs_timer_t *timer)
     cm_close_thread(&timer->thread);
     timer->init = CM_FALSE;
 }
+
+date_t cm_timeval2date(struct timeval tv)
+{
+    date_t dt = cm_scn_delta();
+    dt += ((int64)tv.tv_sec * MICROSECS_PER_SECOND + tv.tv_usec);
+    return dt;
+}
