@@ -271,6 +271,13 @@ typedef struct st_mes_instance {
     mes_task_threadpool_t task_tpool;
 } mes_instance_t;
 
+typedef struct st_mes_global_ptr {
+    mes_instance_t* mes_ptr;
+    mes_stat_t* cmd_count_stats_ptr;
+    mes_elapsed_stat_t* cmd_time_stats_ptr;
+    mes_msg_size_stats_t* cmd_size_stats_ptr;
+} mes_global_ptr_t;
+
 #define CHANNEL_ID_BITS (8)
 #define CHANNEL_ID_MASK (((unsigned)1 << CHANNEL_ID_BITS) - 1)
 // for ssl
@@ -315,130 +322,7 @@ extern mes_callback_t g_cbb_mes_callback;
 
 bool32 mes_connection_ready(uint32 inst_id);
 int mes_send_bufflist(mes_bufflist_t *buff_list);
-
 void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg);
-
-typedef struct st_mes_command_stat {
-    union {
-        struct {
-            uint32 cmd;
-            int64 send_count;
-            int64 recv_count;
-            int64 local_count;
-            atomic32_t occupy_buf;
-            spinlock_t lock;
-        };
-        char padding[CM_CACHE_LINE_SIZE];
-    };
-} mes_command_stat_t;
-
-typedef struct st_mes_command_time_stat {
-    union {
-        struct {
-            uint64 time;
-            int64 count;
-            spinlock_t lock;
-        };
-        char padding[CM_CACHE_LINE_SIZE];
-    };
-}mes_command_time_stat_t;
-
-typedef struct st_mes_time_consume {
-    mes_command_time_stat_t cmd_time_stats[MES_TIME_CEIL];
-    union {
-        uint32 cmd;
-        char aligned1[CM_CACHE_LINE_SIZE];
-    };
-} mes_time_consume_t;
-
-typedef struct st_mes_elapsed_stat {
-    char aligned1[CM_CACHE_LINE_SIZE];
-    union {
-        bool8 mes_elapsed_switch;
-        char aligned2[CM_CACHE_LINE_SIZE];
-    };
-    mes_time_consume_t time_consume_stat[CM_MAX_MES_MSG_CMD];
-} mes_elapsed_stat_t;
-
-typedef struct st_mes_stat {
-    char aligned1[CM_CACHE_LINE_SIZE];
-    union {
-        bool8 mes_elapsed_switch;
-        char aligned2[CM_CACHE_LINE_SIZE];
-    };
-    mes_command_stat_t mes_command_stat[CM_MAX_MES_MSG_CMD];
-} mes_stat_t;
-
-#define CMD_SIZE_HISTOGRAM_COUNT 10
-#define CMD_SIZE_2_MIN_POWER 7
-#define CMD_SIZE_2_MAX_POWER 15
-
-typedef struct st_size_histogram {
-    spinlock_t lock;
-    uint64 min_size;
-    uint64 max_size;
-    uint64 avg_size;
-    uint64 count;
-    char reserved[CM_CACHE_LINE_SIZE - sizeof(spinlock_t) - 4 * sizeof(uint64)];
-} size_histogram_t;
-
-typedef struct st_mes_msg_size_stats {
-    /*
-     * 0  --  128B
-     * 1  --  256B
-     * 2  --  512B
-     * 3  --  1KB
-     * 4  --  2KB
-     * 5  --  4KB
-     * 6  --  8KB
-     * 7  --  16KB
-     * 8  --  32KB
-     * 9  --  > 32KB
-     */
-    size_histogram_t histograms[CMD_SIZE_HISTOGRAM_COUNT];
-} mes_msg_size_stats_t;
-
-extern mes_elapsed_stat_t g_mes_elapsed_stat;
-extern mes_stat_t g_mes_stat;
-extern mes_msg_size_stats_t g_mes_msg_size_stat;
-
-typedef struct st_mes_global_ptr {
-    mes_instance_t* g_cbb_mes_ptr;
-    mes_stat_t* g_mes_stat_ptr;
-    mes_elapsed_stat_t* g_mes_elapsed_stat;
-    mes_msg_size_stats_t* g_mes_msg_size_stat_ptr;
-} mes_global_ptr_t;
-
-status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size);
-
-static inline void mes_get_consume_time_start(uint64 *stat_time)
-{
-    if (g_mes_elapsed_stat.mes_elapsed_switch) {
-        *stat_time = cm_get_time_usec();
-    }
-    return;
-}
-
-static inline void mes_consume_with_time(uint32 cmd, mes_time_stat_t type, uint64 start_time)
-{
-    if (g_mes_elapsed_stat.mes_elapsed_switch) {
-        uint64 elapsed_time = cm_get_time_usec() - start_time;
-        cm_spin_lock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock), NULL);
-        g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].time += elapsed_time;
-        g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count++;
-        cm_spin_unlock(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].lock));
-        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count));
-    }
-    return;
-}
-
-static inline void mes_elapsed_stat(uint32 cmd, mes_time_stat_t type)
-{
-    if (g_mes_elapsed_stat.mes_elapsed_switch) {
-        cm_atomic_inc(&(g_mes_elapsed_stat.time_consume_stat[cmd].cmd_time_stats[type].count));
-    }
-    return;
-}
 
 void mes_mutex_destroy(mes_mutex_t *mutex);
 int mes_mutex_create(mes_mutex_t *mutex);
@@ -469,6 +353,8 @@ mes_channel_t *mes_get_active_send_channel(uint32 dest_id, uint32 caller_tid, ui
 void mes_destroy_all_broadcast_msg();
 int mes_init_single_inst_broadcast_msg(unsigned int inst_id);
 int mes_ensure_inst_channel_exist(unsigned int inst_id);
+status_t mes_verify_ssl_key_pwd(ssl_config_t *ssl_cfg, char *plain, uint32 size);
+
 #ifdef __cplusplus
 }
 #endif
