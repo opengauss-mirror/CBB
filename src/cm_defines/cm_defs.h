@@ -114,7 +114,6 @@ extern "C" {
 #define CM_MES_ROOMS_PER_FREELIST       (uint32)(CM_MAX_MES_ROOMS / CM_MAX_ROOM_FREELIST_NUM)
 #define CM_MAX_MES_MSG_CMD              (uint8)255
 
-/* DAAC */
 #define CM_MES_MIN_CHANNEL_NUM  (uint32)(1)
 #define CM_MES_MAX_CHANNEL_NUM  (uint32)(32)
 #define CM_MES_MIN_TASK_NUM      (16)
