@@ -94,19 +94,15 @@ typedef enum en_mes_priority_t {
 } mes_priority_t;
 
 typedef enum en_mes_time_stat {
-    MES_TIME_TEST_SEND = 0,
-    MES_TIME_SEND_IO,
-    MES_TIME_TEST_RECV,
-    MES_TIME_TEST_MULTICAST,
-    MES_TIME_TEST_MULTICAST_AND_WAIT,
-    MES_TIME_TEST_WAIT_AND_RECV,
-    MES_TIME_GET_BUF,
-    MES_TIME_READ_MES,
-    MES_TIME_PROC_FUN,
-    MES_TIME_PUT_QUEUE,
-    MES_TIME_GET_QUEUE,
-    MES_TIME_QUEUE_PROC,
-    MES_TIME_PUT_BUF,
+    MES_TIME_MSG_SEND = 0,      // time of `send request message`
+    MES_TIME_MSG_RECV,          // time of `recv response message`, it's not accurate
+    MES_TIME_WRITE_SOCKET,  // time of `write message to socket`, similar to `MSG_SEND`
+    MES_TIME_GET_BUF,            // time of `get appropriate buffer from free list` for receiving message
+    MES_TIME_READ_SOCKET,        // time of `read message from socket`, it contains `GET_BUF`
+    MES_TIME_PUT_QUEUE,          // time of `put message to queue`
+    MES_TIME_GET_QUEUE,          // time of `get message from queue`
+    MES_TIME_QUEUE_PROC,         // time of `process message`
+    MES_TIME_PUT_BUF,            // time of `put buffer to free list` after message processed
     MES_TIME_CEIL
 } mes_time_stat_t;
 
@@ -283,6 +279,7 @@ typedef struct st_mes_msg_pool_minimum_info {
 
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef void (*mes_thread_deinit_t)();
+typedef unsigned short (*mes_app_cmd_cb_t)(char *msg_buf);
 
 /*
  * @brief mes init
@@ -610,6 +607,9 @@ void mes_set_worker_init_cb(mes_thread_init_t callback);
 * @return
 */
 void mes_set_worker_deinit_cb(mes_thread_deinit_t callback);
+
+void mes_set_app_cmd_cb(mes_app_cmd_cb_t callback);
+mes_app_cmd_cb_t mes_get_app_cmd_cb();
 
 /*
  * @brief estimated total memory consumed by mes_init

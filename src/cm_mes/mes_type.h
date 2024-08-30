@@ -45,7 +45,9 @@ typedef unsigned long long uint64;
 
 typedef struct st_mes_message_head {
     unsigned int version;
-    unsigned int cmd;
+    unsigned char cmd;         // mes command
+    unsigned short app_cmd;    // upper application command
+    unsigned char unused;
     unsigned int  flags;
     unsigned int  caller_tid;
     unsigned long long ruid;
@@ -104,7 +106,9 @@ typedef struct st_mes_bufflist {
 
 #define MES_INIT_MESSAGE_HEAD(head, v_version, v_cmd, v_flags, v_src_inst, v_dst_inst, v_ruid, v_size)      \
     do {                                                                                                    \
-        (head)->cmd = (uint32)(v_cmd);                                                                       \
+        (head)->cmd = (uint32)(v_cmd);                                                                      \
+        (head)->app_cmd = 0;                                                                                \
+        (head)->unused = 0;                                                                                 \
         (head)->version = (uint32)(v_version);                                                              \
         (head)->flags = (uint32)(v_flags);                                                                  \
         (head)->src_inst = (uint32)(v_src_inst);                                                            \

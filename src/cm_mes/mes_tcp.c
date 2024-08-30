@@ -154,8 +154,7 @@ static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
 
 static int mes_get_message_buf(mes_message_t *msg, const mes_message_head_t *head)
 {
-    uint64 stat_time = 0;
-    mes_get_consume_time_start(&stat_time);
+    uint64 stat_time = cm_get_time_usec();
     char *msg_buf;
     uint32 size = head->size;
     if (MES_COMPRESS_ALGORITHM(head->flags)) {
@@ -170,7 +169,7 @@ static int mes_get_message_buf(mes_message_t *msg, const mes_message_head_t *hea
         return ERR_MES_ALLOC_MSGITEM_FAIL;
     }
     MES_MESSAGE_ATTACH(msg, msg_buf);
-    mes_consume_with_time(head->cmd, MES_TIME_GET_BUF, stat_time);
+    mes_consume_with_time(head->app_cmd, MES_TIME_GET_BUF, stat_time);
     return CM_SUCCESS;
 }
 
@@ -214,7 +213,7 @@ static status_t check_recv_head_info(const mes_message_head_t *head, mes_priorit
 // receive
 static int mes_process_event(mes_pipe_t *pipe)
 {
-    uint64 stat_time = 0;
+    uint64 stat_time;
     mes_message_t msg;
     mes_message_head_t head;
 
@@ -234,7 +233,7 @@ static int mes_process_event(mes_pipe_t *pipe)
         return mec_process_event(pipe);
     }
 
-    mes_get_consume_time_start(&stat_time);
+    stat_time = cm_get_time_usec();
 
     int ret = mes_read_message_head(&pipe->recv_pipe, &head);
     if (ret != CM_SUCCESS) {
@@ -276,7 +275,7 @@ static int mes_process_event(mes_pipe_t *pipe)
         return ERR_MES_SOCKET_FAIL;
     }
 
-    mes_consume_with_time(msg.head->cmd, MES_TIME_READ_MES, stat_time);
+    mes_consume_with_time(msg.head->app_cmd, MES_TIME_READ_SOCKET, stat_time);
 
     (void)cm_atomic_inc(&(pipe->recv_count));
 
@@ -943,7 +942,7 @@ int mes_tcp_send_data(const void *msg_data)
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
-    mes_get_consume_time_start(&stat_time);
+    stat_time = cm_get_time_usec();
     if (head->cmd == MES_CMD_SYNCH_ACK) {
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
     }
@@ -980,7 +979,7 @@ int mes_tcp_send_data(const void *msg_data)
     }
 
     pipe->last_send_time = g_timer()->monotonic_now;
-    mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
+    mes_consume_with_time(head->app_cmd, MES_TIME_WRITE_SOCKET, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 
     (void)cm_atomic_inc(&(pipe->send_count));
@@ -1022,7 +1021,8 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
                             head->dst_inst, priority);
         return ERR_MES_SENDPIPE_NO_READY;
     }
-    mes_get_consume_time_start(&stat_time);
+    
+    stat_time = cm_get_time_usec();
 
     if (head->cmd == MES_CMD_SYNCH_ACK) {
         CM_ASSERT(MES_RUID_GET_RSN((head)->ruid) != 0);
@@ -1088,7 +1088,7 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     }
 
     pipe->last_send_time = g_timer()->monotonic_now;
-    mes_consume_with_time(head->cmd, MES_TIME_SEND_IO, stat_time);
+    mes_consume_with_time(head->app_cmd, MES_TIME_WRITE_SOCKET, stat_time);
     cm_rwlock_unlock(&pipe->send_lock);
 
     (void)cm_atomic_inc(&(pipe->send_count));
