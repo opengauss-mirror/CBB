@@ -65,7 +65,7 @@ status_t perctrl_scsi3_write(const char *iof_dev, int32 block_addr, uint16 block
 status_t perctrl_scsi3_inql(const char *iof_dev, inquiry_data_t *inquiry_data);
 status_t perctrl_scsi3_rkeys(const char *iof_dev, int64 *reg_keys, int32 *key_count, uint32 *generation);
 status_t perctrl_scsi3_rres(const char *iof_dev, int64 *rk, uint32 *generation);
-
+int32 exec_perctrl_init_logger();
 #ifdef __cplusplus
 }
 #endif

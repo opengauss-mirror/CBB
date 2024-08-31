@@ -71,6 +71,7 @@ typedef enum {
     PERCTRL_CMD_RKEYS,
     PERCTRL_CMD_RRES,
     PERCTRL_CMD_EXIT,
+    PERCTRL_CMD_INIT_LOG,
     PERCTRL_CMD_END // must be the last item
 } perctrl_cmd_e;
 
