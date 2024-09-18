@@ -195,6 +195,10 @@ extern "C" {
 
 typedef void *(*cm_malloc_proc_t)(size_t size);
 typedef void (*cm_free_proc_t)(void *ptr);
+typedef struct st_cm_memory_allocator {
+    cm_malloc_proc_t  malloc_proc;
+    cm_free_proc_t free_proc;
+} cm_memory_allocator_t;
 void regist_cm_malloc_proc(cm_malloc_proc_t malloc_proc, cm_free_proc_t free_proc);
 void *cm_malloc_prot(size_t size);
 void cm_free_prot(void *pointer);
