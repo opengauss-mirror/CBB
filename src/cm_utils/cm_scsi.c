@@ -183,7 +183,7 @@ status_t cm_scsi2_reserve(int32 fd)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI2 reserve command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI2 reserve command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
@@ -220,7 +220,7 @@ status_t cm_scsi2_release(int32 fd)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI2 release command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI2 release command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
@@ -276,17 +276,17 @@ int32 cm_scsi3_register(int32 fd, int64 sark)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI register command failed, status %d, errno %d.", status, errno);
+        LOG_RUN_ERR("Sending SCSI register command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
     if (hdr.status != 0) {
         if (hdr.status == SAM_RESERVATION_CONFLICT) {
-            LOG_DEBUG_INF("SCSI register get reservation confict return, sark %lld.", sark);
+            LOG_RUN_INF("SCSI register get reservation confict return, sark %lld, status %d.", sark, hdr.status);
             return CM_SCSI_ERR_CONFLICT;
         } else {
-            LOG_DEBUG_ERR("SCSI register failed, status %d.", hdr.status);
+            LOG_RUN_ERR("SCSI register failed, status %d.", hdr.status);
             return CM_ERROR;
         }
     }
@@ -336,17 +336,17 @@ int32 cm_scsi3_unregister(int32 fd, int64 rk)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI unregister command failed, status %d, errno %d.", status, errno);
+        LOG_RUN_ERR("Sending SCSI unregister command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
     if (hdr.status != 0) {
         if (hdr.status == SAM_RESERVATION_CONFLICT) {
-            LOG_DEBUG_INF("SCSI unregister get reservation confict return, rk %lld.", rk);
+            LOG_RUN_INF("SCSI unregister get reservation confict return, rk %lld, status %d.", rk, hdr.status);
             return CM_SCSI_ERR_CONFLICT;
         } else {
-            LOG_DEBUG_ERR("SCSI unregister failed, status %d.", hdr.status);
+            LOG_RUN_ERR("SCSI unregister failed, status %d.", hdr.status);
             return CM_ERROR;
         }
     }
@@ -393,17 +393,17 @@ status_t cm_scsi3_reserve(int32 fd, int64 rk)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI reserve command failed, status %d, errno %d.", status, errno);
+        LOG_RUN_ERR("Sending SCSI reserve command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
     if (hdr.status != 0) {
         if (hdr.status == SAM_RESERVATION_CONFLICT) {
-            LOG_DEBUG_INF("SCSI reserve get confict return, rk %lld.", rk);
+            LOG_RUN_INF("SCSI reserve get confict return, rk %lld.", rk);
             return CM_SCSI_ERR_CONFLICT;
         } else {
-            LOG_DEBUG_ERR("SCSI reserve failed, status %d.", hdr.status);
+            LOG_RUN_ERR("SCSI reserve failed, status %d.", hdr.status);
             return CM_ERROR;
         }
     }
@@ -450,13 +450,13 @@ status_t cm_scsi3_release(int32 fd, int64 rk)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI release command failed, status %d, errno %d.", status, errno);
+        LOG_RUN_ERR("Sending SCSI release command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
     if (hdr.status != 0) {
-        LOG_DEBUG_ERR("SCSI release failed, status %d.", hdr.status);
+        LOG_RUN_ERR("SCSI release failed, status %d.", hdr.status);
         return CM_ERROR;
     }
 
@@ -502,7 +502,7 @@ status_t cm_scsi3_clear(int32 fd, int64 rk)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI clear command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI clear command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -557,13 +557,13 @@ status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI preempt command failed, status %d, errno %d.", status, errno);
+        LOG_RUN_ERR("Sending SCSI preempt command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
 
     if (hdr.status != 0) {
-        LOG_DEBUG_ERR("SCSI preempt failed, status %d.", hdr.status);
+        LOG_RUN_ERR("SCSI preempt failed, status %d.", hdr.status);
         return CM_ERROR;
     }
 
@@ -603,7 +603,7 @@ int32 cm_scsi3_caw(int32 fd, uint64 block_addr, char *buff, int32 buff_len)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI caw command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI caw command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -695,7 +695,7 @@ status_t cm_scsi3_read(int32 fd, int32 block_addr, uint16 block_count, char *buf
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI read command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI read command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -747,7 +747,7 @@ status_t cm_scsi3_write(int32 fd, int32 block_addr, uint16 block_count, char *bu
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI write command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI write command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -814,7 +814,7 @@ status_t cm_scsi3_get_array(int32 fd, array_info_t *array_info)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI get array info command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI get array info command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -867,7 +867,7 @@ status_t cm_scsi3_get_vendor(int32 fd, vendor_info_t *vendor_info)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI get vendor info command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI get vendor info command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -921,7 +921,7 @@ status_t cm_scsi3_get_lun(int32 fd, lun_info_t *lun_info)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI get lun info command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI get lun info command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -1014,7 +1014,7 @@ status_t cm_scsi3_rkeys(int32 fd, int64 *reg_keys, int32 *key_count, uint32 *gen
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI read keys command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI read keys command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
@@ -1086,7 +1086,7 @@ status_t cm_scsi3_rres(int32 fd, int64 *rk, uint32 *generation)
 
     status = ioctl(fd, SG_IO, &hdr);
     if (status < 0) {
-        LOG_DEBUG_ERR("Sending SCSI read reservation command failed, status %d, errno %d.", status, errno);
+        LOG_DEBUG_ERR("Sending SCSI read reservation command failed, status %d, errno %d, errmsg %s.", status, errno, cm_get_os_error_msg(errno));
         CM_THROW_ERROR(ERR_SCSI_INVOKED_FAILED, cm_get_os_error_msg(errno));
         return CM_ERROR;
     }
