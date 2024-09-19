@@ -199,20 +199,19 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
 
 int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 {
-    uint8 rrega = 0;  // Register Reservation Key
-    uint8 cptpl = 1;  // Reserved
     bool8 iekey = 0; // Ignore Existing Key
-    uint64 crkey = 0; // Current Reservation Key
+    uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
+    uint8 racqa = 0; // Reservation Acquire Action: Acquire
     uint32 nsid = 0;
     int32 status = 0;
 
     CM_RETURN_IFERR(cm_nvme_get_nsid(fd, (int32*)(&nsid)));
 
-    __le64 payload[2] = { cpu_to_le64(crkey), cpu_to_le64(nrkey) };
-    uint32 cdw10 = (rrega & 0x7) | (iekey ? 1 << 3 : 0) | (cptpl << 30);
+    __le64 payload[2] = { cpu_to_le64(nrkey), cpu_to_le64(nrkey) };
+    uint32 cdw10 = (racqa & 0x7) | (iekey ? 1 << 3 : 0) | (rtype << 8);
 
     struct nvme_passthru_cmd cmd = {
-        .opcode         = nvme_cmd_resv_register,
+        .opcode         = nvme_cmd_resv_acquire,
         .nsid           = nsid,
         .cdw10          = cdw10,
         .addr           = (uint64)(uintptr_t) (payload),
@@ -226,8 +225,8 @@ int32 cm_nvme_reserve(int32 fd, int64 nrkey)
             LOG_DEBUG_INF("NVMe reserve get reservation confict return, nrkey %lld.", nrkey);
             return CM_SCSI_ERR_CONFLICT;
         } else if (status < 0) {
-            LOG_DEBUG_ERR("Sending NVMe reserve command failed, crkey %lld.error:%s(%d)",
-                crkey, strerror(errno), errno);
+            LOG_DEBUG_ERR("Sending NVMe reserve command failed, nrkey %lld.error:%s(%d)",
+                nrkey, strerror(errno), errno);
             return CM_ERROR;
         } else {
             LOG_DEBUG_ERR("Sending NVMe reserve command failed, %s(%#x).", cm_nvme_status_to_string(status), status);
@@ -241,7 +240,7 @@ int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 int32 cm_nvme_release(int32 fd, int64 crkey)
 {
     bool8 iekey = 0; // Ignore Existing Key
-    uint8 rtype = 0; // Reservation Type:Reserved
+    uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 rrela = 0; // Reservation Release Action:Release
     uint32 nsid = 0;
     int32 status = 0;
@@ -274,7 +273,6 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
 
     return CM_SUCCESS;
 }
-
 
 int32 cm_nvme_clear(int32 fd, int64 crkey)
 {
@@ -315,7 +313,7 @@ int32 cm_nvme_clear(int32 fd, int64 crkey)
 int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 {
     bool8 iekey = 0; // Ignore Existing Key
-    uint8 rtype = 0; // Reservation Type:Reserved
+    uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 racqa = 1; // Reservation Acquire Action: Preempt
     uint32 nsid = 0;
     int32 status = 0;
