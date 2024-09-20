@@ -34,6 +34,7 @@
 extern "C" {
 #endif
 
+extern bool32 g_high_frequency_restrt_process;
 typedef enum en_log_level {
     LEVEL_ERROR = 0, // error conditions
     LEVEL_WARN,      // warning conditions
@@ -349,13 +350,10 @@ status_t cm_recovery_log_file(log_type_t log_type);
             } else if (LOG_INITED) {                                                                             \
                 cm_write_normal_log(LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-                if (LOG_DEBUG_INF_ON){                                                                           \
-                    cm_write_normal_log(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,          \
-                        LOG_MODULE_NAME, CM_TRUE,    format, ##__VA_ARGS__);                                     \
-                }                                                                                                \
             }                                                                                                    \
         }                                                                                                        \
     } while (0)
+
 #define LOG_RUN_WAR(format, ...)                                                                                 \
     do {                                                                                                         \
         if (LOG_RUN_WAR_ON) {                                                                                    \
@@ -365,13 +363,10 @@ status_t cm_recovery_log_file(log_type_t log_type);
             } else if (LOG_INITED) {                                                                             \
                 cm_write_normal_log(LOG_RUN, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,                \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-                if (LOG_DEBUG_WAR_ON){                                                                           \
-                    cm_write_normal_log(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,          \
-                        LOG_MODULE_NAME, CM_TRUE,  format, ##__VA_ARGS__);                                       \
-                }                                                                                                \
             }                                                                                                    \
         }                                                                                                        \
     } while (0)
+
 #define LOG_RUN_ERR(format, ...)                                                                                 \
     do {                                                                                                         \
         if (LOG_RUN_ERR_ON) {                                                                                    \
@@ -381,10 +376,6 @@ status_t cm_recovery_log_file(log_type_t log_type);
             } else if (LOG_INITED) {                                                                             \
                 cm_write_normal_log(LOG_RUN, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,               \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-                if (LOG_DEBUG_ERR_ON){                                                                           \
-                    cm_write_normal_log(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,         \
-                        LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                        \
-                }                                                                                                \
             }                                                                                                    \
         }                                                                                                        \
     } while (0)

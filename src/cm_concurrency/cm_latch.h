@@ -253,6 +253,19 @@ static inline void cm_latch_x2ix(latch_t *latch, uint32 sid, latch_statis_t *sta
     cm_spin_unlock(&latch->lock);
 }
 
+static inline void cm_latch_degrade(latch_t *latch, uint32 sid, latch_statis_t *stat)
+{
+    cm_spin_lock_with_stat(&latch->lock, (LATCH_NEED_STAT(stat)) ? &stat->x_spin : NULL,
+        (LATCH_NEED_STAT(stat)) ? &stat->spin_stat : NULL);
+    cm_panic_log(latch->sid == sid && latch->stat == LATCH_STATUS_X,
+        "latch sid:%u != sid:%u or stat:%u not stat X", (uint32)latch->sid, sid, (uint32)latch->stat);
+
+    latch->stat = LATCH_STATUS_S;
+    latch->shared_count = 1;
+    cm_spin_unlock(&latch->lock);
+    return;
+}
+
 static inline void cm_latch_s(latch_t *latch, uint32 sid, bool32 is_force, latch_statis_t *stat)
 {
     uint32 count = 0;
