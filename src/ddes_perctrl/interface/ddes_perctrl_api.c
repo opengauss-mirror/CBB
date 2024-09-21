@@ -373,7 +373,7 @@ status_t perctrl_release_impl(const char *iof_dev, int64 rk, scsi_reserv_type_e 
     req->head->cmd = PERCTRL_CMD_RELEASE;
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)rk));
-    CM_RETURN_IFERR(ddes_put_int32(req, type));
+    CM_RETURN_IFERR(ddes_put_int32(req, (uint32)type));
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
 
@@ -440,7 +440,7 @@ status_t perctrl_preempt_impl(const char *iof_dev, int64 rk, int64 sark, scsi_re
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)rk));
     CM_RETURN_IFERR(ddes_put_int64(req, (uint64)sark));
-    CM_RETURN_IFERR(ddes_put_int32(req, type));
+    CM_RETURN_IFERR(ddes_put_int32(req, (uint32)type));
     CM_RETURN_IFERR(exec_perctrl_cmd(req, ack));
     ddes_init_get(ack);
     if (ack->head->result != CM_SUCCESS) {
