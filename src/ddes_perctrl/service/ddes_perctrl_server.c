@@ -161,8 +161,8 @@ int32 exec_scsi3_clear(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_int64(req, &rk));
     CM_RETURN_IFERR(ddes_open_iof_dev(iof_dev, &fd));
     status_t ret = cm_scsi3_clear(fd, rk);
+    LOG_RUN_INF("Exec clear ret %d, iof_dev: %s, rk: %lld, fd: %d.", ret, iof_dev, rk, fd);
     (void)close(fd);
-    LOG_RUN_INF("Exec clear ret %d.", ret);
     return ret;
 }
 
@@ -688,7 +688,7 @@ status_t perctrl_init_loggers(cm_log_def_t *log_def, uint32 log_def_count, char 
     uint32 len = CM_MAX_PATH_LEN;
     int32 ret;
     status_t status;
-    g_high_frequency_restrt_process = CM_TRUE;
+    g_high_frequency_restart_process = CM_TRUE;
     for (size_t i = 0; i < log_def_count; i++) {
         ret = snprintf_s(file_name, len, (len - 1), "%s/%s", log_param->log_home, log_def[i].log_filename);
         if (ret == -1) {
@@ -719,7 +719,7 @@ status_t perctrl_init_loggers(cm_log_def_t *log_def, uint32 log_def_count, char 
     return CM_SUCCESS;
 }
 
-status_t perctrl_parse_param_inner(perctrl_log_param_id_t id, char *buf)
+status_t perctrl_parse_log_param_inner(perctrl_log_param_id_t id, char *buf)
 {
     log_param_t *log_param = cm_log_param_instance();
     status_t status = CM_SUCCESS;
@@ -761,14 +761,14 @@ status_t perctrl_parse_param_inner(perctrl_log_param_id_t id, char *buf)
             CM_RETURN_IFERR_EX(status, (void)printf("The value of log_compressed is invalid.\n"));
             break;
     default:
-        (void)printf("Invalid perctrl id %u.\n", id);
+        (void)printf("Invalid perctrl log param id %u.\n", id);
         status = CM_ERROR;
         break;
     }
     return status;
 }
 
-status_t perctrl_parse_args(char *buf)
+status_t perctrl_parse_log_args(char *buf)
 {
     char *next_info = NULL;
     char *key = strtok_s(buf, "=", &next_info);
@@ -782,7 +782,7 @@ status_t perctrl_parse_args(char *buf)
     }
     for (uint32 i = 0; i < sizeof(g_perctrl_log_param) / sizeof(perctrl_log_param_set_t); i++) {
         if (strcmp(g_perctrl_log_param[i].name, key) == 0) {
-            return perctrl_parse_param_inner(g_perctrl_log_param[i].id, value);
+            return perctrl_parse_log_param_inner(g_perctrl_log_param[i].id, value);
         }
     }
     (void)printf("Invalid perctrl argument %s.\n", key);
@@ -800,19 +800,20 @@ int32 exec_init_logger(perctrl_packet_t *req, perctrl_packet_t *ack)
     uint32 i = 0;
     char *temp = strtok_s(buf, "|", &next_info);
     while (temp != NULL) {
-        CM_RETURN_IFERR(perctrl_parse_args(temp));
+        CM_RETURN_IFERR(perctrl_parse_log_args(temp));
         temp = strtok_s(NULL, "|", &next_info);
         i++;
     }
     if (i != PERCTRL_PARAM_LOG_TOTAL_CNT) {
         (void)printf("Invalid split parameters count:%u.\n", i);
-        (void)printf("except <log_home=value0|log_level=value1|log_backup_file_count=value2|max_log_file_size=value3|log_file_permissions=value4|log_path_permissions=value5"
-        "|log_bak_file_permissions=value6|log_compressed=value7>\n");
+        (void)printf("except <log_home=value0|log_level=value1|log_backup_file_count=value2|max_log_file_size=value3"
+        "|log_file_permissions=value4|log_path_permissions=value5|log_bak_file_permissions=value6"
+        "|log_compressed=value7>\n");
         return CM_ERROR;
     }
     status = perctrl_init_loggers(g_perctrl_log, sizeof(g_perctrl_log) / sizeof(cm_log_def_t), "perctrl");
     CM_RETURN_IFERR_EX(status, (void)printf("Failed to init loggers.\n"));
-    return status;   
+    return status;
 }
 
 static perctrl_cmd_hdl_t g_perctrl_cmd_handle[] = {

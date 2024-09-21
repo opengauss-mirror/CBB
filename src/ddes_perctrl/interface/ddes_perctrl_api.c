@@ -203,7 +203,7 @@ status_t exec_perctrl_cmd(perctrl_packet_t *req, perctrl_packet_t *ack)
     cm_spin_lock(&g_init_lock, NULL);
     status = exec_perctrl_send_and_receive(req, ack);
     cm_spin_unlock(&g_init_lock);
-    return CM_SUCCESS;
+    return status;
 }
 
 __attribute__((destructor)) status_t perctrl_uninit();
@@ -247,8 +247,8 @@ int32 exec_perctrl_init_logger()
     req.head->cmd = PERCTRL_CMD_INIT_LOG;
     char buf[MAX_PACKET_LEN];
     PRTS_RETURN_IFERR(snprintf_s(buf, MAX_PACKET_LEN, MAX_PACKET_LEN - 1,
-        "log_home=%s|log_level=%u|log_backup_file_count=%u|max_log_file_size=%llu|log_file_permissions=%u|log_path_permissions=%u|"
-        "log_bak_file_permissions=%u|log_compressed=%hu",
+        "log_home=%s|log_level=%u|log_backup_file_count=%u|max_log_file_size=%llu|"
+        "log_file_permissions=%u|log_path_permissions=%u|log_bak_file_permissions=%u|log_compressed=%hu",
         parent_log_param->log_home, parent_log_param->log_level,
         parent_log_param->log_backup_file_count, parent_log_param->max_log_file_size,
         parent_log_param->log_file_permissions, parent_log_param->log_path_permissions,
@@ -260,7 +260,7 @@ int32 exec_perctrl_init_logger()
         (void)ddes_get_int32(&ack, &errcode);
         (void)ddes_get_str(&ack, &errmsg);
         CM_THROW_ERROR_EX(errcode, "%s", errmsg);
-        LOG_RUN_ERR("[PERCTRL]init loggers failed, result:%d, %s.", ack.head->result, errmsg);
+        LOG_DEBUG_ERR("[PERCTRL]init loggers failed, result:%d, %s.", ack.head->result, errmsg);
         return ack.head->result;
     }
 
