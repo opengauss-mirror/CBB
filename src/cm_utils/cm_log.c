@@ -43,7 +43,7 @@ extern "C" {
 
 
 #define CM_INVALID_FD (-1)
-bool32 g_high_frequency_restrt_process = CM_FALSE;
+bool32 g_high_frequency_restart_process = CM_FALSE;
 
 static log_file_handle_t g_logger[LOG_COUNT] = {
     [LOG_RUN] = {
@@ -901,7 +901,7 @@ static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf,
         cm_compress_log_file(log_file_handle, new_bak_file_name, CM_FILE_NAME_BUFFER_SIZE);
         cm_write_rmv_and_bak_file_log(bak_file_name, remove_file_count, new_bak_file_name);
         if (handle_before_log == CM_INVALID_FD && log_file_handle->file_handle != CM_INVALID_FD &&
-            !g_high_frequency_restrt_process) {
+            !g_high_frequency_restart_process) {
             LOG_RUN_FILE_INF(CM_FALSE, "[LOG] file '%s' is added", log_file_handle->file_name);
         }
     } else {
