@@ -146,6 +146,8 @@ typedef struct st_mem_pool {
 } mem_pool_t;
 
 status_t buddy_pool_init(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem);
+status_t buddy_pool_init_ext(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem,
+    cm_memory_allocator_t* mem_allocator);
 status_t buddy_pool_set_mem_allocator(mem_pool_t *mem, cm_memory_allocator_t *mem_allocator);
 void *galloc(uint64 size, mem_pool_t *mem);
 void *galloc_timeout(uint64 size, mem_pool_t *mem, uint32 timeout_ms);
