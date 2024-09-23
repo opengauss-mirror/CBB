@@ -105,14 +105,15 @@ static mem_zone_t *mem_zone_init(mem_pool_t *mem, uint64 size)
     mem_zone_t *mem_zone;
     mem_block_t *mem_block;
 
-    mem_zone = (mem_zone_t *)cm_malloc_prot((size_t)(sizeof(mem_zone_t) + size));
+    cm_memory_allocator_t *mem_allocator = &mem->mem_allocator;
+    mem_zone = (mem_zone_t *)(mem_allocator->malloc_proc)((size_t)(sizeof(mem_zone_t) + size));
     if (mem_zone == NULL) {
         return NULL;
     }
 
     errno_t ret = memset_sp(mem_zone, sizeof(mem_zone_t), 0, sizeof(mem_zone_t));
     if (ret != EOK) {
-        CM_FREE_PROT_PTR(mem_zone);
+       (mem_allocator->free_proc)(mem_zone);
         return NULL;
     }
     mem_zone->mem = mem;
@@ -121,7 +122,7 @@ static mem_zone_t *mem_zone_init(mem_pool_t *mem, uint64 size)
     CM_MAGIC_SET(mem_zone, mem_zone_t);
     mem_block = mem_block_init(mem_zone, (void *)(mem_zone + 1), size, MEM_BLOCK_LEFT, 0);
     if (mem_block == NULL) {
-        CM_FREE_PROT_PTR(mem_zone);
+       (mem_allocator->free_proc)(mem_zone);
         return NULL;
     }
     mem_block_add(mem_block);
@@ -154,6 +155,10 @@ status_t buddy_pool_init(char *pool_name, uint64 init_size, uint64 max_size, mem
 
     errno_t ret = memset_sp(mem, sizeof(mem_pool_t), 0, sizeof(mem_pool_t));
     MEMS_RETURN_IFERR(ret);
+    cm_memory_allocator_t mem_allocator = {
+        .malloc_proc = cm_malloc_prot,
+        .free_proc = cm_free_prot };
+    buddy_pool_set_mem_allocator(mem, &mem_allocator);
     CM_MAGIC_SET(mem, mem_pool_t);
     MEMS_RETURN_IFERR(strncpy_sp(mem->name, CM_NAME_BUFFER_SIZE, pool_name, len));
     mem->max_size = max_size;
@@ -171,6 +176,62 @@ status_t buddy_pool_init(char *pool_name, uint64 init_size, uint64 max_size, mem
 
     cm_bilist_add_tail(&mem_zone->link, &mem->mem_zone_lst);
 
+    return CM_SUCCESS;
+}
+
+status_t buddy_pool_init_ext(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem,
+    cm_memory_allocator_t* mem_allocator)
+{
+    CM_CHECK_NULL_PTR(mem_allocator);
+
+    mem_zone_t *mem_zone;
+    uint32 len = (uint32)strlen(pool_name);
+    if (len > CM_MAX_NAME_LEN) {
+        CM_THROW_ERROR(ERR_BUFFER_OVERFLOW, len, CM_MAX_NAME_LEN);
+        return CM_ERROR;
+    }
+    init_size = cm_get_next_2power(init_size);
+    // modify init size val
+    if (init_size > BUDDY_MAX_BLOCK_SIZE) {
+        init_size = BUDDY_MAX_BLOCK_SIZE;
+    } else if (init_size < BUDDY_MIN_BLOCK_SIZE) {
+        init_size = BUDDY_MIN_BLOCK_SIZE;
+    }
+
+    if (max_size > BUDDY_MEM_POOL_MAX_SIZE) {
+        max_size = BUDDY_MEM_POOL_MAX_SIZE;
+    } else if (max_size < init_size) {
+        max_size = init_size;
+    }
+
+    errno_t ret = memset_sp(mem, sizeof(mem_pool_t), 0, sizeof(mem_pool_t));
+    MEMS_RETURN_IFERR(ret);
+    buddy_pool_set_mem_allocator(mem, mem_allocator);
+    CM_MAGIC_SET(mem, mem_pool_t);
+    MEMS_RETURN_IFERR(strncpy_sp(mem->name, CM_NAME_BUFFER_SIZE, pool_name, len));
+    mem->max_size = max_size;
+    GS_INIT_SPIN_LOCK(mem->lock);
+    cm_bilist_init(&mem->mem_zone_lst);
+    if (cm_event_init(&mem->event) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    mem_zone = mem_zone_init(mem, init_size);
+    if (mem_zone == NULL) {
+        CM_THROW_ERROR(ERR_MEM_ZONE_INIT_FAIL, "");
+        cm_event_destory(&mem->event);
+        return CM_ERROR;
+    }
+
+    cm_bilist_add_tail(&mem_zone->link, &mem->mem_zone_lst);
+
+    return CM_SUCCESS;
+}
+
+status_t buddy_pool_set_mem_allocator(mem_pool_t *mem, cm_memory_allocator_t *mem_allocator)
+{
+    CM_CHECK_NULL_PTR(mem);
+    CM_CHECK_NULL_PTR(mem_allocator);
+    mem->mem_allocator = *mem_allocator;
     return CM_SUCCESS;
 }
 
@@ -473,12 +534,13 @@ void buddy_pool_deinit(mem_pool_t *mem)
 {
     mem_zone_t *mem_zone;
     bilist_node_t *head;
+    cm_memory_allocator_t *mem_allocator = &mem->mem_allocator;
 
     while (!cm_bilist_empty(&mem->mem_zone_lst)) {
         head = cm_bilist_head(&mem->mem_zone_lst);
         cm_bilist_del(head, &mem->mem_zone_lst);
         mem_zone = BILIST_NODE_OF(mem_zone_t, head, link);
-        CM_FREE_PROT_PTR(mem_zone);
+       (mem_allocator->free_proc)(mem_zone);
     }
 }
 #ifdef __cplusplus
