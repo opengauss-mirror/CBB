@@ -179,6 +179,54 @@ status_t buddy_pool_init(char *pool_name, uint64 init_size, uint64 max_size, mem
     return CM_SUCCESS;
 }
 
+status_t buddy_pool_init_ext(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem,
+    cm_memory_allocator_t* mem_allocator)
+{
+    CM_CHECK_NULL_PTR(mem_allocator);
+
+    mem_zone_t *mem_zone;
+    uint32 len = (uint32)strlen(pool_name);
+    if (len > CM_MAX_NAME_LEN) {
+        CM_THROW_ERROR(ERR_BUFFER_OVERFLOW, len, CM_MAX_NAME_LEN);
+        return CM_ERROR;
+    }
+    init_size = cm_get_next_2power(init_size);
+    // modify init size val
+    if (init_size > BUDDY_MAX_BLOCK_SIZE) {
+        init_size = BUDDY_MAX_BLOCK_SIZE;
+    } else if (init_size < BUDDY_MIN_BLOCK_SIZE) {
+        init_size = BUDDY_MIN_BLOCK_SIZE;
+    }
+
+    if (max_size > BUDDY_MEM_POOL_MAX_SIZE) {
+        max_size = BUDDY_MEM_POOL_MAX_SIZE;
+    } else if (max_size < init_size) {
+        max_size = init_size;
+    }
+
+    errno_t ret = memset_sp(mem, sizeof(mem_pool_t), 0, sizeof(mem_pool_t));
+    MEMS_RETURN_IFERR(ret);
+    buddy_pool_set_mem_allocator(mem, mem_allocator);
+    CM_MAGIC_SET(mem, mem_pool_t);
+    MEMS_RETURN_IFERR(strncpy_sp(mem->name, CM_NAME_BUFFER_SIZE, pool_name, len));
+    mem->max_size = max_size;
+    GS_INIT_SPIN_LOCK(mem->lock);
+    cm_bilist_init(&mem->mem_zone_lst);
+    if (cm_event_init(&mem->event) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    mem_zone = mem_zone_init(mem, init_size);
+    if (mem_zone == NULL) {
+        CM_THROW_ERROR(ERR_MEM_ZONE_INIT_FAIL, "");
+        cm_event_destory(&mem->event);
+        return CM_ERROR;
+    }
+
+    cm_bilist_add_tail(&mem_zone->link, &mem->mem_zone_lst);
+
+    return CM_SUCCESS;
+}
+
 status_t buddy_pool_set_mem_allocator(mem_pool_t *mem, cm_memory_allocator_t *mem_allocator)
 {
     CM_CHECK_NULL_PTR(mem);
