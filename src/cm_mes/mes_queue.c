@@ -1077,34 +1077,23 @@ void mes_free_channel_msg_queue(bool32 is_send)
     CM_FREE_PROT_PTR(mq_ctx->channel_private_queue);
 }
 
-int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx, mes_priority_t priority)
+int64 mes_get_mem_capacity_internal(mq_context_t *mq_ctx)
 {
     if (mq_ctx == NULL) {
         return 0;
     }
 
     mes_profile_t *profile = mq_ctx->profile;
-    mes_buffer_pool_attr_t buffer_pool_attr = profile->buffer_pool_attr[priority];
-
-    int64 mem_capacity = 0;
-    for (uint32 i = 0; i < buffer_pool_attr.pool_count; i++) {
-        mes_buffer_attr_t buf_attr = buffer_pool_attr.buf_attr[i];
-        mem_capacity += (buf_attr.count * buf_attr.size);
-    }
-    return mem_capacity;
+    mes_msg_pool_attr_t *mpa = &profile->msg_pool_attr;
+    return mpa->total_size;
 }
 
-long long mes_get_mem_capacity(bool8 is_send, mes_priority_t priority)
+long long mes_get_mem_capacity(bool8 is_send)
 {
-    if (SECUREC_UNLIKELY(priority >= MES_PRIORITY_CEIL)) {
-        LOG_RUN_ERR("[mes] mes_get_mem_capacity invalid priority %u.", priority);
-        return -1;
-    }
-
     if (is_send) {
-        return mes_get_mem_capacity_internal(&MES_GLOBAL_INST_MSG.send_mq, priority);
+        return mes_get_mem_capacity_internal(&MES_GLOBAL_INST_MSG.send_mq);
     }
-    return mes_get_mem_capacity_internal(&MES_GLOBAL_INST_MSG.recv_mq, priority);
+    return mes_get_mem_capacity_internal(&MES_GLOBAL_INST_MSG.recv_mq);
 }
 
 int mes_get_started_task_count(bool8 is_send)
