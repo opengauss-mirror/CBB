@@ -668,6 +668,13 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
         pool_set->per_inst_pool_size = pool_set->total_size / pool_set->inst_pool_count;
     }
 
+    int sz = sizeof(bool8) * MES_MAX_INSTANCES;
+    ret = memset_sp(pool_set->inst_pool_inited, sz, 0, sz);
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes][msg pool] init inst pool set, memset_sp failed");
+        return ret;
+    }
+
     LOG_DEBUG_INF("[mes][msg pool] init instance pool set, is_send:%u", is_send);
     for (uint8 inst_id = 0; inst_id < pool_set->inst_pool_count; inst_id++) {
         if (is_send && inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
@@ -693,6 +700,7 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
         }
         LOG_DEBUG_INF("[mes][msg pool] init instance pool success, inst_id:%u, is_send:%u",
             inst_id, is_send);
+        pool_set->inst_pool_inited[inst_id] = CM_TRUE;
     }
     return ret;
 }
@@ -976,10 +984,10 @@ static mes_msg_buffer_pool_t* mes_get_buf_pool(bool8 is_send, uint32 dst_inst, u
     }
 
     mes_msg_inst_pool_set_t *pool_set = &mq_ctx->inst_pool_set;
-    if (pool_set->inst_pool[dst_inst] == NULL) {
+    if (!pool_set->inst_pool_inited[dst_inst]) {
         // occur when cluster add new instance
         cm_spin_lock(&mq_ctx->msg_pool_init_lock, NULL);
-        if (pool_set->inst_pool[dst_inst] == NULL) {
+        if (!pool_set->inst_pool_inited[dst_inst]) {
             mes_msg_pool_tag_t tag = {
                 .is_send = is_send,
                 .enable_inst_dimension = CM_TRUE,
@@ -1001,6 +1009,7 @@ static mes_msg_buffer_pool_t* mes_get_buf_pool(bool8 is_send, uint32 dst_inst, u
                 dst_inst, is_send);
             pool_set->total_size = pool_set->total_size + pool_set->per_inst_pool_size;
             pool_set->inst_pool_count++;
+            pool_set->inst_pool_inited[dst_inst] = CM_TRUE;
         }
         cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
     }
