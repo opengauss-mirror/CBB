@@ -141,6 +141,7 @@ typedef struct st_mes_msg_inst_pool_set {
     uint32 inst_pool_count;
     uint64 per_inst_pool_size;
     mes_msg_pool_t *inst_pool[MES_MAX_INSTANCES];
+    bool8 inst_pool_inited[MES_MAX_INSTANCES];
 } mes_msg_inst_pool_set_t;
 
 typedef struct st_mes_msg_buffer_relation {
