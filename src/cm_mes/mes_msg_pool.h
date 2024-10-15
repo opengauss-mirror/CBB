@@ -51,6 +51,7 @@ typedef struct st_mes_buffer_item_tag {
 
 typedef struct st_mes_buffer_item {
     struct st_mes_buffer_item *next;
+    bool8 inqueue;
     mes_buffer_item_tag_t tag;
     char data[0];
 } mes_buffer_item_t;
