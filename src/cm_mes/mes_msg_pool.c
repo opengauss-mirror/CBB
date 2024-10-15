@@ -774,6 +774,11 @@ mes_buffer_item_t* mes_get_buf_item_from_queue(mes_buf_queue_t *queue, uint32 *c
         }
         CM_ASSERT(buf_item != NULL);
         buf_item->next = NULL;
+        cm_panic_log(buf_item->inqueue == CM_TRUE, "buf_item:%p should in queue but not. inqueue:%u. "
+            "possible reason: thread1 repeat put same buffer to different queue concurrently, thread2 already "
+            "get buffer from anthor queue, so this time buffer indicate not in queue.",
+            buf_item, buf_item->inqueue);
+        buf_item->inqueue = CM_FALSE;
     }
 
     if (count != NULL) {
@@ -795,6 +800,11 @@ static void mes_put_buf_item_to_queue(mes_buffer_item_t *buf_item, mes_buf_queue
         queue->last = buf_item;
     }
     buf_item->next = NULL;
+    cm_panic_log(buf_item->inqueue == CM_FALSE, "buf_item:%p should not in queue but in. inqueue:%u. "
+        "possible reason: thread repeat call mes_free_buf_item function with same buffer lead to repeat "
+        "put buffer to queue, this is not allowed.",
+        buf_item, buf_item->inqueue);
+    buf_item->inqueue = CM_TRUE;
     queue->count++;
 
     if (count != NULL) {
@@ -835,6 +845,7 @@ static void mes_format_buf_for_queue(mes_buf_queue_t *queue, mes_msg_buffer_pool
     for (uint32 i = 0; i < init_count; i++) {
         buf_item = (mes_buffer_item_t*)addr;
         mes_init_buffer_item_tag(&buf_item->tag, pool_tag, is_shared, priority, queue->queue_no);
+        buf_item->inqueue = CM_FALSE;
         mes_put_buf_item_to_queue(buf_item, queue, NULL);
         addr += buf_item_size;
     }
@@ -1128,7 +1139,7 @@ void mes_free_buf_item(char *buffer)
         priority_pool = &buf_pool->private_pool[buf_tag->priority];
         queue = &priority_pool->queues[buf_tag->queue_no];
     } else if (buf_pool->need_recycle) {
-        queue = &buf_pool->shared_pool.queues[buf_tag->priority];
+        queue = &buf_pool->shared_pool.queues[buf_tag->queue_no];
         check_recycle = CM_TRUE;
     } else {
         priority_pool = &buf_pool->private_pool[buf_tag->priority];
