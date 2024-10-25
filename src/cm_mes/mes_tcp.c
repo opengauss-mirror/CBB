@@ -362,6 +362,8 @@ void mes_tcp_try_connect(uintptr_t pipePtr)
     char buf[sizeof(mes_message_head_t)];
     mes_message_head_t *head = (mes_message_head_t *)buf;
     head->cmd = MES_CMD_CONNECT;
+    head->app_cmd = 0;
+    head->unused = 0;
     head->dst_inst = MES_INSTANCE_ID(pipe->channel->id);
     head->src_inst = MES_GLOBAL_INST_MSG.profile.inst_id;
     head->caller_tid = MES_CHANNEL_ID(pipe->channel->id); // use caller_tid to represent channel id
@@ -910,6 +912,11 @@ int mes_init_tcp_resource(void)
     return CM_SUCCESS;
 }
 
+static bool32 is_old_mes_cmd(int32 version)
+{
+    return version < CS_VERSION_6;
+}
+
 // send
 int mes_tcp_send_data(const void *msg_data)
 {
@@ -960,6 +967,10 @@ int mes_tcp_send_data(const void *msg_data)
     }
 
     if (!is_old_mec_version(version)) {
+        if (is_old_mes_cmd(version)) {
+            head->app_cmd = 0;
+            head->unused = 0;
+        }
         ret = cs_send_fixed_size(&pipe->send_pipe, (char *)msg_data, (int32)head->size);
     } else {
         mec_message_head_adapter_t *mec_head =
@@ -1042,6 +1053,11 @@ int mes_tcp_send_bufflist(mes_bufflist_t *buff_list)
     if (is_old_mec_version(version)) {
         buff_list->buffers[0].buf = buff_list->buffers[0].buf + sizeof(mes_message_head_t);
         buff_list->buffers[0].len = buff_list->buffers[0].len - (unsigned int)sizeof(mes_message_head_t);
+    }
+
+    if (is_old_mes_cmd(version)) {
+        head->app_cmd = 0;
+        head->unused = 0;
     }
     
     if (pipe->msgbuf == NULL) {

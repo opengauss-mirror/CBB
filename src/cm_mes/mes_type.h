@@ -45,9 +45,9 @@ typedef unsigned long long uint64;
 
 typedef struct st_mes_message_head {
     unsigned int version;
-    unsigned char cmd;         // mes command
-    unsigned short app_cmd;    // upper application command
-    unsigned char unused;
+    unsigned int cmd : 8;         // mes command
+    unsigned int app_cmd : 16;    // upper application command
+    unsigned int unused : 8;
     unsigned int  flags;
     unsigned int  caller_tid;
     unsigned long long ruid;

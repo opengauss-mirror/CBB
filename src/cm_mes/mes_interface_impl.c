@@ -172,10 +172,13 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
         return CM_ERROR;
     }
 
-    if (buff_list.cnt > 1) {
-        head->app_cmd = mes_get_app_cmd(buff_list.buffers[1].buf, head->cmd);
-    } else {
-        head->app_cmd = CM_MAX_MES_MSG_CMD;
+    mes_app_cmd_cb_t cb = mes_get_app_cmd_cb();
+    if (cb != NULL) {
+        if (buff_list.cnt > 1) {
+            head->app_cmd = mes_get_app_cmd(buff_list.buffers[1].buf, head->cmd);
+        } else {
+            head->app_cmd = CM_MAX_MES_MSG_CMD;
+        }
     }
 
     bool32 is_send = head->dst_inst == MES_MY_ID ? CM_FALSE : CM_TRUE;
