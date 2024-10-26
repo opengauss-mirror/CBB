@@ -30,6 +30,7 @@ extern "C" {
 
 static mes_thread_init_t g_cb_thread_init = NULL;
 static mes_thread_deinit_t g_cb_thread_deinit = NULL;
+static mes_app_cmd_cb_t g_cb_app_cmd = NULL;
 
 mes_thread_init_t mes_get_worker_init_cb(void)
 {
@@ -49,6 +50,16 @@ void mes_set_worker_init_cb(mes_thread_init_t callback)
 void mes_set_worker_deinit_cb(mes_thread_deinit_t callback)
 {
     g_cb_thread_deinit = callback;
+}
+
+void mes_set_app_cmd_cb(mes_app_cmd_cb_t callback)
+{
+    g_cb_app_cmd = callback;
+}
+
+mes_app_cmd_cb_t mes_get_app_cmd_cb()
+{
+    return g_cb_app_cmd;
 }
 
 #ifdef __cplusplus

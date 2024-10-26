@@ -1106,15 +1106,6 @@ char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_pri
     return mes_alloc_buf_item_inner(len, is_send, dst_inst, priority, CM_TRUE);
 }
 
-static void mes_release_buf_stat(uint32 cmd)
-{
-    if (g_mes_stat.mes_elapsed_switch) {
-        cm_atomic32_dec(&(g_mes_stat.mes_command_stat[cmd].occupy_buf));
-        mes_elapsed_stat(cmd, MES_TIME_PUT_BUF);
-    }
-    return;
-}
-
 void mes_free_buf_item(char *buffer)
 {
     if (buffer == NULL) {
@@ -1147,7 +1138,7 @@ void mes_free_buf_item(char *buffer)
         queue = &priority_pool->queues[push % priority_pool->queue_num];
     }
 
-    uint32 cmd = ((mes_message_head_t *)buffer)->cmd;
+    uint16 cmd = ((mes_message_head_t *)buffer)->app_cmd;
     uint32 buf_count = 0;
     mes_put_buf_item_to_queue(buf_item, queue, &buf_count);
 
