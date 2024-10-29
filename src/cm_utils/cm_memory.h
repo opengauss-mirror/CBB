@@ -133,6 +133,17 @@ typedef struct st_mem_zone {
     CM_MAGIC_DECLARE
 } mem_zone_t;
 
+typedef struct st_memory_context memory_context_t;
+
+typedef void *(*ddes_malloc_proc_t)(memory_context_t* context, uint64 size);
+typedef void (*ddes_free_proc_t)(void *ptr);
+
+typedef struct st_ddes_memory_allocator {
+    memory_context_t* context;
+    ddes_malloc_proc_t malloc_proc;
+    ddes_free_proc_t free_proc;
+} ddes_memory_allocator_t;
+
 typedef struct st_mem_pool {
     char name[CM_NAME_BUFFER_SIZE]; // memory pool name
     uint64 total_size;              // total size
@@ -141,19 +152,57 @@ typedef struct st_mem_pool {
     spinlock_t lock;
     cm_event_t event;
     bilist_t mem_zone_lst; // mem zone list
-    cm_memory_allocator_t mem_allocator;    
+    ddes_memory_allocator_t mem_allocator;    
     CM_MAGIC_DECLARE
 } mem_pool_t;
 
+typedef struct st_mem_context_block {
+    struct st_mem_context_block *next;
+    struct st_mem_context_block *pre;
+    uint64 size; /* allocated size*/
+    uint64 padding;
+} mem_context_block_t;
+
+typedef struct st_ddes_buffer_head {
+    memory_context_t* context;
+    uint64 size;
+    uint64 offset;
+    uint64 padding;
+} ddes_buffer_head_t;
+
+typedef struct st_memory_context {
+    spinlock_t lock;
+    char name[CM_NAME_BUFFER_SIZE];
+    memory_context_t* parent;       /*NULL if no parent (toplevel context)*/
+    memory_context_t* firstchild;   /*head of linked list of children */
+    memory_context_t* nextchild;    /* next child of same parent */
+    memory_context_t* prechild;     /* pre child of same parent */
+    uint64 mem_max_size;
+    int64 allocated_size;
+    int64 used_size;
+    bool8 is_init;
+    mem_context_block_t* blocks; /* head of list of blocks in this context */
+} memory_context_t;
+
+void *buddy_pool_malloc_prot(memory_context_t *context, uint64 size);
+void buddy_pool_free_prot(void *pointer);
+
 status_t buddy_pool_init(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem);
 status_t buddy_pool_init_ext(char *pool_name, uint64 init_size, uint64 max_size, mem_pool_t *mem,
-    cm_memory_allocator_t* mem_allocator);
-status_t buddy_pool_set_mem_allocator(mem_pool_t *mem, cm_memory_allocator_t *mem_allocator);
+    ddes_memory_allocator_t* mem_allocator);
+status_t buddy_pool_set_mem_allocator(mem_pool_t *mem, ddes_memory_allocator_t *mem_allocator);
 void *galloc(uint64 size, mem_pool_t *mem);
 void *galloc_timeout(uint64 size, mem_pool_t *mem, uint32 timeout_ms);
 void *grealloc(void *p, uint64 size, mem_pool_t *mem);
 void gfree(void *p);
 void buddy_pool_deinit(mem_pool_t *mem);
+
+memory_context_t *ddes_memory_context_create(memory_context_t *parent, uint64 max_size, char *name);
+void ddes_memory_context_destroy(memory_context_t *context);
+void *ddes_alloc(memory_context_t *context, uint64 size);
+void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size);
+void ddes_free(void *ptr);
+
 static inline uint64 mem_used_size(const mem_pool_t *mem)
 {
     return mem->used_size;
