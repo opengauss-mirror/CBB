@@ -825,8 +825,6 @@ int mes_rdma_rpc_send_data(const void* msg_data)
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
-    head->app_cmd = 0;
-    head->unused = 0;
     OckRpcClient client = pipe->rdma_client.client_handle;
     OckRpcMessage request = {.data = (void*)msg_data, .len = head->size};
 
@@ -888,8 +886,6 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
-    head->app_cmd = 0;
-    head->unused = 0;
     OckRpcClientCallParams param;
     OckRpcMessage msgs[MES_MAX_BUFFERLIST];
     init_ockrpc_client_iov_param(&param, buff_list, msgs, pipe->rdma_client.client_handle);

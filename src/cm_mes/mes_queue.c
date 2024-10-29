@@ -720,10 +720,10 @@ int mes_put_msg_queue(mes_message_t *msg, bool32 is_send)
         return ERR_MES_ALLOC_MSGITEM_FAIL;
     }
 
-    mes_local_stat(msg->head->app_cmd);
+    mes_local_stat(msg->head->cmd);
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
-    msgitem->enqueue_time = cm_get_time_usec();
+    msgitem->enqueue_time = g_timer()->monotonic_now;
 
     if (!is_send && ENABLE_MES_TASK_THREADPOOL) {
         mes_put_msgitem_to_threadpool(msgitem);
@@ -820,18 +820,19 @@ void mes_send_proc(mes_msgitem_t *msgitem, uint32 work_idx)
 void mes_work_proc(mes_msgitem_t *msgitem, uint32 work_idx)
 {
     mes_msg_t app_msg;
-    uint64 start_stat_time;
+    uint64 start_stat_time = 0;
+    mes_get_consume_time_start(&start_stat_time);
     if (msgitem->msg.head->cmd == MES_CMD_SYNCH_ACK) {
         mes_notify_msg_recv(&msgitem->msg);
     } else {
-        mes_consume_with_time(msgitem->msg.head->app_cmd, MES_TIME_GET_QUEUE, msgitem->enqueue_time);
-        start_stat_time = cm_get_time_usec();
+        mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_GET_QUEUE, start_stat_time);
+        mes_get_consume_time_start(&start_stat_time);
         app_msg.buffer = msgitem->msg.buffer + sizeof(mes_message_head_t);
         app_msg.size = msgitem->msg.head->size - (unsigned int)sizeof(mes_message_head_t);
         app_msg.src_inst = (unsigned int)msgitem->msg.head->src_inst;
         MES_GLOBAL_INST_MSG.proc(work_idx, msgitem->msg.head->ruid, &app_msg);
 
-        mes_consume_with_time(msgitem->msg.head->app_cmd, MES_TIME_QUEUE_PROC, start_stat_time);
+        mes_consume_with_time(msgitem->msg.head->cmd, MES_TIME_QUEUE_PROC, start_stat_time);
         mes_release_message_buf(&msgitem->msg);
     }
 }
@@ -930,15 +931,8 @@ void mes_task_proc_inner(thread_t *thread)
                       (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                       (head)->flags, my_task_index, mq_ctx->tasks[queue_id + start_task_idx].queue.count, is_empty);
         if (MES_GLOBAL_INST_MSG.profile.max_wait_time != CM_INVALID_INT32) {
-            /*
-             * when enable statistics, enquue_time is real-time,
-             * but monotonic_now in timer is updated every 0.1ms (MES_DEFAULT_SLEEP_TIME),
-             * so monotonic_now may be less than enqueue_time.
-             */
-            uint64 now = g_timer()->monotonic_now;
-            if ((now > msgitem->enqueue_time) &&
-                ((now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >=
-                MES_GLOBAL_INST_MSG.profile.max_wait_time)) {
+            if ((g_timer()->monotonic_now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >=
+                MES_GLOBAL_INST_MSG.profile.max_wait_time) {
                 LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded ");
                 mes_release_message_buf(&msgitem->msg);
                 continue;

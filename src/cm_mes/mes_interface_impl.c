@@ -26,15 +26,6 @@
 
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
 
-static uint16 mes_get_app_cmd(char *buff, uint8 cmd)
-{
-    mes_app_cmd_cb_t cb = mes_get_app_cmd_cb();
-    if (cb == NULL) {
-        return (uint16)cmd;
-    }
-    return cb(buff);
-}
-
 static inline void mes_clean_broadcast_msg_ptr(mes_waiting_room_t *room)
 {
     for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; ++inst_id) {
@@ -172,22 +163,13 @@ static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, v
         return CM_ERROR;
     }
 
-    mes_app_cmd_cb_t cb = mes_get_app_cmd_cb();
-    if (cb != NULL) {
-        if (buff_list.cnt > 1) {
-            head->app_cmd = mes_get_app_cmd(buff_list.buffers[1].buf, head->cmd);
-        } else {
-            head->app_cmd = CM_MAX_MES_MSG_CMD;
-        }
-    }
-
     bool32 is_send = head->dst_inst == MES_MY_ID ? CM_FALSE : CM_TRUE;
-    start_stat_time = cm_get_time_usec();
+    mes_get_consume_time_start(&start_stat_time);
     MES_RESET_COMPRESS_ALGORITHM_FLAG(head->flags);
     int ret = mes_put_buffer_list_queue(&buff_list, is_send);
     if (ret == CM_SUCCESS) {
-        mes_send_stat(head->app_cmd, head->size);
-        mes_consume_with_time(head->app_cmd, MES_TIME_MSG_SEND, start_stat_time);
+        mes_send_stat(head->cmd);
+        mes_consume_with_time(head->cmd, MES_TIME_TEST_SEND, start_stat_time);
     }
     return ret;
 }
@@ -379,7 +361,7 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     }
 
     mes_free_room(room);
-    mes_consume_with_time((&msg)->head->app_cmd, MES_TIME_MSG_RECV, start_stat_time);
+    mes_consume_with_time((&msg)->head->cmd, MES_TIME_TEST_RECV, start_stat_time);
 
     return CM_SUCCESS;
 }

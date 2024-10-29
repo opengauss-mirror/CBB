@@ -43,7 +43,6 @@ typedef enum en_cs_minor_version {
     MIN_VERSION_3 = 3,
     MIN_VERSION_4 = 4,
     MIN_VERSION_5 = 5,     /* send version and proto_code when tcp connect */
-    MIN_VERSION_6 = 6,     /* add app_cmd in mes message head */
 } cs_minor_version_t;
 
 typedef enum en_cs_major_version {
@@ -64,10 +63,7 @@ typedef enum en_cs_major_version {
 
 /* send version and proto_code when tcp connect */
 #define CS_VERSION_5 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_5)
-
-/* add app_cmd in mes message head */
-#define CS_VERSION_6 (uint32) CS_PROTOCOL(MJR_VERSION_0, MIN_VERSION_6)
-#define CS_LOCAL_VERSION CS_VERSION_6
+#define CS_LOCAL_VERSION CS_VERSION_5
 
 #define CS_CMD_UNKONOW       (uint8)0
 #define CS_CMD_HANDSHAKE     (uint8)1 /* process before login, added since v2.0; for SSL only since v9.0 */
