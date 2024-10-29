@@ -191,11 +191,7 @@ status_t exec_perctrl_cmd(perctrl_packet_t *req, perctrl_packet_t *ack)
                 cm_spin_unlock(&g_init_lock);
                 return status;
             }
-            status = exec_perctrl_init_logger();
-            if (status != CM_SUCCESS) {
-                cm_spin_unlock(&g_init_lock);
-                return status;
-            }
+            (void)exec_perctrl_init_logger();
             g_is_init = CM_TRUE;
         }
         cm_spin_unlock(&g_init_lock);
