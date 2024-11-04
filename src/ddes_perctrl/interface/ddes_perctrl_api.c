@@ -199,7 +199,7 @@ status_t exec_perctrl_cmd(perctrl_packet_t *req, perctrl_packet_t *ack)
     cm_spin_lock(&g_init_lock, NULL);
     status = exec_perctrl_send_and_receive(req, ack);
     cm_spin_unlock(&g_init_lock);
-    return CM_SUCCESS;
+    return status;
 }
 
 __attribute__((destructor)) status_t perctrl_uninit();
