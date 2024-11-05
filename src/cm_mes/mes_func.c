@@ -1265,9 +1265,9 @@ static status_t mes_init_ssl(void)
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT, &cert));
     ssl_cfg.cert_file = cert.ssl_cert;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_KEY, &gm_key));
-    ssl_cfg.cert_file = gm_key.ssl_gm_key;
+    ssl_cfg.gm_key_file = gm_key.ssl_gm_key;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_CERT, &gm_cert));
-    ssl_cfg.cert_file = gm_cert.ssl_gm_cert;
+    ssl_cfg.gm_cert_file = gm_cert.ssl_gm_cert;
 
     if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) || CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
         LOG_RUN_WAR("[mes] SSL disabled: certificate file or private key file or CA certificate is not available.");
