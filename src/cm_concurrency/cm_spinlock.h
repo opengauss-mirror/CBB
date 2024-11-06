@@ -92,6 +92,7 @@ typedef struct st_spin_statis_instance {
 void cm_spin_sleep_and_stat(spin_statis_t *stat);
 void cm_spin_sleep_and_stat2(uint32 ms);
 uint64 cm_total_spin_usecs(void);
+void cm_set_spin_sleep_time(uint32 sleep_time_nanosecs);
 
 #ifdef WIN32
 
