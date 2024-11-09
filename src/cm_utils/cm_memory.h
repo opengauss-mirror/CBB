@@ -80,6 +80,7 @@ typedef struct st_mem_block {
     bilist_node_t link;  // block lst node
     bool8 use_flag;      // block is used
     bool8 reserved[3];
+    uint32 padding;
     CM_MAGIC_DECLARE   // first above data field
     char data[4];  // data pointer
 } mem_block_t;
@@ -91,6 +92,8 @@ typedef struct st_mem_block {
 #define mem_block_t_MAGIC 8116518
 #define mem_zone_t_MAGIC 8116517
 #define mem_pool_t_MAGIC 8116519
+#define mem_context_block_t_MAGIC 8116520
+#define ddes_buffer_head_t_MAGIC 8116521
 
 #define MEM_NUM_FREELISTS 26
 
@@ -158,16 +161,16 @@ typedef struct st_mem_pool {
 
 typedef struct st_mem_context_block {
     struct st_mem_context_block *next;
-    struct st_mem_context_block *pre;
+    struct st_mem_context_block *prev;
     uint64 size; /* allocated size*/
-    uint64 padding;
+    CM_MAGIC_DECLARE
 } mem_context_block_t;
 
 typedef struct st_ddes_buffer_head {
     memory_context_t* context;
     uint64 size;
     uint64 offset;
-    uint64 padding;
+    CM_MAGIC_DECLARE
 } ddes_buffer_head_t;
 
 typedef struct st_memory_context {
@@ -182,6 +185,7 @@ typedef struct st_memory_context {
     int64 used_size;
     bool8 is_init;
     mem_context_block_t* blocks; /* head of list of blocks in this context */
+    cm_memory_allocator_t mem_allocator;
 } memory_context_t;
 
 void *buddy_pool_malloc_prot(memory_context_t *context, uint64 size);
@@ -197,7 +201,8 @@ void *grealloc(void *p, uint64 size, mem_pool_t *mem);
 void gfree(void *p);
 void buddy_pool_deinit(mem_pool_t *mem);
 
-memory_context_t *ddes_memory_context_create(memory_context_t *parent, uint64 max_size, char *name);
+memory_context_t *ddes_memory_context_create(memory_context_t *parent, uint64 max_size, char *name,
+    cm_memory_allocator_t *mem_allocator);
 void ddes_memory_context_destroy(memory_context_t *context);
 void *ddes_alloc(memory_context_t *context, uint64 size);
 void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size);

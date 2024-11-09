@@ -77,7 +77,7 @@ static inline void cm_exit(int32 exitcode)
 
 
 #ifdef DB_DEBUG_VERSION
-#define CM_MAGIC_DECLARE    uint32    cm_magic;
+#define CM_MAGIC_DECLARE    uint64    cm_magic;
 #define CM_MAGIC_SET(obj_declare, obj_struct) ((obj_declare)->cm_magic = obj_struct##_MAGIC)
 #define CM_MAGIC_CHECK(obj_declare, obj_struct)                                         \
     do {                                                                                \
@@ -95,7 +95,7 @@ static inline void cm_exit(int32 exitcode)
         }                                                                               \
     } while (0);
 #else
-#define CM_MAGIC_DECLARE
+#define CM_MAGIC_DECLARE    uint64    cm_magic;
 #define CM_MAGIC_SET(obj_declare, obj_struct) {}
 #define CM_MAGIC_CHECK(obj_declare, obj_struct) {}
 #define CM_MAGIC_CHECK_EX(obj_declare, obj_struct) {}
