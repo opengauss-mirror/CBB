@@ -47,6 +47,8 @@ void mes_free_channels(void);
 void mes_tcp_stop_channels(void);
 void mes_tcp_disconnect(uint32 inst_id, bool32 wait);
 void mes_tcp_try_connect(uintptr_t pipePtr);
+void mes_tcp_heartbeat_channel(uintptr_t channelPtr);
+void mes_tcp_init_channels_param(uintptr_t channelPtr);
 int mes_tcp_send_data(const void *msg_data);
 int mes_start_lsnr(void);
 int mes_alloc_channels(void);
