@@ -413,6 +413,10 @@ static void mes_rdma_rpc_default_proc_func(OckRpcServerContext handle, OckRpcMes
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][channel_id];
     mes_pipe_t *pipe = &channel->rpc_pipe;
     my_queue = &mq_ctx->channel_private_queue[head->src_inst][channel_id];
+    if (head->cmd == MES_CMD_HEARTBEAT) {
+        OckRpcServerCleanupCtx(handle);
+        return;
+    }
 
     (void)cm_atomic_inc(&(pipe->recv_count));
     char *data = mes_alloc_buf_item_fc(head->size, CM_FALSE, head->src_inst, MES_PRIORITY(head->flags));
