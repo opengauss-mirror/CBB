@@ -230,6 +230,24 @@ static int mes_init_rdma_dlopen_so(void)
     return CM_SUCCESS;
 }
 
+void mes_rdma_rpc_init_channels_param(uintptr_t channelPtr)
+{
+    mes_channel_t *channel = (mes_channel_t *)channelPtr;
+    mes_pipe_t *pipe = &channel->rpc_pipe;
+    (void)cm_rwlock_init(&pipe->send_lock);
+    (void)cm_rwlock_init(&pipe->recv_lock);
+    pipe->priority = MES_PRIORITY_SEVEN;
+    pipe->channel = channel;
+    pipe->send_pipe.connect_timeout = MES_GLOBAL_INST_MSG.profile.connect_timeout;
+    pipe->send_pipe.socket_timeout = MES_GLOBAL_INST_MSG.profile.socket_timeout;
+    pipe->send_pipe_active = CM_FALSE;
+    pipe->recv_pipe_active = CM_FALSE;
+    pipe->msgbuf = NULL;
+
+    LOG_DEBUG_INF("[mes] mes_init_channels_param, channel_id:%u, instance_id:%u",
+                  MES_CHANNEL_ID(channel->id), MES_INSTANCE_ID(channel->id));
+}
+
 static int mes_init_ock_server_configs(RpcConfigPair* pairs, OckRpcCreateConfig* configs,
     char ock_worker_num[OCK_WORKER_NUM_STR_LEN])
 {
@@ -393,7 +411,7 @@ static void mes_rdma_rpc_default_proc_func(OckRpcServerContext handle, OckRpcMes
     mes_message_head_t* head = (mes_message_head_t*)msg.data;
     uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[MES_PRIORITY(head->flags)];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     my_queue = &mq_ctx->channel_private_queue[head->src_inst][channel_id];
 
     (void)cm_atomic_inc(&(pipe->recv_count));
@@ -462,7 +480,7 @@ static void mes_rdma_rpc_connection_proc_func(OckRpcServerContext handle, OckRpc
     mes_message_head_t *head = (mes_message_head_t *)msg.data;
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
-    mes_pipe_t *pipe = &channel->pipe[MES_PRIORITY(head->flags)];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
 
     version_proto_code_t *version_proto_code = (version_proto_code_t *)((char *)msg.data + sizeof(mes_message_head_t));
     if (!IS_BIG_ENDIAN) {
@@ -509,12 +527,11 @@ static void mes_rdma_rpc_connection_cmd_func(OckRpcServerContext handle, OckRpcM
         return;
     }
 
-    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d), priority(%d)", head->src_inst, head->caller_tid,
-        MES_PRIORITY(head->flags));
+    LOG_RUN_INF("recv CONNECT_CMD message, inst_id(%d), channel_id(%d)", head->src_inst, head->caller_tid);
 
     mes_channel_t *channel =
         &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->src_inst][MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid)];
-    mes_pipe_t *pipe = &channel->pipe[MES_PRIORITY(head->flags)];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     cm_rwlock_wlock(&pipe->recv_lock);
     pipe->recv_pipe_active = CM_TRUE;
     cm_rwlock_unlock(&pipe->recv_lock);
@@ -585,7 +602,7 @@ static void mes_set_pipe_ack(link_ready_ack_t* ack, cs_pipe_t *pipe)
     pipe->version = ack->version;
 }
 
-static int mes_rdma_client_connect(uint32 inst_id, uint32_t channel_id, mes_priority_t priority)
+static int mes_rdma_client_connect(uint32 inst_id, uint32_t channel_id)
 {
     mes_addr_t *addr = NULL;
     uint32 index;
@@ -613,7 +630,7 @@ static int mes_rdma_client_connect(uint32 inst_id, uint32_t channel_id, mes_prio
     }
 
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     int ret = OckRpcClientConnectWithCfg(addr->ip, addr->port, &pipe->rdma_client.client_handle, &cfgs);
     if (ret != OCK_RPC_OK) {
         LOG_RUN_ERR("OckRpcClientConnectWithCfg failed, ret %d", ret);
@@ -625,10 +642,10 @@ static int mes_rdma_client_connect(uint32 inst_id, uint32_t channel_id, mes_prio
     return CM_SUCCESS;
 }
 
-static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, mes_priority_t priority)
+static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id)
 {
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     mes_message_head_t head = { 0 };
     head.cmd = RPC_CONNECTION_REQ;
     head.dst_inst = MES_INSTANCE_ID(pipe->channel->id);
@@ -636,7 +653,7 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, 
     head.caller_tid = MES_CHANNEL_ID(pipe->channel->id); // use caller_tid to represent channel id
     head.size = (uint16)sizeof(mes_message_head_t);
     head.ruid = 0;
-    head.flags = pipe->priority;
+    head.flags = 0;
     head.version = 0;
 
     version_proto_code_t version_proto_code = {.version = CS_LOCAL_VERSION, .proto_code = CM_PROTO_CODE};
@@ -657,8 +674,8 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, 
 
     int ret = OckRpcClientCall(pipe->rdma_client.client_handle, RPC_CONNECTION_REQ, &request, &response, NULL);
     if (ret != OCK_RPC_OK) {
-        LOG_RUN_ERR("RpcClientCall failed, RPC_CONNECTION_REQ message, inst_id(%u), channel_id(%u), priority(%u)",
-                    inst_id, channel_id, priority);
+        LOG_RUN_ERR("RpcClientCall failed, RPC_CONNECTION_REQ message, inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         return CM_ERROR;
     }
 
@@ -681,11 +698,11 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id, 
     return CM_SUCCESS;
 }
 
-static int mes_rdma_send_connect_cmd(uint32 inst_id, uint32_t channel_id, mes_priority_t priority)
+static int mes_rdma_send_connect_cmd(uint32 inst_id, uint32_t channel_id)
 {
     // send ack message to server, set recv_pipe_acitive = true
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     mes_message_head_t head = { 0 };
     head.cmd = MES_CMD_CONNECT;
     head.dst_inst = MES_INSTANCE_ID(pipe->channel->id);
@@ -693,13 +710,13 @@ static int mes_rdma_send_connect_cmd(uint32 inst_id, uint32_t channel_id, mes_pr
     head.caller_tid = MES_CHANNEL_ID(pipe->channel->id); // use caller_tid to represent channel id
     head.size = (uint16)sizeof(mes_message_head_t);
     head.ruid = 0;
-    head.flags = pipe->priority;
+    head.flags = 0;
     head.version = 0;
     OckRpcMessage request = {.data = (void*)&head, .len = sizeof(mes_message_head_t)};
     int ret = OckRpcClientCall(pipe->rdma_client.client_handle, RPC_CONNECTION_CMD, &request, NULL, NULL);
     if (ret != OCK_RPC_OK) {
-        LOG_RUN_ERR("RpcClientCall failed, RPC_CONNECTION_CMD message, inst_id(%u), channel_id(%u), priority(%u)",
-                    inst_id, channel_id, priority);
+        LOG_RUN_ERR("RpcClientCall failed, RPC_CONNECTION_CMD message, inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         return CM_ERROR;
     }
 
@@ -711,74 +728,92 @@ void mes_rdma_rpc_try_connect(uintptr_t pipePtr)
     mes_pipe_t *pipe = (mes_pipe_t *)pipePtr;
     inst_type inst_id = MES_INSTANCE_ID(pipe->channel->id);
     uint32_t channel_id = MES_CHANNEL_ID(pipe->channel->id);
-    mes_priority_t priority = pipe->priority;
     rwlock_t *send_lock = &pipe->send_lock;
     cm_rwlock_wlock(send_lock);
     if (pipe->rdma_client.client_handle != 0) {
         LOG_RUN_ERR("mes_rdma_rpc_connect failed, rpc instance is not nullptr, \
-            inst_id(%u), channel_id(%u), priority(%u)", inst_id, channel_id, priority);
+            inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         cm_rwlock_unlock(send_lock);
         return;
     }
 
-    int ret = mes_rdma_client_connect(inst_id, channel_id, priority);
+    int ret = mes_rdma_client_connect(inst_id, channel_id);
     if (ret != CM_SUCCESS) {
         cm_rwlock_unlock(send_lock);
         return;
     }
 
-    ret = mes_rdma_send_connect_protocode(inst_id, channel_id, priority);
+    ret = mes_rdma_send_connect_protocode(inst_id, channel_id);
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("mes_rdma_rpc_connect send proto code failed, inst_id(%u), channel_id(%u), priority(%u)",
-                    inst_id, channel_id, priority);
+        LOG_RUN_ERR("mes_rdma_rpc_connect send proto code failed, inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         cm_rwlock_unlock(send_lock);
-        mes_rdma_rpc_disconnect(inst_id, channel_id, priority);
+        mes_rdma_rpc_disconnect(inst_id, channel_id);
         return;
     }
 
-    ret = mes_rdma_send_connect_cmd(inst_id, channel_id, priority);
+    ret = mes_rdma_send_connect_cmd(inst_id, channel_id);
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("mes_rdma_rpc_connect send connect cmd failed, inst_id(%u), channel_id(%u), priority(%u)",
-                    inst_id, channel_id, priority);
+        LOG_RUN_ERR("mes_rdma_rpc_connect send connect cmd failed, inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         cm_rwlock_unlock(send_lock);
-        mes_rdma_rpc_disconnect(inst_id, channel_id, priority);
+        mes_rdma_rpc_disconnect(inst_id, channel_id);
         return;
     }
     cm_rwlock_unlock(send_lock);
 
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    pipe = &channel->pipe[priority];
+    pipe = &channel->rpc_pipe;
     cm_rwlock_wlock(&pipe->send_lock);
     pipe->send_pipe_active = CM_TRUE;
     cm_rwlock_unlock(&pipe->send_lock);
 
     LOG_RUN_INF(
-        "mes_rdma_rpc_connect success, inst_id(%u), channel_id(%u), priority(%u)", inst_id, channel_id, priority);
+        "mes_rdma_rpc_connect success, inst_id(%u), channel_id(%u)", inst_id, channel_id);
 }
 
-static inline void mes_rdma_rpc_close_recv_pipe(uint32 inst_id, uint32_t channel_id, mes_priority_t priority)
+void mes_rdma_rpc_heartbeat_channel(uintptr_t channelPtr)
+{
+    mes_channel_t *channel = (mes_channel_t *)channelPtr;
+    mes_pipe_t *pipe = &channel->rpc_pipe;
+    if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+        return;
+    }
+    if (!pipe->send_pipe_active) {
+        mes_rdma_rpc_try_connect((uintptr_t)pipe);
+    } else {
+        mes_heartbeat(pipe);
+        if (!pipe->send_pipe_active) {
+            mes_rdma_rpc_try_connect((uintptr_t)pipe);
+        }
+    }
+}
+
+static inline void mes_rdma_rpc_close_recv_pipe(uint32 inst_id, uint32_t channel_id)
 {
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     cm_rwlock_wlock(&pipe->recv_lock);
     pipe->recv_pipe_active = CM_FALSE;
     cm_rwlock_unlock(&pipe->recv_lock);
 }
 
-void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id, mes_priority_t priority)
+void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id)
 {
     LOG_RUN_INF(
-        "mes_rdma_rpc_disconnect start, inst_id(%u), channel_id(%u), priority(%u)", inst_id, channel_id, priority);
+        "mes_rdma_rpc_disconnect start, inst_id(%u), channel_id(%u)", inst_id, channel_id);
 
     mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
     cm_rwlock_wlock(&pipe->send_lock);
     pipe->send_pipe_active = CM_FALSE;
 
     if (pipe->rdma_client.client_handle == 0) {
         cm_rwlock_unlock(&pipe->send_lock);
         LOG_RUN_ERR("mes_rdma_rpc_disconnect failed, rpc instance is nullptr, \
-            inst_id(%u), channel_id(%u), priority(%u)", inst_id, channel_id, priority);
+            inst_id(%u), channel_id(%u)",
+                    inst_id, channel_id);
         return ;
     }
 
@@ -786,7 +821,7 @@ void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id, mes_priority_t
     pipe->rdma_client.client_handle = 0;
     cm_rwlock_unlock(&pipe->send_lock);
     LOG_RUN_INF(
-        "mes_rdma_rpc_disconnect complete, inst_id(%u), channel_id(%u), priority(%u)", inst_id, channel_id, priority);
+        "mes_rdma_rpc_disconnect complete, inst_id(%u), channel_id(%u)", inst_id, channel_id);
     return;
 }
 
@@ -798,12 +833,10 @@ void mes_rdma_rpc_disconnect_handle(uint32 inst_id, bool32 wait)
             return;
         }
         mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
-        for (uint32 j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
-            mes_pipe_t *pipe = &channel->pipe[j];
+            mes_pipe_t *pipe = &channel->rpc_pipe;
             cm_close_thread(&pipe->thread);
-            mes_rdma_rpc_close_recv_pipe(inst_id, i, j);
-            mes_rdma_rpc_disconnect(inst_id, i, j);
-        }
+            mes_rdma_rpc_close_recv_pipe(inst_id, i);
+            mes_rdma_rpc_disconnect(inst_id, i);
     }
 }
 
@@ -815,8 +848,7 @@ int mes_rdma_rpc_send_data(const void* msg_data)
 
     uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
-    uint32 priority = MES_PRIORITY(head->flags);
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
 
     cm_rwlock_wlock(&pipe->send_lock);
     if (!pipe->send_pipe_active) {
@@ -839,7 +871,7 @@ int mes_rdma_rpc_send_data(const void* msg_data)
                     MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].ip,
                     MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].port,
                     (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid));
-        mes_rdma_rpc_disconnect(head->dst_inst, channel_id, priority);
+        mes_rdma_rpc_disconnect(head->dst_inst, channel_id);
 
         return CM_ERROR;
     }
@@ -876,8 +908,7 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
 
     uint32_t channel_id = MES_CALLER_TID_TO_CHANNEL_ID(head->caller_tid);
     mes_channel_t* channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[head->dst_inst][channel_id];
-    uint32 priority = MES_PRIORITY(head->flags);
-    mes_pipe_t *pipe = &channel->pipe[priority];
+    mes_pipe_t *pipe = &channel->rpc_pipe;
 
     cm_rwlock_wlock(&pipe->send_lock);
     if (!pipe->send_pipe_active) {
@@ -901,7 +932,7 @@ int mes_rdma_rpc_send_bufflist(mes_bufflist_t *buff_list)
                     MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].ip,
                     MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].port,
                     (uint64)MES_RUID_GET_RID((head)->ruid), (uint64)MES_RUID_GET_RSN((head)->ruid));
-        mes_rdma_rpc_disconnect(head->dst_inst, channel_id, priority);
+        mes_rdma_rpc_disconnect(head->dst_inst, channel_id);
 
         return CM_ERROR;
     }

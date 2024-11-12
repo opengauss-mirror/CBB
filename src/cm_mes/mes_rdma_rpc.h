@@ -44,7 +44,11 @@ int mes_start_rdma_rpc_lsnr(void);
 
 void mes_rdma_rpc_try_connect(uintptr_t pipePtr);
 
-void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id, mes_priority_t priority);
+void mes_rdma_rpc_heartbeat_channel(uintptr_t channelPtr);
+
+void mes_rdma_rpc_init_channels_param(uintptr_t channelPtr);
+
+void mes_rdma_rpc_disconnect(uint32 inst_id, uint32_t channel_id);
 
 void mes_rdma_rpc_disconnect_handle(uint32 inst_id, bool32 wait);
 

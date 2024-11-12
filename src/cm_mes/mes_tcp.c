@@ -37,8 +37,9 @@
 usr_cb_convert_inst_id_t g_cb_convert_inst_id = NULL;
 usr_cb_conn_state_change_t g_cb_conn_state_change = NULL;
 
-void mes_init_channels_param(mes_channel_t *channel)
+void mes_tcp_init_channels_param(uintptr_t channelPtr)
 {
+    mes_channel_t *channel = (mes_channel_t *)channelPtr;
     for (uint32 i = 0; i < MES_PRIORITY_CEIL; i++) {
         mes_pipe_t *pipe = &channel->pipe[i];
         (void)cm_rwlock_init(&pipe->send_lock);
@@ -54,65 +55,6 @@ void mes_init_channels_param(mes_channel_t *channel)
 
     LOG_DEBUG_INF("[mes] mes_init_channels_param, channel_id:%u, instance_id:%u",
                   MES_CHANNEL_ID(channel->id), MES_INSTANCE_ID(channel->id));
-}
-
-// channel
-int mes_alloc_channels(void)
-{
-    errno_t ret;
-    size_t alloc_size;
-    char *temp_buf;
-
-    if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
-        LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
-        return ERR_MES_PARAM_INVALID;
-    }
-
-    // alloc channel pointer array
-    alloc_size = sizeof(mes_channel_t *) * MES_MAX_INSTANCES;
-    temp_buf = (char *)cm_malloc_prot(alloc_size);
-    if (temp_buf == NULL) {
-        LOG_RUN_ERR("allocate mes_channel_t pointer array failed, channel_cnt %u alloc size %zu",
-                    MES_GLOBAL_INST_MSG.profile.channel_cnt, alloc_size);
-        return ERR_MES_MALLOC_FAIL;
-    }
-    ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
-    if (ret != EOK) {
-        CM_FREE_PROT_PTR(temp_buf);
-        return ERR_MES_MEMORY_SET_FAIL;
-    }
-    MES_GLOBAL_INST_MSG.mes_ctx.channels = (mes_channel_t **)temp_buf;
-
-    // alloc channel
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; ++i) {
-        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        CM_RETURN_IFERR(mes_init_single_inst_channel(inst_id));
-    }
-    GS_INIT_SPIN_LOCK(MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock);
-    return CM_SUCCESS;
-}
-
-int mes_init_single_inst_channel(unsigned int inst_id)
-{
-    size_t alloc_size = sizeof(mes_channel_t) * MES_GLOBAL_INST_MSG.profile.channel_cnt;
-    char *temp_buf = (char *)cm_malloc_prot(alloc_size);
-    if (temp_buf == NULL) {
-        LOG_RUN_ERR("allocate mes_channel_t failed, inst_id %u alloc size %zu", inst_id, alloc_size);
-        return ERR_MES_MALLOC_FAIL;
-    }
-    int ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
-    if (ret != EOK) {
-        CM_FREE_PROT_PTR(temp_buf);
-        return ERR_MES_MEMORY_SET_FAIL;
-    }
-    MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] = (mes_channel_t *)temp_buf;
-    // init channel
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; ++i) {
-        mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
-        channel->id = (inst_id << CHANNEL_ID_BITS) | i;
-        mes_init_channels_param(channel);
-    }
-    return CM_SUCCESS;
 }
 
 static int mes_read_message_head(cs_pipe_t *pipe, mes_message_head_t *head)
@@ -396,6 +338,25 @@ void mes_tcp_try_connect(uintptr_t pipePtr)
         "[mes] connect to channel peer %s success, src_inst:%d, dst_inst:%d, flags:%u, channel_id:%u, priority:%u",
         peer_url, head->src_inst, head->dst_inst, head->flags, MES_CHANNEL_ID(pipe->channel->id), pipe->priority);
     return;
+}
+
+void mes_tcp_heartbeat_channel(uintptr_t channelPtr)
+{
+    mes_channel_t *channel = (mes_channel_t *)channelPtr;
+    for (unsigned int priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
+        mes_pipe_t *pipe = &channel->pipe[priority];
+        if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+            return;
+        }
+        if (!pipe->send_pipe_active) {
+            mes_tcp_try_connect((uintptr_t)pipe);
+        } else {
+            mes_heartbeat(pipe);
+            if (!pipe->send_pipe_active) {
+                mes_tcp_try_connect((uintptr_t)pipe);
+            }
+        }
+    }
 }
 
 void mes_close_send_pipe(mes_pipe_t *pipe)

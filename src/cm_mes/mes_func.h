@@ -137,6 +137,8 @@ typedef pthread_mutex_t mes_mutex_t;
 
 typedef void (*mes_connect_t)(uintptr_t pipePtr);
 
+typedef void (*mes_heartbeat_t)(uintptr_t channelPtr);
+
 typedef void (*mes_disconnect_t)(uint32 inst_id, bool32 wait);
 
 typedef int (*mes_send_data_t)(const void *msg_data);
@@ -180,7 +182,11 @@ typedef struct st_mes_pipe {
 
 typedef struct st_mes_channel {
     uint16 id;
-    mes_pipe_t pipe[MES_PRIORITY_CEIL];
+    union
+    {
+        mes_pipe_t pipe[MES_PRIORITY_CEIL];
+        mes_pipe_t rpc_pipe;
+    };
 } mes_channel_t;
 
 typedef struct st_mes_waiting_room {
@@ -292,6 +298,7 @@ static __inline uint64 db_rdtsc(void)
 
 typedef struct st_mes_callback {
     mes_connect_t connect_func;
+    mes_heartbeat_t heartbeat_func;
     mes_disconnect_t disconnect_func;
     mes_send_data_t send_func;
     mes_send_bufflist_t send_bufflist_func;
@@ -453,6 +460,9 @@ void mes_protect_when_brcast_timeout(mes_waiting_room_t *room);
 
 mes_waiting_room_t *mes_ruid_get_room(unsigned long long ruid);
 bool8 ruid_matches_room_rsn(unsigned long long *ruid, unsigned long long room_rsn);
+
+int mes_alloc_channels(void);
+void mes_heartbeat(mes_pipe_t *pipe);
 
 int mes_connect(inst_type inst_id);
 void mes_disconnect_nowait(inst_type inst_id);
