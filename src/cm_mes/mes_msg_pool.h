@@ -51,6 +51,7 @@ typedef struct st_mes_buffer_item_tag {
 
 typedef struct st_mes_buffer_item {
     struct st_mes_buffer_item *next;
+    bool8 inqueue;
     mes_buffer_item_tag_t tag;
     char data[0];
 } mes_buffer_item_t;
@@ -142,6 +143,7 @@ typedef struct st_mes_msg_inst_pool_set {
     uint64 per_inst_pool_size;
     mes_msg_pool_t *inst_pool[MES_MAX_INSTANCES];
     bool8 inst_pool_inited[MES_MAX_INSTANCES];
+    inst_type inst_no_table[MES_MAX_INSTANCES];
 } mes_msg_inst_pool_set_t;
 
 typedef struct st_mes_msg_buffer_relation {

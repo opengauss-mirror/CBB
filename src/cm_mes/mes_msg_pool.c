@@ -635,7 +635,6 @@ int mes_init_msg_single_pool(bool8 is_send)
     int ret = mes_init_msg_pool(&mq_ctx->single_pool, mpa->total_size, &tag);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes][msg pool] init single pool failed, is_send:%u", is_send);
-        mes_deinit_msg_pool(&mq_ctx->single_pool);
         return ret;
     }
     LOG_DEBUG_INF("[mes][msg pool] init single pool success, is_send:%u", is_send);
@@ -650,13 +649,14 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
     mes_msg_pool_attr_t *mpa = &MES_GLOBAL_INST_MSG.profile.msg_pool_attr;
     mes_msg_inst_pool_set_t *pool_set = &mq_ctx->inst_pool_set;
 
+    uint32 target_pool_count = 0;
     if (is_send) {
-        pool_set->inst_pool_count = profile->inst_cnt - 1;
+        target_pool_count = profile->inst_cnt - 1;
     } else {
-        pool_set->inst_pool_count = profile->inst_cnt;
+        target_pool_count = profile->inst_cnt;
     }
 
-    if (pool_set->inst_pool_count == 0 ) {
+    if (target_pool_count == 0 ) {
         pool_set->total_size = 0;
         pool_set->per_inst_pool_size = mpa->total_size;
         CM_ASSERT(is_send);
@@ -665,7 +665,7 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
         return CM_SUCCESS;
     } else {
         pool_set->total_size = mpa->total_size;
-        pool_set->per_inst_pool_size = pool_set->total_size / pool_set->inst_pool_count;
+        pool_set->per_inst_pool_size = pool_set->total_size / target_pool_count;
     }
 
     int sz = sizeof(bool8) * MES_MAX_INSTANCES;
@@ -675,8 +675,10 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
         return ret;
     }
 
+    uint32 pool_count = 0;
     LOG_DEBUG_INF("[mes][msg pool] init instance pool set, is_send:%u", is_send);
-    for (uint8 inst_id = 0; inst_id < pool_set->inst_pool_count; inst_id++) {
+    for (uint32 i = 0; i < profile->inst_cnt; i++) {
+        inst_type inst_id = profile->inst_net_addr[i].inst_id;
         if (is_send && inst_id == MES_GLOBAL_INST_MSG.profile.inst_id) {
             pool_set->inst_pool[inst_id] = NULL;
             continue;
@@ -693,15 +695,15 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes][msg pool] init instance pool failed, inst_id:%u, is_send:%u",
                 inst_id, is_send);
-            for (int i = inst_id; i >= 0; i--) {
-                mes_deinit_msg_pool(&pool_set->inst_pool[i]);
-            }
             return ret;
         }
         LOG_DEBUG_INF("[mes][msg pool] init instance pool success, inst_id:%u, is_send:%u",
             inst_id, is_send);
         pool_set->inst_pool_inited[inst_id] = CM_TRUE;
+        pool_set->inst_no_table[pool_count] = inst_id;
+        pool_count++;
     }
+    pool_set->inst_pool_count = pool_count;
     return ret;
 }
 
@@ -744,8 +746,12 @@ void mes_deinit_message_pool(mq_context_t *mq_ctx)
         mes_deinit_msg_pool(&mq_ctx->single_pool);
     } else {
         mes_msg_inst_pool_set_t *set = &mq_ctx->inst_pool_set;
-        for (int i = 0; i < set->inst_pool_count; i++) {
-            mes_deinit_msg_pool(&set->inst_pool[i]);
+        inst_type inst_id;
+        for (uint32 i = 0; i < set->inst_pool_count; i++) {
+            inst_id = set->inst_no_table[i];
+            if (set->inst_pool[inst_id] != NULL) {
+                mes_deinit_msg_pool(&set->inst_pool[inst_id]);
+            }
         }
     }
     mq_ctx->msg_pool_inited = CM_FALSE;
@@ -774,6 +780,11 @@ mes_buffer_item_t* mes_get_buf_item_from_queue(mes_buf_queue_t *queue, uint32 *c
         }
         CM_ASSERT(buf_item != NULL);
         buf_item->next = NULL;
+        cm_panic_log(buf_item->inqueue == CM_TRUE, "buf_item:%p should in queue but not. inqueue:%u. "
+            "possible reason: thread1 repeat put same buffer to different queue concurrently, thread2 already "
+            "get buffer from anthor queue, so this time buffer indicate not in queue.",
+            buf_item, buf_item->inqueue);
+        buf_item->inqueue = CM_FALSE;
     }
 
     if (count != NULL) {
@@ -795,6 +806,11 @@ static void mes_put_buf_item_to_queue(mes_buffer_item_t *buf_item, mes_buf_queue
         queue->last = buf_item;
     }
     buf_item->next = NULL;
+    cm_panic_log(buf_item->inqueue == CM_FALSE, "buf_item:%p should not in queue but in. inqueue:%u. "
+        "possible reason: thread repeat call mes_free_buf_item function with same buffer lead to repeat "
+        "put buffer to queue, this is not allowed.",
+        buf_item, buf_item->inqueue);
+    buf_item->inqueue = CM_TRUE;
     queue->count++;
 
     if (count != NULL) {
@@ -835,6 +851,7 @@ static void mes_format_buf_for_queue(mes_buf_queue_t *queue, mes_msg_buffer_pool
     for (uint32 i = 0; i < init_count; i++) {
         buf_item = (mes_buffer_item_t*)addr;
         mes_init_buffer_item_tag(&buf_item->tag, pool_tag, is_shared, priority, queue->queue_no);
+        buf_item->inqueue = CM_FALSE;
         mes_put_buf_item_to_queue(buf_item, queue, NULL);
         addr += buf_item_size;
     }
@@ -998,18 +1015,19 @@ static mes_msg_buffer_pool_t* mes_get_buf_pool(bool8 is_send, uint32 dst_inst, u
                 dst_inst, is_send);
             int ret = mes_init_msg_pool(&pool_set->inst_pool[dst_inst], pool_set->per_inst_pool_size, &tag);
             if (ret != CM_SUCCESS) {
-                cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
                 LOG_RUN_ERR("[mes][msg pool] init inst pool failed, "
                     "inst_id:%u, is_send:%u, enable_inst_dimension:%u",
                     dst_inst, is_send, CM_TRUE);
                 mes_deinit_msg_pool(&pool_set->inst_pool[dst_inst]);
+                cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
                 return NULL;
             }
             LOG_RUN_INF("[mes][msg pool] init instance:%u message pool success, is_send:%u.",
                 dst_inst, is_send);
             pool_set->total_size = pool_set->total_size + pool_set->per_inst_pool_size;
-            pool_set->inst_pool_count++;
             pool_set->inst_pool_inited[dst_inst] = CM_TRUE;
+            pool_set->inst_no_table[pool_set->inst_pool_count] = dst_inst;
+            pool_set->inst_pool_count++;
         }
         cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
     }
@@ -1128,7 +1146,7 @@ void mes_free_buf_item(char *buffer)
         priority_pool = &buf_pool->private_pool[buf_tag->priority];
         queue = &priority_pool->queues[buf_tag->queue_no];
     } else if (buf_pool->need_recycle) {
-        queue = &buf_pool->shared_pool.queues[buf_tag->priority];
+        queue = &buf_pool->shared_pool.queues[buf_tag->queue_no];
         check_recycle = CM_TRUE;
     } else {
         priority_pool = &buf_pool->private_pool[buf_tag->priority];

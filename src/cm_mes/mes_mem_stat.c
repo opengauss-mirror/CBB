@@ -93,6 +93,10 @@ static void calc_percentage(mes_mem_info_stat_t *mem_stat_row_results)
 
 uint64 mes_get_mem_remain_from_pool(mes_msg_pool_t *pool)
 {
+    if (pool == NULL) {
+        return 0;
+    }
+
     uint64 remain_size = 0;
     for (uint8 buf_pool_no = 0; buf_pool_no < pool->buf_pool_count; buf_pool_no++) {
         mes_msg_buffer_inner_pool_t *shared_pool = &pool->buf_pool[buf_pool_no]->shared_pool;
@@ -112,8 +116,13 @@ uint64 mes_calc_buffer_pool_remain(bool32 is_send)
     if (!mq_ctx->enable_inst_dimension) {
         remain_size = mes_get_mem_remain_from_pool(mq_ctx->single_pool);
     } else {
-        for (int inst_id = 0; inst_id < mq_ctx->inst_pool_set.inst_pool_count; inst_id++) {
-            remain_size += mes_get_mem_remain_from_pool(mq_ctx->inst_pool_set.inst_pool[inst_id]);
+        mes_msg_inst_pool_set_t *set = &mq_ctx->inst_pool_set;
+        inst_type inst_id;
+        for (uint32 i = 0; i < set->inst_pool_count; i++) {
+            inst_id = set->inst_no_table[i];
+            if (set->inst_pool_inited[inst_id]) {
+                remain_size += mes_get_mem_remain_from_pool(set->inst_pool[inst_id]);
+            }
         }
     }
     return remain_size;

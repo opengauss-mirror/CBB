@@ -52,6 +52,7 @@ static mes_global_ptr_t g_mes_ptr = {
 };
 
 #define MES_CONNECT(pipe) g_cbb_mes_callback.connect_func(pipe)
+#define MES_HEARTBEAT(pipe) g_cbb_mes_callback.heartbeat_func(pipe)
 #define MES_DISCONNECT(inst_id, wait) g_cbb_mes_callback.disconnect_func(inst_id, wait)
 #define MES_RELEASE_BUFFER(buffer) g_cbb_mes_callback.release_buf_func(buffer)
 #define MES_CONNETION_READY(inst_id, ready_count) g_cbb_mes_callback.conn_ready_func(inst_id, ready_count)
@@ -679,12 +680,14 @@ static int mes_register_func(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         g_cbb_mes_callback.connect_func = mes_tcp_try_connect;
+        g_cbb_mes_callback.heartbeat_func = mes_tcp_heartbeat_channel;
         g_cbb_mes_callback.disconnect_func = mes_tcp_disconnect;
         g_cbb_mes_callback.send_func = mes_tcp_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
         g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         g_cbb_mes_callback.connect_func = mes_rdma_rpc_try_connect;
+        g_cbb_mes_callback.heartbeat_func = mes_rdma_rpc_heartbeat_channel;
         g_cbb_mes_callback.disconnect_func = mes_rdma_rpc_disconnect_handle;
         g_cbb_mes_callback.send_func = mes_rdma_rpc_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_rdma_rpc_send_bufflist;
@@ -1265,9 +1268,9 @@ static status_t mes_init_ssl(void)
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT, &cert));
     ssl_cfg.cert_file = cert.ssl_cert;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_KEY, &gm_key));
-    ssl_cfg.cert_file = gm_key.ssl_gm_key;
+    ssl_cfg.gm_key_file = gm_key.ssl_gm_key;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_GM_CERT, &gm_cert));
-    ssl_cfg.cert_file = gm_cert.ssl_gm_cert;
+    ssl_cfg.gm_cert_file = gm_cert.ssl_gm_cert;
 
     if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) || CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
         LOG_RUN_WAR("[mes] SSL disabled: certificate file or private key file or CA certificate is not available.");
@@ -1312,7 +1315,7 @@ static void mes_stop_channels(void)
     }
 }
 
-static void mes_heartbeat(mes_pipe_t *pipe)
+void mes_heartbeat(mes_pipe_t *pipe)
 {
     if (g_timer()->monotonic_now - pipe->last_send_time < MES_HEARTBEAT_INTERVAL * MICROSECS_PER_SECOND) {
         return;
@@ -1344,24 +1347,6 @@ static void mes_heartbeat(mes_pipe_t *pipe)
     }
 }
 
-void mes_heartbeat_channel(mes_channel_t *channel)
-{
-    for (unsigned int priority = 0; priority < MES_GLOBAL_INST_MSG.profile.priority_cnt; priority++) {
-        mes_pipe_t *pipe = &channel->pipe[priority];
-        if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
-            return;
-        }
-        if (!pipe->send_pipe_active) {
-            MES_CONNECT((uintptr_t)pipe);
-        } else {
-            mes_heartbeat(pipe);
-            if (!pipe->send_pipe_active) {
-                MES_CONNECT((uintptr_t)pipe);
-            }
-        }
-    }
-}
-
 static void mes_heartbeat_entry(thread_t *thread)
 {
     inst_type inst_id = (inst_type)(uint64)thread->argument;
@@ -1376,7 +1361,7 @@ static void mes_heartbeat_entry(thread_t *thread)
         if (conn->is_connect) {
             for (unsigned int channel_id = 0; channel_id < MES_GLOBAL_INST_MSG.profile.channel_cnt; channel_id++) {
                 mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][channel_id];
-                mes_heartbeat_channel(channel);
+                MES_HEARTBEAT((uintptr_t)channel);
             }
         }
 
@@ -2186,16 +2171,30 @@ bool32 mes_connection_ready_with_count(uint32 inst_id, uint32 *ready_count)
     *ready_count = 0;
     mes_channel_t *channel = NULL;
     mes_pipe_t *pipe = NULL;
-    for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
-        channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
-        for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
-            pipe = &channel->pipe[j];
+    bool32 check_ready = 0;
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
+            channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
+            for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
+                pipe = &channel->pipe[j];
+                if (pipe->recv_pipe_active && pipe->send_pipe_active) {
+                    (*ready_count)++;
+                }
+            }
+        }
+        check_ready = (*ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt);
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
+        for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
+            channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
+            pipe = &channel->rpc_pipe;
             if (pipe->recv_pipe_active && pipe->send_pipe_active) {
                 (*ready_count)++;
             }
         }
+        check_ready = (*ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt);        
     }
-    return *ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt;
+
+    return check_ready;
 }
 
 unsigned int mes_connection_ready(uint32 inst_id)
@@ -2373,4 +2372,67 @@ void mes_get_all_threads(mes_thread_set_t *mes_thread_set)
     mes_get_receiver_thread(mes_thread_set);
     mes_get_tcp_lsnr_thread(mes_thread_set);
     mes_get_heartbeat_thread(mes_thread_set);
+}
+
+// channel
+int mes_alloc_channels(void)
+{
+    errno_t ret;
+    size_t alloc_size;
+    char *temp_buf;
+
+    if (MES_GLOBAL_INST_MSG.profile.channel_cnt == 0) {
+        LOG_RUN_ERR("channel_cnt %u is invalid", MES_GLOBAL_INST_MSG.profile.channel_cnt);
+        return ERR_MES_PARAM_INVALID;
+    }
+
+    // alloc channel pointer array
+    alloc_size = sizeof(mes_channel_t *) * MES_MAX_INSTANCES;
+    temp_buf = (char *)cm_malloc_prot(alloc_size);
+    if (temp_buf == NULL) {
+        LOG_RUN_ERR("allocate mes_channel_t pointer array failed, channel_cnt %u alloc size %zu",
+                    MES_GLOBAL_INST_MSG.profile.channel_cnt, alloc_size);
+        return ERR_MES_MALLOC_FAIL;
+    }
+    ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
+    if (ret != EOK) {
+        CM_FREE_PROT_PTR(temp_buf);
+        return ERR_MES_MEMORY_SET_FAIL;
+    }
+    MES_GLOBAL_INST_MSG.mes_ctx.channels = (mes_channel_t **)temp_buf;
+
+    // alloc channel
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; ++i) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        CM_RETURN_IFERR(mes_init_single_inst_channel(inst_id));
+    }
+    GS_INIT_SPIN_LOCK(MES_GLOBAL_INST_MSG.mes_ctx.inst_channel_lock);
+    return CM_SUCCESS;
+}
+
+int mes_init_single_inst_channel(unsigned int inst_id)
+{
+    size_t alloc_size = sizeof(mes_channel_t) * MES_GLOBAL_INST_MSG.profile.channel_cnt;
+    char *temp_buf = (char *)cm_malloc_prot(alloc_size);
+    if (temp_buf == NULL) {
+        LOG_RUN_ERR("allocate mes_channel_t failed, inst_id %u alloc size %zu", inst_id, alloc_size);
+        return ERR_MES_MALLOC_FAIL;
+    }
+    int ret = memset_sp(temp_buf, alloc_size, 0, alloc_size);
+    if (ret != EOK) {
+        CM_FREE_PROT_PTR(temp_buf);
+        return ERR_MES_MEMORY_SET_FAIL;
+    }
+    MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id] = (mes_channel_t *)temp_buf;
+    // init channel
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; ++i) {
+        mes_channel_t *channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
+        channel->id = (inst_id << CHANNEL_ID_BITS) | i;
+        if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+            mes_tcp_init_channels_param((uintptr_t)channel);
+        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
+            mes_rdma_rpc_init_channels_param((uintptr_t)channel);
+        }
+    }
+    return CM_SUCCESS;
 }

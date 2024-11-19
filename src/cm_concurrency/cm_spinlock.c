@@ -30,13 +30,19 @@ __declspec(thread) uint64 g_tls_spin_sleeps = 0;
 __thread uint64 g_tls_spin_sleeps = 0;
 #endif
 
+static uint32 g_spin_sleep_time_nsec = 200000;
+
 void cm_spin_sleep_and_stat(spin_statis_t *stat)
 {
     uint64 usecs;
     timeval_t tv_begin, tv_end;
 
     (void)cm_gettimeofday(&tv_begin);
+#ifndef WIN32
+    cm_spin_sleep_ex(g_spin_sleep_time_nsec);
+#else
     cm_spin_sleep();
+#endif
     (void)cm_gettimeofday(&tv_end);
     usecs = TIMEVAL_DIFF_US(&tv_begin, &tv_end);
     if (stat != NULL) {
@@ -62,4 +68,9 @@ void cm_spin_sleep_and_stat2(uint32 ms)
 uint64 cm_total_spin_usecs(void)
 {
     return g_tls_spin_sleeps;
+}
+
+void cm_set_spin_sleep_time(uint32 sleep_time_nanosecs)
+{
+    g_spin_sleep_time_nsec = sleep_time_nanosecs;
 }

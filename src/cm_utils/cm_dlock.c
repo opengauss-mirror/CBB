@@ -30,6 +30,19 @@
 #include "ddes_perctrl_api.h"
 #include "cm_dlock.h"
 
+const int BLOCK_NUMS = 3;
+const uint32 LOCK_BLOCK_NUMS = 2;
+const time_t MAX_VALID_LOCK_TIME = 125;
+const time_t BASE_VALID_LOCK_TIME = 1;
+
+time_t CalcLockTime(time_t lockTime)
+{
+    // system function execute lock cmd result range is [0, 127], 127 and 126 maybe system command failed result
+    // so get lock time valid range is [1, 125]
+    // 0:get lock success;-1:get lock failed and get lock time failed;[1,125]:get lock failed but get lock time success
+    return lockTime % MAX_VALID_LOCK_TIME + BASE_VALID_LOCK_TIME;
+}
+
 static status_t cm_open_scsi_dev(const dlock_t *lock, const char *scsi_dev, int32 *fd)
 {
 #ifdef WIN32
@@ -52,7 +65,7 @@ status_t cm_alloc_dlock(dlock_t *lock, uint64 lock_addr, int64 inst_id)
 #ifdef WIN32
 #else
     errno_t errcode = EOK;
-    uint64 buff_size = 3 * CM_DEF_BLOCK_SIZE + DISK_LOCK_ALIGN_SIZE_512;
+    uint64 buff_size = BLOCK_NUMS * CM_DEF_BLOCK_SIZE + DISK_LOCK_ALIGN_SIZE_512;
     uint64 offset;
 
     if (lock_addr % CM_DEF_BLOCK_SIZE != 0) {
@@ -104,7 +117,7 @@ status_t cm_init_dlock(dlock_t *lock, uint64 lock_addr, int64 inst_id)
 #ifdef WIN32
 #else
     errno_t errcode = EOK;
-    uint64 buff_size = 3 * CM_DEF_BLOCK_SIZE + DISK_LOCK_ALIGN_SIZE_512;
+    uint64 buff_size = BLOCK_NUMS * CM_DEF_BLOCK_SIZE + DISK_LOCK_ALIGN_SIZE_512;
 
     if (lock != NULL) {
         errcode = memset_sp(lock->buff, buff_size, 0, buff_size);
@@ -315,11 +328,11 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
 
 #ifdef WIN32
 #else
-    int32 buff_len = 2 * CM_DEF_BLOCK_SIZE;
+    int32 buff_len = LOCK_BLOCK_NUMS * CM_DEF_BLOCK_SIZE;
     status_t status;
     LOG_DEBUG_INF("begin lock.");
     time_t t = time(NULL);
-    LOCKW_LOCK_TIME(*lock) = t;
+    LOCKW_LOCK_TIME(*lock) = CalcLockTime(t);
     LOCKW_LOCK_CREATE_TIME(*lock) = t;
     int32 ret = perctrl_scsi3_caw(scsi_dev, lock->lock_addr / CM_DEF_BLOCK_SIZE, lock->lockr, buff_len);
     if (CM_SUCCESS != ret) {
@@ -347,9 +360,11 @@ int32 cm_disk_lock(dlock_t *lock, int32 fd, const char *scsi_dev)
     if (CM_SUCCESS != ret) {
         if (CM_SCSI_ERR_MISCOMPARE == ret) {
             // the lock is hold by another instance
+            LOCKW_LOCK_TIME(*lock) = LOCKR_LOCK_TIME(*lock);
             return CM_DLOCK_ERR_LOCK_OCCUPIED;
         } else {
             LOG_RUN_ERR("Scsi3 caw failed, addr %llu, dev %s, errno %d.", lock->lock_addr, scsi_dev, errno);
+            LOCKW_LOCK_TIME(*lock) = LOCKR_LOCK_TIME(*lock);
             return CM_ERROR;
         }
     }
@@ -442,7 +457,7 @@ status_t cm_disk_unlock_interal(dlock_t *lock, int32 fd, bool32 clean_body, cons
     errno_t errcode;
     status_t status;
     int32 ret;
-    int32 buff_len = 2 * CM_DEF_BLOCK_SIZE;
+    int32 buff_len = LOCK_BLOCK_NUMS * CM_DEF_BLOCK_SIZE;
 
     if (lock == NULL || fd < 0) {
         return CM_ERROR;
@@ -561,7 +576,7 @@ int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev)
 #ifdef WIN32
 #else
     int32 ret;
-    int32 buff_len = 2 * CM_DEF_BLOCK_SIZE;
+    int32 buff_len = LOCK_BLOCK_NUMS * CM_DEF_BLOCK_SIZE;
 
     if (lock == NULL) {
         return CM_ERROR;
