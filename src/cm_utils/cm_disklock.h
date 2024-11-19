@@ -77,7 +77,7 @@ int cm_dl_dealloc(unsigned int lock_id);
  * Try lock.
  * @param [in] lock_id: lock_id
  * @param [in] timeout_ms: wait time, unit: ms. If timeout_ms is greater than 0, wait for the specified time.
- *                         If timeout_ms is equal to 0, do not wait. If timeout_ms is less than 0, wait forever.
+               If timeout_ms is equal to 0, do not wait. If timeout_ms is less than 0, wait forever.
  * @return 0 success
  * @return != 0 fail
  */
