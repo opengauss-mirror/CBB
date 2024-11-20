@@ -359,7 +359,7 @@ int cm_dl_lock(unsigned int lock_id, int timeout_ms)
             lock_info->inst_id;
         cm_sleep(random_time);
         LOG_DEBUG_INF("DL:wait for retry:%lldms.", random_time);
-    } while (CM_TRUE);
+    } while (1);
         
     return ret;
 }

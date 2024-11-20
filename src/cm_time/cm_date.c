@@ -778,24 +778,32 @@ status_t cm_detail2text(const date_detail_t *detail, text_t *fmt, uint32 precisi
 #define DAYS_4 (DAYS_1 * 4 + 1)
 #define DAYS_100 (DAYS_4 * 25 - 1)
 #define DAYS_400 (DAYS_100 * 4 + 1)
+#define LEAP_YEAR400 (400)
+#define LEAP_YEAR100 (100)
+#define LEAP_YEAR4 (4)
+#define LEAP_YEAR100_COUNT 3
 static inline void cm_decode_leap(date_detail_t *detail, int32 *d)
 {
     uint32 hundred_count;
     int32 days = *d;
-
-    while (days >= DAYS_400) {
-        detail->year += 400;
-        days -= DAYS_400;
+    
+    int year400_count = days / DAYS_400;
+    if (year400_count > 0) {
+        detail->year += LEAP_YEAR400 * year400_count;
+        days -= DAYS_400 * year400_count;
     }
 
-    for (hundred_count = 1; days >= DAYS_100 && hundred_count < 4; hundred_count++) {
-        detail->year += 100;
-        days -= DAYS_100;
+    hundred_count = days / DAYS_100;
+    hundred_count = hundred_count > LEAP_YEAR100_COUNT ? LEAP_YEAR100_COUNT : hundred_count;
+    if (hundred_count > 0) {
+        detail->year += LEAP_YEAR100 * hundred_count;
+        days -= DAYS_100 * hundred_count;
     }
 
-    while (days >= DAYS_4) {
-        detail->year += 4;
-        days -= DAYS_4;
+    int32 year4_count = days / DAYS_4;
+    if (year4_count >= 0) {
+        detail->year += LEAP_YEAR4 * year4_count;
+        days -= DAYS_4 * year4_count;
     }
 
     while (days > DAYS_1) {
