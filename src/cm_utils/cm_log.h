@@ -34,7 +34,7 @@
 extern "C" {
 #endif
 
-extern bool32 g_high_frequency_restrt_process;
+extern bool32 g_high_frequency_restart_process;
 typedef enum en_log_level {
     LEVEL_ERROR = 0, // error conditions
     LEVEL_WARN,      // warning conditions
