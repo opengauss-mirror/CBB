@@ -1016,6 +1016,9 @@ void mes_notify_msg_recv(mes_message_t *msg)
     }
 
     cm_spin_lock(&room->lock, NULL);
+    LOG_DEBUG_INF("[mes]mes_notify_msg_recv ruid=%llu(%llu-%llu), cmd=%d, room:%llu-%llu, rstatus:%d",
+        (uint64)msg->head->ruid, (uint64)MES_RUID_GET_RID(msg->head->ruid), (uint64)MES_RUID_GET_RSN(msg->head->ruid),
+        (int32)msg->head->cmd, (uint64)room->room_index, (uint64)room->rsn, (int32)room->room_status);
     mes_ensure_inst_broadcast_msg_exist(msg->head->src_inst);
     if (mes_check_msg_recv(msg, room)) {
         if (room->room_status == STATUS_PTP_SENT) {

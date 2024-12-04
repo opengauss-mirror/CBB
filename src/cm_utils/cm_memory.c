@@ -578,7 +578,7 @@ static bool8 memory_context_check_max_size(memory_context_t *context, int64 size
 {
     memory_context_t *temp_context = context;
     while (temp_context != NULL) {
-        if (temp_context->used_size + size > temp_context->mem_max_size) {
+        if ((uint64)temp_context->used_size + size > temp_context->mem_max_size) {
             return CM_FALSE;
         }
         temp_context = temp_context->parent;
@@ -608,10 +608,10 @@ bool8 ddes_add_used_context_memory(memory_context_t *context, int64 size)
     }
     memory_context_t *temp_context = context;
     while (temp_context != NULL) {
-        if (temp_context->used_size + size <= temp_context->mem_max_size) {
+        if ((uint64)temp_context->used_size + size <= temp_context->mem_max_size) {
             cur_used = cm_atomic_add((atomic_t *)&temp_context->used_size, size);
             level++;
-            if (cur_used > temp_context->mem_max_size) {
+            if ((uint64)cur_used > temp_context->mem_max_size) {
                 roll_back_add_used_context_memory(context, size, level);
                 updated = CM_FALSE;
                 break;
@@ -651,12 +651,12 @@ memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 ma
     }
     cm_spin_lock(&g_mem_context_lock, NULL);
     int32 ret;
-    uint64 size = sizeof(memory_context_t);
+    int64 size = (int64)sizeof(memory_context_t);
     memory_context_t *context = NULL;
     if (parent != NULL) {
-        context = (memory_context_t *)ddes_alloc(parent, size);
+        context = (memory_context_t *)ddes_alloc(parent, (uint64)size);
     } else {
-        context = (memory_context_t *)mem_allocator->malloc_proc(size);
+        context = (memory_context_t *)mem_allocator->malloc_proc((uint64)size);
     }
     if (context == NULL) {
         LOG_RUN_ERR("cm_memory: mem_context create failed, malloc failed");
@@ -816,7 +816,8 @@ void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size)
         return NULL;
     }
     cm_memory_allocator_t *mem_allocator = &context->mem_allocator;
-    uint64 alloc_size = size + (alignment -1) + sizeof(ddes_buffer_head_t) + sizeof(mem_context_block_t);
+    uint64 alloc_size =
+        size + (alignment -1) + (uint64)sizeof(ddes_buffer_head_t) + (uint64)sizeof(mem_context_block_t);
     mem_context_block_t *block = (mem_context_block_t *)mem_allocator->malloc_proc(alloc_size);
     if (block == NULL) {
         ddes_sub_used_context_memory(context, size);
