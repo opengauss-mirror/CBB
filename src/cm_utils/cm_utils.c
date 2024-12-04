@@ -43,6 +43,7 @@
 #define CM_UPPER_LETTER_TYPE 1
 #define CM_LOWER_LETTER_TYPE 2
 #define CM_SPECIAL_CHAR_TYPE 3
+#define CM_VERSION_MAX_LEN   256
  
 static status_t cm_get_character_type_count(const char *pText, uint32 i, uint32 *types)
 {
@@ -378,4 +379,10 @@ void cm_usleep(uint32 us)
 #else
     (void)usleep(us);
 #endif
+}
+
+void cm_show_version(char *version)
+{
+    int ret = strcpy_s(version, CM_VERSION_MAX_LEN, (char *)DEF_CBB_VERSION);
+    CM_SECUREC_CHECK(ret);
 }
