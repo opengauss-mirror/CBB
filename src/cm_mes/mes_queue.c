@@ -897,10 +897,8 @@ void mes_task_proc_inner(thread_t *thread)
     while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         if (pipe_type != MES_TYPE_RDMA) {
             is_empty = mes_is_empty_queue_count(mq_ctx, priority);
-            if (is_empty) {
-                if (cm_event_timedwait(event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
-                    continue;
-                }
+            if (is_empty && cm_event_timedwait(event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
+                continue;
             }
         }
 
