@@ -125,7 +125,7 @@ static inline unsigned long long mes_room_get_ruid(mes_waiting_room_t *room)
 
 static int mes_send_data_x_inner(mes_message_head_t *head, unsigned int count, va_list args)
 {
-    uint64 start_stat_time = 0;
+    uint64 start_stat_time;
     mes_bufflist_t buff_list;
     va_list apcopy;
     va_copy(apcopy, args);
