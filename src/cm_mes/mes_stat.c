@@ -143,14 +143,14 @@ void mes_local_stat(uint16 cmd)
 
 void mes_recv_message_stat(const mes_message_t *msg)
 {
-    if (g_mes_stat.mes_elapsed_switch) {
+    if (g_mes_stat.mes_elapsed_switch && msg->head->app_cmd < CM_MAX_MES_MSG_CMD) {
         (void)cm_atomic_inc(&(g_mes_stat.mes_command_stat[msg->head->app_cmd].recv_count));
         (void)cm_atomic32_inc(&(g_mes_stat.mes_command_stat[msg->head->app_cmd].occupy_buf));
     }
     return;
 }
 
-uint64 cm_get_time_usec(void)
+uint64 cm_get_time_usec()
 {
     if (g_mes_elapsed_stat.mes_elapsed_switch) {
         return cm_clock_monotonic_now();
