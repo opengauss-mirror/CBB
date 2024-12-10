@@ -271,8 +271,8 @@ static inline void cm_panic(bool32 condition)
         if (SECUREC_UNLIKELY(EOK != (err))) {                         \
             LOG_RUN_ERR("Secure C lib has throw an error %d", (err)); \
             cm_fync_logfile();                                        \
-            cm_panic(0);
-        }
+            cm_panic(0);                                              \
+        }                                                             \
     }
 
 #define CM_THROW_ERROR(error_no, ...)                                                                                  \
