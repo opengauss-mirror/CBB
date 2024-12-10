@@ -257,6 +257,15 @@ static inline void cm_panic(bool32 condition)
             }                                             \
         } while (0)
 
+#define CM_SECUREC_CHECK(err)                                         \
+    {                                                                 \
+        if (SECUREC_UNLIKELY(EOK != (err))) {                         \
+            LOG_RUN_ERR("Secure C lib has throw an error %d", (err)); \
+            cm_fync_logfile();                                        \
+            cm_panic(0);                                              \
+        }                                                             \
+    }
+
 #define CM_THROW_ERROR(error_no, ...)                                                                                  \
     do {                                                                                                               \
         cm_set_error((char *)__FILE_NAME__, (uint32)__LINE__, (cm_errno_t)error_no,    \
