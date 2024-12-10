@@ -28,6 +28,9 @@
 #include "cm_log.h"
 #ifndef WIN32
 #include "dlfcn.h"
+#include "cm_version.h"
+#else
+#define DEF_CBB_VERSION   "cbb.lib develop for windows"
 #endif
 
 #ifdef WIN32
@@ -82,6 +85,7 @@ void cm_usleep(uint32 us);
 status_t cm_verify_password_str(const char *name, const char *passwd, uint32 pwd_min_len);
 uint32 cm_rand_int32(int64 *seed, uint32 range);
 uint32 cm_rand_next(int64 *seed, uint32 bits);
+void cm_show_version(char *version);
 #ifdef __cplusplus
 }
 #endif

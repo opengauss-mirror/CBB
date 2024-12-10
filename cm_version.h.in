@@ -1,0 +1,3 @@
+#ifndef DEF_CBB_VERSION
+#define DEF_CBB_VERSION "@CBB_VERSION_STR@"
+#endif

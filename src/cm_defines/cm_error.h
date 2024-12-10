@@ -104,6 +104,12 @@ typedef enum en_cm_errno {
     ERR_PASSWORD_IS_TOO_SIMPLE = 110,
     ERR_PASSWORD_FORMAT_ERROR = 111,
     ERR_INVALID_PARAM = 112,
+    ERR_PARAMETER_TOO_LARGE = 113,
+    ERR_PARAMETER_TOO_SMALL = 114,
+    ERR_OPERATIONS_NOT_SUPPORT = 115,
+    ERR_LINE_TOO_LONG = 116,
+    ERR_INVALID_PARAMETER_ENUM = 117,
+    ERR_PARAM_COUNT_OVERFLOW = 118,
     /* Error code for access interface of SCSI */
     ERR_SCSI_LOCK_OCCUPIED = 136,
     ERR_SCSI_REG_CONFLICT = 137,
@@ -155,6 +161,9 @@ typedef enum en_cm_errno {
     ERR_SSL_CONNECT_FAILED = 336,
     ERR_SSL_FILE_PERMISSION = 337,
     ERR_FULL_PACKET = 338,
+    ERR_INVALID_IPADDRESS_OR_DOMAIN_LENGTH = 339,
+    ERR_IPADDRESS_OR_DOMAIN_NUM_EXCEED = 340,
+    ERR_TCP_INVALID_URLADDRESS = 341,
     /* replication errors: 400 - 499 */
     ERR_TERM_IS_NOT_MATCH = 400,
     ERR_TERM_IS_EXPIRED = 401,
@@ -256,6 +265,15 @@ static inline void cm_panic(bool32 condition)
                 cm_panic(0);                              \
             }                                             \
         } while (0)
+
+#define CM_SECUREC_CHECK(err)                                         \
+    {                                                                 \
+        if (SECUREC_UNLIKELY(EOK != (err))) {                         \
+            LOG_RUN_ERR("Secure C lib has throw an error %d", (err)); \
+            cm_fync_logfile();                                        \
+            cm_panic(0);
+        }
+    }
 
 #define CM_THROW_ERROR(error_no, ...)                                                                                  \
     do {                                                                                                               \

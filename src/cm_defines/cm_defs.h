@@ -308,6 +308,10 @@ void cm_free_prot(void *pointer);
         }                             \
     } while (0)
 
+#define CM_RETVALUE_IFTRUE(cond, value)  \
+    if (cond) {                          \
+        return value;                    \
+    }
 
 /* is letter */
 #define CM_IS_LETER(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
