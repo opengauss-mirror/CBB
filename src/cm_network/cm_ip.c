@@ -205,43 +205,6 @@ status_t cm_get_host_type(const char *host, host_type_t *type)
     return CM_SUCCESS;
 }
 
-static bool32 cm_check_ss_ip(test_t *ip, char *ip_str)
-{
-    host_type_t type;
-    if (ip->len == 0 || ip->len >= CM_MAX_IP_LEN) {
-        CM_THROW_ERROR(ERR_INVALID_IPADDRESS_OR_DOMAIN_LENGTH, ip->len);
-        return CM_FALSE;
-    }
-    if (cm_get_host_type(ip_str, &type) != CM_SUCCESS) {
-        return CM_FALSE;
-    }
-    if (type != HOST_TYPE_IP_V4 && type != HOST_TYPE_IP_V6) {
-        CM_THROW_ERROR(ERR_TCP_INVALID_URLADDRESS, "ip type");
-        return CM_FALSE;
-    }
-    return CM_TRUE;
-}
-
-status_t cm_get_host_type(const char *host, host_type_t *type)
-{
-    if (CM_IS_DIGIT(host[0])) {
-        int ip_type = cm_get_ip_version(host);
-        CM_RETVALUE_IFTRUE(ip_type == -1, CM_ERROR);
-        *type = (ip_type == AF_INET ? HOST_TYPE_IP_V4 : HOST_TYPE_IP_V6);
-    } else {
-        if (strchr(host, ':') != NULL) {
-            CM_RETVALUE_IFTRUE(cm_get_ip_version(host) != AF_INET6, CM_ERROR);
-            *type = HOST_TYPE_IP_V6;
-        } else {
-            // domain string
-#define DOMAIN_CHARS "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-"
-            CM_RETVALUE_IFTRUE(strspn(host, DOMAIN_CHARS) != strlen(host), CM_ERROR);
-            *type = HOST_TYPE_DOMAIN;
-        }
-    }
-    return CM_SUCCESS;
-}
-
 static bool32 cm_check_ss_ip(text_t *ip, char *ip_str)
 {
     host_type_t type;
@@ -283,7 +246,6 @@ static status_t cm_split_mes_single_url(char nodes[][CM_MAX_IP_LEN], uint16 port
         if (status == 0) {
             CM_RETURN_IFERR(cm_str2uint32(urlstr, &node_id));
             if (node_id >= CM_MAX_INSTANCES) {
-                CM_THROW_ERROR(ERR_PARAMETER_TOO_LARGE, "node_id", CM_MAX_INSTANCE);
                 CM_THROW_ERROR(ERR_PARAMETER_TOO_LARGE, "node_id", CM_MAX_INSTANCES);
                 return CM_ERROR;
             }
