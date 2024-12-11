@@ -205,7 +205,7 @@ status_t cm_get_host_type(const char *host, host_type_t *type)
     return CM_SUCCESS;
 }
 
-static bool32 cm_check_ss_ip(test_t *ip, char *ip_str)
+static bool32 cm_check_ss_ip(text_t *ip, char *ip_str)
 {
     host_type_t type;
     if (ip->len == 0 || ip->len >= CM_MAX_IP_LEN) {
@@ -246,13 +246,14 @@ static status_t cm_split_mes_single_url(char nodes[][CM_MAX_IP_LEN], uint16 port
         if (status == 0) {
             CM_RETURN_IFERR(cm_str2uint32(urlstr, &node_id));
             if (node_id >= CM_MAX_INSTANCES) {
-                CM_THROW_ERROR(ERR_PARAMETER_TOO_LARGE, "node_id", CM_MAX_INSTANCE);
+                CM_THROW_ERROR(ERR_PARAMETER_TOO_LARGE, "node_id", CM_MAX_INSTANCES);
                 return CM_ERROR;
             }
             status++;
         } else if (status == 1) {
             cm_str2text(urlstr, &text);
             cm_trim_text(&text);
+            CM_RETURN_IF_FALSE(cm_check_ss_ip(&text, urlstr));
             MEMS_RETURN_IFERR(strncpy_s(nodes[node_id], CM_MAX_IP_LEN, text.str, text.len));
             status++;
         } else {
