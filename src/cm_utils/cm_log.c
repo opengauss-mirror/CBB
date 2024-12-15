@@ -1162,29 +1162,43 @@ char *g_warning_desc[] = {
     "SSLDisabled",
 };
 
-void cm_write_alarm_log(uint32 warn_id, const char *format, ...)
+void cm_write_alarm_log_core(uint32 warn_id, uint32 *warn_id_set, char **warn_desc_set, const char *format,
+                             va_list args)
 {
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 2] = {0};
     text_t buf_text;
     log_file_handle_t *log_file_handle = &g_logger[LOG_ALARM];
     char date[CM_MAX_TIME_STRLEN] = {0};
     errno_t errcode;
-
+ 
     (void)cm_date2str(g_timer()->now, "yyyy-mm-dd hh24:mi:ss", date, CM_MAX_TIME_STRLEN);
     // Format: Date | Warn_Id | Warn_Desc | Components | Instance_name | parameters
     errcode = snprintf_s(buf, sizeof(buf), CM_MAX_LOG_CONTENT_LENGTH + 1,
                          "%s|%u|%s|%s|%s|{'component-name':'%s','instance-name':'%s',", date,
-                         g_warn_id[warn_id], g_warning_desc[warn_id], LOG_MODULE_NAME,
+                         warn_id_set[warn_id], warn_desc_set[warn_id], LOG_MODULE_NAME,
                          g_log_param.instance_name, LOG_MODULE_NAME, g_log_param.instance_name);
     if (errcode < 0) {
         return;
     }
-
-    va_list args;
-    va_start(args, format);
+ 
     buf_text.str = buf;
     buf_text.len = (uint32)strlen(buf);
     cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
+}
+
+void cm_write_alarm_log(uint32 warn_id, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    cm_write_alarm_log_core(warn_id, g_warn_id, g_warning_desc, format, args);
+    va_end(args);
+}
+
+void cm_write_alarm_log_ex(uint32 warn_id, uint32 *warn_id_set, char **warn_desc_set, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    cm_write_alarm_log_core(warn_id, warn_id_set, warn_desc_set, format, args);
     va_end(args);
 }
 
