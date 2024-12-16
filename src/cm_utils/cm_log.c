@@ -811,6 +811,8 @@ static status_t compress_file_to_gzip(const char *infilename, const char *outfil
         }
     }
     if (feof(infile) == 0) {
+        (void)fclose(infile);
+        (void)gzclose(outfile);
         return CM_ERROR;
     }
 
