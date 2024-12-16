@@ -1033,7 +1033,7 @@ void mes_ockrpc_tls_get_private_key(const char** privateKeyPath, char** keypass,
     // verify ssl key password and KMC module
     if (mes_verify_ssl_key_pwd(&ssl_cfg, passwd_plain, CM_PASSWD_MAX_LEN) != CM_SUCCESS) {
         LOG_RUN_ERR("CBB verify ssl key password failed");
-        (void)memset_s(passwd_plain, sizeof(passwd_plain), 0, sizeof(passwd_plain));
+        (void)memset_s(passwd_plain, max_passwd_size, 0, max_passwd_size);
         free(passwd_plain);
         *privateKeyPath = NULL;
         *keypass = NULL;

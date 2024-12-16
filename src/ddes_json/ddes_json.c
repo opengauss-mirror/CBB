@@ -932,15 +932,15 @@ status_t json_get_obj(json_t *json, json_t **obj, text_t *key)
 
 status_t json_add_str(json_t *json, const char * const key, const char * const val)
 {
+    if ((json == NULL) || (key == NULL)) {
+        return CM_ERROR;
+    }
+
     json_val_t *jval;
     uint32 key_size;
     uint32 val_size;
     uint32 key_len = (uint32)strlen(key);
     uint32 val_len = (uint32)strlen(val);
-
-    if ((json == NULL) || (key == NULL)) {
-        return CM_ERROR;
-    }
 
     key_size = (uint32)(sizeof(json_val_t) + sizeof(uint16) + key_len + 1);
     val_size = (uint32)sizeof(jstr_len_t) + val_len + 1;
