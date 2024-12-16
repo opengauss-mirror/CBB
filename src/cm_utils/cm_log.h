@@ -141,6 +141,8 @@ log_param_t *cm_log_param_instance(void);
 #define CM_DYNAMIC_TRACE_ENABLED (cm_log_param_instance()->dyn_trc_cbs.dyn_trc != NULL)
 #define CM_DYN_TRC_TRACE_LOGS (cm_log_param_instance()->dyn_trc_cbs.dyn_trc_trace_logs())
 
+#define CBB_SS_LOG_ALARM_ON (cm_log_param_instance()->log_level > 0)
+
 static inline void cm_register_dyn_trc_cbs(usr_cb_log_trace_t cb_trc,
     usr_cb_dyn_trc_set_flag_t cb_setflag, usr_cb_dyn_trc_log_t cb_trclogs)
 {
@@ -187,6 +189,8 @@ void cm_log_open_file(log_file_handle_t *log_file_handle);
 void cm_dump_mem_in_blackbox(void *dump_addr, uint32 dump_len);
 void cm_write_audit_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 void cm_write_alarm_log(uint32 warn_id, const char *format, ...) CM_CHECK_FMT(2, 3);
+void cm_write_alarm_log_ex(uint32 warn_id, uint32 *warn_id_set, char **warn_desc_set, const char *format,
+    ...) CM_CHECK_FMT(4, 5);
 
 void cm_write_normal_log(log_type_t log_type, log_level_t log_level, const char *code_file_name, uint32 code_line_num,
     const char *module_name, bool32 need_rec_filelog, const char *format, ...) CM_CHECK_FMT(7, 8);
@@ -351,6 +355,20 @@ status_t cm_recovery_log_file(log_type_t log_type);
             cm_write_alarm_log(warn_id, format"|2", ##__VA_ARGS__);                                          \
         }                                                                                                    \
     } while (0)
+
+#define LOG_ALARM_EX(warn_id, warn_id_set, warn_desc_set, format, ...)                                                 \
+    do {                                                                                                               \
+        if ((LOG_INITED) && (CBB_SS_LOG_ALARM_ON)) {                                                                   \
+            cm_write_alarm_log_ex(warn_id, warn_id_set, warn_desc_set, format"|1", ##__VA_ARGS__);                     \
+        }                                                                                                              \
+    } while (0)                                                                                                        \
+
+#define LOG_ALARM_RECOVER_EX(warn_id, warn_id_set, warn_desc_set, format, ...)                                         \
+    do {                                                                                                               \
+        if ((LOG_INITED) && (CBB_SS_LOG_ALARM_ON)) {                                                                   \
+            cm_write_alarm_log_ex(warn_id, warn_id_set, warn_desc_set, format"|2", ##__VA_ARGS__);                     \
+        }                                                                                                              \
+    } while (0)                                                                                                        \
 
 /* no need to print error info in file add/remove log  */
 #define LOG_RUN_FILE_INF(need_record_file_log, format, ...)                                                      \
