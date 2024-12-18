@@ -208,6 +208,12 @@ void *ddes_alloc(memory_context_t *context, uint64 size);
 void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size);
 void ddes_free(void *ptr);
 
+static inline void ddes_memory_stat(memory_context_t *context, uint64 *used, uint64 *total)
+{
+    *used  = (uint64)context->used_size;
+    *total = context->mem_max_size;
+}
+
 static inline uint64 mem_used_size(const mem_pool_t *mem)
 {
     return mem->used_size;
