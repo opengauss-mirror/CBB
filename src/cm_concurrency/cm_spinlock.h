@@ -96,17 +96,17 @@ void cm_set_spin_sleep_time(uint32 sleep_time_nanosecs);
 
 #ifdef WIN32
 
-static inline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
+static forceinline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
 {
     return (uint32)InterlockedExchange(ptr, value);
 }
 
-static inline void cm_spin_sleep()
+static forceinline void cm_spin_sleep()
 {
     Sleep(1);
 }
 
-static inline void cm_spin_sleep_ex(uint32 tick)
+static forceinline void cm_spin_sleep_ex(uint32 tick)
 {
     Sleep(tick);
 }
@@ -114,25 +114,25 @@ static inline void cm_spin_sleep_ex(uint32 tick)
 #else
 
 #if defined(__arm__) || defined(__aarch64__)
-static inline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
+static forceinline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
 {
     uint32 oldvalue = 0;
     return !__atomic_compare_exchange_n(ptr, &oldvalue, value, CM_FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
-static inline void cm_spin_unlock(spinlock_t *lock)
+static forceinline void cm_spin_unlock(spinlock_t *lock)
 {
     __atomic_store_n(lock, 0, __ATOMIC_SEQ_CST);
 }
 
 #else
-static inline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
+static forceinline uint32 cm_spin_set(spinlock_t *ptr, uint32 value)
 {
     uint32 oldvalue = 0;
     return (uint32)__sync_val_compare_and_swap(ptr, oldvalue, value);
 }
 #endif
 
-static inline void cm_spin_sleep(void)
+static forceinline void cm_spin_sleep(void)
 {
     struct timespec ts;
     ts.tv_sec = 0;
@@ -140,7 +140,7 @@ static inline void cm_spin_sleep(void)
     (void)nanosleep(&ts, NULL);
 }
 
-static inline void cm_spin_sleep_ex(uint32 tick)
+static forceinline void cm_spin_sleep_ex(uint32 tick)
 {
     struct timespec ts;
     ts.tv_sec = 0;
@@ -150,7 +150,8 @@ static inline void cm_spin_sleep_ex(uint32 tick)
 
 #endif
 
-static inline void cm_spin_lock_with_stat(spinlock_t *lock, spin_statis_t *stat, spin_statis_instance_t *stat_instance)
+static forceinline void cm_spin_lock_with_stat(spinlock_t *lock, spin_statis_t *stat,
+    spin_statis_instance_t *stat_instance)
 {
     uint32 spin_times = 0;
     uint32 sleep_times = 0;
@@ -190,7 +191,7 @@ static inline void cm_spin_lock_with_stat(spinlock_t *lock, spin_statis_t *stat,
 
 #define cm_spin_lock(lock, stat)    cm_spin_lock_with_stat(lock, stat, NULL)
 
-static inline void cm_spin_lock_ex(spinlock_t *lock, spin_statis_t *stat, uint32 spin_count)
+static forceinline void cm_spin_lock_ex(spinlock_t *lock, spin_statis_t *stat, uint32 spin_count)
 {
     uint32 spin_times = 0;
     uint32 sleep_times = 0;
@@ -231,7 +232,7 @@ static inline void cm_spin_lock_ex(spinlock_t *lock, spin_statis_t *stat, uint32
 }
 
 #if !defined(__arm__) && !defined(__aarch64__)
-static inline void cm_spin_unlock(spinlock_t *lock)
+static forceinline void cm_spin_unlock(spinlock_t *lock)
 {
     if (SECUREC_UNLIKELY(lock == NULL)) {
         return;
@@ -241,7 +242,7 @@ static inline void cm_spin_unlock(spinlock_t *lock)
 }
 #endif
 
-static inline bool32 cm_spin_try_lock(spinlock_t *lock)
+static forceinline bool32 cm_spin_try_lock(spinlock_t *lock)
 {
 #if defined(__arm__) || defined(__aarch64__)
     if (__atomic_load_n(lock, __ATOMIC_SEQ_CST) != 0) {
@@ -254,7 +255,7 @@ static inline bool32 cm_spin_try_lock(spinlock_t *lock)
     return (cm_spin_set(lock, 1) == 0);
 }
 
-static inline bool32 cm_spin_timed_lock(spinlock_t *lock, uint32 timeout_ticks)
+static forceinline bool32 cm_spin_timed_lock(spinlock_t *lock, uint32 timeout_ticks)
 {
     uint32 spin_times = 0, wait_ticks = 0;
     uint32 sleep_times = 0;
@@ -296,7 +297,7 @@ static inline bool32 cm_spin_timed_lock(spinlock_t *lock, uint32 timeout_ticks)
     return CM_TRUE;
 }
 
-static inline void cm_spin_lock_by_sid(uint32 sid, spinlock_t *lock, spin_statis_t *stat)
+static forceinline void cm_spin_lock_by_sid(uint32 sid, spinlock_t *lock, spin_statis_t *stat)
 {
     uint32 spin_times = 0;
     uint32 sleep_times = 0;
