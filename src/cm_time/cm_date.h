@@ -65,10 +65,13 @@ int cm_gettimeofday(struct timeval *tv);
 /* the minimal units of a day == SECONDS_PER_DAY * MILLISECS_PER_SECOND * MICROSECS_PER_MILLISEC */
 #define UNITS_PER_DAY 86400000000LL
 
+#define MICROSECS_PER_MIN 60000000U
+
 /* the difference between 1970.01.01-2000.01.01 in microseconds */
 /* FILETIME of Jan 1 1970 00:00:00 GMT, the Zenith epoch */
 #define CM_UNIX_EPOCH (-946684800000000LL)
 
+#define CM_BASE_YEAR 1900
 #define CM_MIN_YEAR 1
 #define CM_MAX_YEAR 9999
 
@@ -103,6 +106,46 @@ static inline status_t cm_date2str(date_t date, const char *fmt, char *str, uint
 }
 
 status_t cm_detail2text(const date_detail_t *detail, text_t *fmt, uint32 precision, text_t *text, uint32 max_len);
+
+static inline struct tm *cm_localtime(const time_t *timep, struct tm *result)
+{
+#ifdef WIN32
+    errno_t err = localtime_s(result, timep);
+    if (err != EOK) {
+        CM_ASSERT(0);
+    }
+    return NULL;
+#else
+    return localtime_r(timep, result);
+#endif
+}
+
+static inline uint64 cm_day_usec(void)
+{
+#ifdef WIN32
+    uint64 usec;
+    SYSTEMTIME sys_time;
+    GetLocalTime(&sys_time);
+
+    usec = sys_time.wHour * SECONDS_PER_HOUR * MICROSECS_PER_SECOND;
+    usec += sys_time.wMinute * MICROSECS_PER_MIN;
+    usec += sys_time.wSecond * MICROSECS_PER_SECOND;
+    usec += sys_time.wMilliseconds * MICROSECS_PER_MILLISEC;
+#else
+    uint64 usec;
+    struct timeval tv;
+    (void)gettimeofday(&tv, NULL);
+    usec = (uint64)(tv.tv_sec * MICROSECS_PER_SECOND);
+    usec += (uint64)tv.tv_usec;
+#endif
+
+    return usec;
+}
+
+time_t cm_encode_time(date_detail_t *detail);
+void cm_decode_time(time_t time, date_detail_t *detail);
+time_t cm_date2time(date_t date);
+status_t cm_time2str(time_t time, const char *fmt, char *str, uint32 str_max_size);
 
 #ifdef __cplusplus
 }

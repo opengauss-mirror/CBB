@@ -91,6 +91,7 @@ void cm_destory_cond(cm_thread_cond_t *cond);
 void cm_init_thread_lock(thread_lock_t *lock);
 void cm_thread_lock(thread_lock_t *lock);
 void cm_thread_unlock(thread_lock_t *lock);
+void cm_destroy_thread_lock(thread_lock_t *lock);
 
 /* thread */
 typedef struct st_thread {
