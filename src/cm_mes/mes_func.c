@@ -1297,7 +1297,7 @@ static status_t mes_init_ssl(void)
     CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.ca_file));
     CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.key_file));
     CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.cert_file));
-
+    CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.crl_file));
     // create fd
     if (mes_create_ssl_fd(&ssl_cfg) != CM_SUCCESS) {
         return CM_ERROR;
