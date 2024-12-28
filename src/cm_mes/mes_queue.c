@@ -1051,6 +1051,12 @@ status_t mes_alloc_channel_msg_queue(bool32 is_send)
     uint32 i, j;
     mes_profile_t *profile = mq_ctx->profile;
 
+    if (is_send && !mes_check_need_msg_send_pool(profile)) {
+        //send_directly and disable compress
+        LOG_RUN_INF("[mes][msg queue] no need to init send message queue, cause send directly and compress disable.");
+        return CM_SUCCESS;
+    }
+    
     // alloc msgqueue
     alloc_size = (uint32)sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
             (uint32)sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * profile->channel_cnt;

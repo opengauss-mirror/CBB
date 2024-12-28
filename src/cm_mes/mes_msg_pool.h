@@ -161,6 +161,7 @@ char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_pri
 void mes_free_buf_item(char *buffer);
 uint32 mes_get_priority_max_msg_size(mes_priority_t priority);
 int mes_check_message_pool_size(mes_profile_t *profile);
+bool8 mes_check_need_msg_send_pool(mes_profile_t *profile);
 
 #ifdef __cplusplus
 }
