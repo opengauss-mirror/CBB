@@ -496,6 +496,14 @@ typedef enum en_node_status {
     NODE_BLOCKED,
 } node_status_t;
 
+#ifdef _MSC_VER //for MSVC
+#define forceinline __forceinline
+#elif (defined(__GNUC__) && __GNUC__ > 3 && defined(__OPTIMIZE__)) || defined(__SUNPRO_C) || defined(__IBMC__)
+/* GCC > 3, Sunpro and XLC support always inline via __attribute__*/
+#define forceinline __attribute__((always_inline)) inline
+#else
+#define forceinline inline
+#endif
 
 #ifdef __cplusplus
 }
