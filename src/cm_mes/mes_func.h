@@ -65,7 +65,6 @@ extern "C" {
 #define MES_RUID_GET_RID(ruid) (((ruid_t *)&(ruid))->room_id)
 #define MES_RUID_IS_INVALID(ruid) ((ruid) == MES_INVLD_RUID)
 #define MES_RUID_IS_ILLEGAL(ruid) (MES_RUID_GET_RID(ruid) >= CM_MAX_MES_ROOMS)
-#define MES_WAITS_INTERRUPTED MES_GLOBAL_INST_MSG.mes_ctx.waits_interrupted
 
 #define MES_LOG_WAR_HEAD_EX(head, message, room)                                                              \
     do {                                                                                                      \
@@ -254,7 +253,6 @@ typedef struct st_mes_context {
     receiver_t sender_monitor;
 
     shutdown_phase_t phase;
-    bool8 waits_interrupted;
     uint32 startLsnr : 1;
     uint32 startChannelsTh : 1;
     uint32 creatWaitRoom : 1;
