@@ -225,7 +225,7 @@ status_t cm_recovery_log_file(log_type_t log_type);
 
 #define LOG_DYN_TRC_INF(format, ...) LOG_DYN_TRC(LEVEL_INFO, INF, format, ##__VA_ARGS__)
 #define LOG_DYN_TRC_WAR(format, ...) LOG_DYN_TRC(LEVEL_WARN, WAR, format, ##__VA_ARGS__)
-#define LOG_DYN_TRC_ERR(format, ...) LOG_DYN_TRC(LEVEL_INFO, ERR, format, ##__VA_ARGS__)
+#define LOG_DYN_TRC_ERR(format, ...) LOG_DYN_TRC(LEVEL_ERROR, ERR, format, ##__VA_ARGS__)
 
 #define CM_SS_DYN_TRC_SET_TRACE_FLAG(val)                                   \
     do {                                                                    \
@@ -260,7 +260,7 @@ status_t cm_recovery_log_file(log_type_t log_type);
 
 #define LOG_DEBUG_INF(format, ...) DEBUG_LOG(LEVEL_INFO, INF, format, ##__VA_ARGS__)
 #define LOG_DEBUG_WAR(format, ...) DEBUG_LOG(LEVEL_WARN, WAR, format, ##__VA_ARGS__)
-#define LOG_DEBUG_ERR(format, ...) DEBUG_LOG(LEVEL_INFO, ERR, format, ##__VA_ARGS__)
+#define LOG_DEBUG_ERR(format, ...) DEBUG_LOG(LEVEL_ERROR, ERR, format, ##__VA_ARGS__)
 
 // 10s print 5 times
 #define LOG_DEBUG_ERR_EX(format, ...)                                                                               \

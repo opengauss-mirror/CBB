@@ -861,6 +861,34 @@ void mes_set_cur_msg_info(uint32 work_id, void *data, unsigned int size)
         memcpy_s(mq_ctx->work_thread_idx[work_id].data, sizeof(mq_ctx->work_thread_idx[work_id].data), data, size));
 }
 
+// Helper function to get message item from multiple queues
+mes_msgitem_t* mes_get_msgitem_from_multiple_queues(mq_context_t *mq_ctx, mes_task_priority_t *task_priority, uint32 queue_num, uint32 *queue_id) {
+    *queue_id = task_priority->pop_cursor % queue_num;
+    uint32 start_task_idx = task_priority->start_task_idx;
+    if (*queue_id + start_task_idx >= MES_MAX_TASK_NUM) {
+        return NULL;
+    }
+    mes_msgitem_t *msgitem = mes_get_msgitem(&mq_ctx->tasks[*queue_id + start_task_idx].queue);
+    for (uint32 loop = 0; msgitem == NULL && loop < queue_num; loop++) {
+        *queue_id = (*queue_id + 1) % queue_num;
+        msgitem = mes_get_msgitem(&mq_ctx->tasks[*queue_id + start_task_idx].queue);
+    }
+
+    return msgitem;
+}
+
+/*
+    * when enable statistics, enqueue_time is real-time,
+    * but monotonic_now in timer is updated every 0.0ms (MES_DEFAULT_SLLP_TIME),
+    * so monotonic_now may be less than enqueu_time.    
+    */
+bool8 message_wait_timeout(mes_msgitem_t *msgitem)
+{
+    uint64 now = g_timer()->monotonic_now;
+    return (now > msgitem->enqueue_time &&
+        ((now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >= MES_GLOBAL_INST_MSG.profile.max_wait_time));
+}
+
 void mes_task_proc_inner(thread_t *thread)
 {
     task_arg_t *arg = (task_arg_t *)thread->argument;
@@ -874,44 +902,34 @@ void mes_task_proc_inner(thread_t *thread)
     uint64 *get_msgitem_time = &arg->get_msgitem_time;
     uint64 *msg_ruid = &arg->msg_ruid;
     uint32 *src_inst = &arg->msg_src_inst;
-    mes_msgitem_t *msgitem;
     mes_msgqueue_t *my_queue = &mq_ctx->tasks[my_task_index].queue;
     mes_context_t *mes_ctx = (mes_context_t *)mq_ctx->mes_ctx;
     mes_msgqueue_t finished_msgitem_queue;
     mes_init_msgqueue(&finished_msgitem_queue);
 
-
     mes_task_priority_t *task_priority = mes_get_task_priority(my_task_index, is_send);
-    mes_priority_t priority = task_priority->priority;
-    *priority_temp = priority;
+    if (task_priority == NULL)
+        return;
+    *priority_temp = task_priority->priority;
     *tid = cm_get_current_thread_id();
 
     bool32 need_serial = MES_GLOBAL_INST_MSG.profile.need_serial;
     mes_pipe_type_t pipe_type = MES_GLOBAL_INST_MSG.profile.pipe_type;
     uint32 start_task_idx = task_priority->start_task_idx;
     uint32 task_num = task_priority->task_num;
-    uint32 loop = 0;
     uint32 queue_id = 0;
     bool32 is_empty = CM_FALSE;
     uint32 queue_num = task_num > MES_PRIORITY_TASK_QUEUE_NUM ? MES_PRIORITY_TASK_QUEUE_NUM : task_num;
     while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         if (pipe_type != MES_TYPE_RDMA) {
-            is_empty = mes_is_empty_queue_count(mq_ctx, priority);
+            is_empty = mes_is_empty_queue_count(mq_ctx, task_priority->priority);
             if (is_empty && cm_event_timedwait(event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
                 continue;
             }
         }
 
-        if (!need_serial) {
-            queue_id = task_priority->pop_cursor % queue_num;
-            msgitem = mes_get_msgitem(&mq_ctx->tasks[queue_id + start_task_idx].queue);
-            for (loop = 0; msgitem == NULL && loop < queue_num; loop++) {
-                queue_id = (queue_id + 1) % queue_num;
-                msgitem = mes_get_msgitem(&mq_ctx->tasks[queue_id + start_task_idx].queue);
-            }
-        } else {
-            msgitem = mes_get_msgitem(my_queue);
-        }
+        mes_msgitem_t *msgitem = need_serial ?
+            mes_get_msgitem(my_queue) : mes_get_msgitem_from_multiple_queues(mq_ctx, task_priority, queue_num, &queue_id);
 
         if (msgitem == NULL) {
             if (pipe_type == MES_TYPE_RDMA) {
@@ -927,20 +945,10 @@ void mes_task_proc_inner(thread_t *thread)
                       (head)->cmd, is_send, (uint64)head->ruid, (uint64)MES_RUID_GET_RID((head)->ruid),
                       (uint64)MES_RUID_GET_RSN((head)->ruid), (head)->src_inst, (head)->dst_inst, (head)->size,
                       (head)->flags, my_task_index, mq_ctx->tasks[queue_id + start_task_idx].queue.count, is_empty);
-        if (MES_GLOBAL_INST_MSG.profile.max_wait_time != CM_INVALID_INT32) {
-            /*
-             * when enable statistics, enquue_time is real-time,
-             * but monotonic_now in timer is updated every 0.1ms (MES_DEFAULT_SLEEP_TIME),
-             * so monotonic_now may be less than enqueue_time.
-             */
-            uint64 now = g_timer()->monotonic_now;
-            if ((now > msgitem->enqueue_time) &&
-                ((now - msgitem->enqueue_time) / MICROSECS_PER_MILLISEC >=
-                MES_GLOBAL_INST_MSG.profile.max_wait_time)) {
-                LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded ");
-                mes_release_message_buf(&msgitem->msg);
-                continue;
-            }
+        if (MES_GLOBAL_INST_MSG.profile.max_wait_time != CM_INVALID_INT32 && message_wait_timeout(msgitem)) {
+            LOG_DEBUG_WAR("[mes]proc wait timeout, message is discarded");
+            mes_release_message_buf(&msgitem->msg);
+            continue;
         }
 
         *is_active = CM_TRUE;
