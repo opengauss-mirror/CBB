@@ -752,7 +752,7 @@ status_t cm_create_dir_ex(const char *dir_name)
     char dir[CM_MAX_PATH_LEN + 1];
     size_t dir_len = strlen(dir_name);
     uint32 i;
-    if (dir_len > CM_MAX_PATH_LEN) {
+    if (dir_len >= CM_MAX_PATH_LEN) {
         LOG_DEBUG_ERR("the dir name's len is too big.");
         return CM_ERROR;
     }
@@ -763,9 +763,16 @@ status_t cm_create_dir_ex(const char *dir_name)
         return CM_ERROR;
     }
     if (dir[dir_len - 1] != '\\' && dir[dir_len - 1] != '/') {
-        dir[dir_len] = '/';
-        dir_len++;
-        dir[dir_len] = '\0';
+        // Check if there is enough space to add '/' and '\0'
+        if (dir_len < (CM_MAX_PATH_LEN - 1)) {
+            dir[dir_len] = '/';
+            dir_len++;
+            dir[dir_len] = '\0';
+        } else {
+            LOG_DEBUG_ERR("the dir name's len is too big.");
+            return CM_ERROR;
+        }
+
     }
 
     for (i = 0; i < dir_len; i++) {

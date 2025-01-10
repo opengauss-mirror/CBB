@@ -660,7 +660,10 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id)
     head.flags = 0;
     head.version = 0;
 
-    version_proto_code_t version_proto_code = {.version = CS_LOCAL_VERSION, .proto_code = CM_PROTO_CODE};
+    version_proto_code_t version_proto_code = {
+        .version = CS_LOCAL_VERSION,
+        .proto_code = CM_PROTO_CODE
+    };
     if (!IS_BIG_ENDIAN) {
         // Unified big-endian mode for VERSION
         version_proto_code.version = cs_reverse_uint32(version_proto_code.version);
@@ -673,13 +676,16 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id)
     }
     (void)memcpy_s(data, data_len, &head, sizeof(mes_message_head_t));
     (void)memcpy_s(data + sizeof(mes_message_head_t), data_len, &version_proto_code, sizeof(version_proto_code_t));
-    OckRpcMessage request = {.data = (void*)data, .len = data_len};
-    OckRpcMessage response = {0};
+    OckRpcMessage request = {
+        .data = (void*)data,
+        .len = data_len
+    };
+    OckRpcMessage response = { 0 };
 
     int ret = OckRpcClientCall(pipe->rdma_client.client_handle, RPC_CONNECTION_REQ, &request, &response, NULL);
     if (ret != OCK_RPC_OK) {
         LOG_RUN_ERR("RpcClientCall failed, RPC_CONNECTION_REQ message, inst_id(%u), channel_id(%u)",
-                    inst_id, channel_id);
+            inst_id, channel_id);
         return CM_ERROR;
     }
 
@@ -689,9 +695,16 @@ static int mes_rdma_send_connect_protocode(uint32 inst_id, uint32_t channel_id)
             free(response.data);
         }
         LOG_RUN_ERR("send connect protocode failed, recv ack size(%lu) != expect(%lu), inst_id(%u), channel_id(%u)",
-                    response.len, sizeof(link_ready_ack_t), inst_id, channel_id);
+            response.len, sizeof(link_ready_ack_t), inst_id, channel_id);
         return CM_ERROR;
     }
+
+    if (response.data == NULL) {
+        LOG_RUN_ERR("response data is null, recv ack size(%lu) != expect(%lu), inst_id(%u), channel_id(%u)",
+            response.len, sizeof(link_ready_ack_t), inst_id, channel_id);
+        return CM_ERROR;
+    }
+
     link_ready_ack_t* ack = response.data;
     mes_set_pipe_ack(ack, &pipe->send_pipe);
 
