@@ -121,7 +121,7 @@ status_t cm_disk_unlockf(dlock_t *lock, int32 fd, int64 old_inst_id);
 int32 cm_preempt_dlock(dlock_t *lock, const char *scsi_dev);
 status_t cm_erase_dlock(dlock_t *lock, int32 fd);
 status_t cm_get_dlock_info(dlock_t *lock, int32 fd);
-
+status_t cm_check_dlock_remain(dlock_t *lock, int32 fd, bool32 *is_remain);
 #ifdef __cplusplus
 }
 #endif
