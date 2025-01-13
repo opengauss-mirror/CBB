@@ -613,3 +613,26 @@ status_t cm_get_dlock_info(dlock_t *lock, int32 fd)
 #endif
     return CM_SUCCESS;
 }
+status_t cm_check_dlock_remain(dlock_t *lock, int32 fd, bool32 *is_remain)
+{
+    *is_remain = CM_FALSE;
+#ifdef WIN32
+#else
+    status_t status = cm_get_dlock_info(lock, fd);
+    if (status != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    if (LOCKR_INST_ID(*lock) == 0) {
+        LOG_DEBUG_INF("there is no lock on disk.");
+        return CM_SUCCESS;
+    }
+
+    if (LOCKR_INST_ID(*lock) != LOCKW_INST_ID(*lock)) {
+        LOG_DEBUG_INF(
+            "another inst_id(disk) %lld, curr inst_id(lock) %lld.", LOCKR_INST_ID(*lock), LOCKW_INST_ID(*lock));
+        return CM_SUCCESS;
+    }
+    *is_remain = CM_TRUE;
+#endif
+    return CM_SUCCESS;
+}
