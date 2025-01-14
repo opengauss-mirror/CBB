@@ -907,6 +907,9 @@ bool32 json_is_null(json_t *json, text_t *key)
     }
     json_val_t *jval;
     jval = (json_val_t *)cm_hmap_find(&json->props, &g_json_hfs2, key);
+    if (jval == NULL) {
+        return CM_FALSE;
+    }
     char *val = JSON_OFFSET_VAL(jval) + sizeof(jstr_len_t);
     char *compareUpper = "NULL";
     char *compareLower = "null";
