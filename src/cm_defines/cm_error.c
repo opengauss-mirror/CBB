@@ -243,6 +243,10 @@ status_t cm_set_log_error(const char *file, uint32 line, cm_errno_t code, const 
         return CM_ERROR;
     }
     LOG_DEBUG_ERR("%05d : %s [%s:%u]", (int32)code, log_msg, file, line);
+    log_param_t *log_param = cm_log_param_instance();
+    if (log_param->log_instance_starting) {
+        LOG_RUN_ERR("%05d : %s [%s:%u]", (int32)code, log_msg, file, line);
+    }
     if (g_tls_error.code == 0) {
         g_tls_error.code = (int32)code;
         MEMS_RETURN_IFERR(memcpy_sp(g_tls_error.message, CM_MESSAGE_BUFFER_SIZE, log_msg, CM_MESSAGE_BUFFER_SIZE));
