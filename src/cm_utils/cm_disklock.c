@@ -538,7 +538,7 @@ int cm_dl_check_lock_remain(unsigned int lock_id, unsigned long long inst_id, un
         return CM_DL_ERR_INVALID_LOCK_ID;
     }
     ssize_t size = pread(
-        lock_info->fd, lock_stat, CM_BLOCK_SIZE, (off_t)(lock_info->offset + CM_BLOCK_SIZE * (lock_info->inst_id + 1)));
+        lock_info->fd, lock_stat, CM_BLOCK_SIZE, (off_t)(lock_info->offset + CM_BLOCK_SIZE * (inst_id + 1)));
     if(size != CM_BLOCK_SIZE) {
         LOG_RUN_ERR("DL:read path failed:%d,%s.", errno, strerror(errno));
         return CM_DL_ERR_IO;
