@@ -31,7 +31,6 @@
 #include "mes_tcp.h"
 #include "cm_date_to_text.h"
 #include "mes_rpc_dl.h"
-#include "mes_rpc_ulog4c.h"
 #include "cm_defs.h"
 #include "mes_metadata.h"
 #include "mes_interface.h"
@@ -946,7 +945,6 @@ static inline void mes_close_libdl(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         FinishOckRpcDl();
-        FinishUlogDl();
     }
 }
 

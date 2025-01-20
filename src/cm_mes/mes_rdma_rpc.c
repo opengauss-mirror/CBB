@@ -39,8 +39,6 @@
 #include "mes_msg_pool.h"
 #include "mes_interface.h"
 #include "mes_metadata.h"
-#include "mes_rpc_ulog4c.h"
-#include "mes_rpc_openssl_dl.h"
 #include "mes_rpc_dl.h"
 #include "openssl/x509.h"
 #include "openssl/x509v3.h"
@@ -68,15 +66,7 @@ typedef enum {
 
 #define PATH_LENGTH PATH_MAX
 #define OCK_RPC_ENV_PATH   "OCK_RPC_LIB_PATH"
-#define ULOG_SO_NAME    "libulog.so"
-#define OCK_RPC_SO_NAME "librpc_ucx.so"
-
-// Ulog input param
-#define ULOG_FILE_OUTPUT    1
-#define ULOG_ERR_LOG_LEVEL  4
-#define ULOG_DEFAULT_FILE_NAME  "ockrpc.log"
-#define ULOG_FILE_SIZE      (1024 * 1024 * 10ULL)
-#define ULOG_FILE_CNT       10
+#define OCK_RPC_SO_NAME "libhcom4db.so"
 
 #define ERASE_FULL_1_NUM    (0xff)
 #define ERASE_KEY_PASS_COUNT 30
@@ -146,53 +136,11 @@ static int mes_get_lib_path(char* rpcPath)
     return CM_SUCCESS;
 }
 
-static int mes_init_ulog(void)
-{
-    char logPath[PATH_MAX] = {0};
-    char *logPathPtr = logPath;
-    char path[PATH_MAX] = {0};
-#ifdef WIN32
-    if (!_fullpath(path, MES_GLOBAL_INST_MSG.profile.ock_log_path, MES_MAX_LOG_PATH - 1)) {
-        LOG_RUN_ERR("_fullpath ock_log_path failed");
-        return CM_ERROR;
-    }
-#else
-    if (realpath(MES_GLOBAL_INST_MSG.profile.ock_log_path, path) == NULL) {
-        LOG_RUN_ERR("realpath ock_log_path failed");
-        return CM_ERROR;
-    }
-#endif
-    if (cm_access_file(path, F_OK | R_OK | W_OK) != CM_SUCCESS) {
-        LOG_RUN_ERR("access log path(%s) failed.", path);
-        return CM_ERROR;
-    }
-    int ret = snprintf_s(logPath, PATH_MAX, PATH_MAX - 1, "%s/%s", path, ULOG_DEFAULT_FILE_NAME);
-    if (ret < 0) {
-        LOG_RUN_ERR("snprintf path(%s) + filename(%s) failed", path, ULOG_DEFAULT_FILE_NAME);
-        return CM_ERROR;
-    }
-    
-    return ULOG_Init(ULOG_FILE_OUTPUT, ULOG_ERR_LOG_LEVEL, logPathPtr, ULOG_FILE_SIZE, ULOG_FILE_CNT);
-}
-
 static int mes_init_rdma_dlopen_so(void)
 {
     char rpcPath[PATH_LENGTH] = {0};
     int ret = mes_get_lib_path(rpcPath);
     if (ret != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-
-    // init ulog dlopen
-    char ockUlogDlPath[PATH_LENGTH] = {0};
-    ret = snprintf_s(ockUlogDlPath, PATH_LENGTH, PATH_LENGTH - 1, "%s/%s", rpcPath, ULOG_SO_NAME);
-    if (ret < 0) {
-        LOG_RUN_ERR("construct ulog dl path failed, ret %d.", ret);
-        return CM_ERROR;
-    }
-    ret = InitUlogDl(ockUlogDlPath, PATH_LENGTH);
-    if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("mes init UlogDl failed.");
         return CM_ERROR;
     }
 
@@ -205,25 +153,7 @@ static int mes_init_rdma_dlopen_so(void)
     }
     ret = InitOckRpcDl(ockRpcDlPath, PATH_LENGTH);
     if (ret != CM_SUCCESS) {
-        FinishUlogDl();
         LOG_RUN_ERR("mes init OckRpcDl failed.");
-        return CM_ERROR;
-    }
-
-    static bool32 ulog_init = CM_FALSE;
-    if (!ulog_init) {
-        ret = mes_init_ulog();
-        if (ret != 0) {
-            LOG_RUN_ERR("ULog_Init failed, ret %d", ret);
-            FinishOckRpcDl();
-            FinishUlogDl();
-            return CM_ERROR;
-        }
-        ulog_init = CM_TRUE;
-    }
-
-    if (OpensslDlopenAndSet((const char*)rpcPath) != DL_OPENSSL_OK) {
-        LOG_RUN_ERR("mes set ock openssl libpath failed.");
         return CM_ERROR;
     }
 
@@ -373,7 +303,6 @@ int mes_init_rdma_rpc_resource(void)
         mes_free_channel_msg_queue(CM_FALSE);
         mes_free_channels();
         FinishOckRpcDl();
-        FinishUlogDl();
         LOG_RUN_ERR("mes init rdma rpc server failed.");
         return ret;
     }
@@ -385,7 +314,6 @@ int mes_init_rdma_rpc_resource(void)
         mes_clear_rdma_rpc_server();
         mes_free_channels();
         FinishOckRpcDl();
-        FinishUlogDl();
         LOG_RUN_ERR("[mes]: reg rdma rpc proc func failed.");
         return ret;
     }
