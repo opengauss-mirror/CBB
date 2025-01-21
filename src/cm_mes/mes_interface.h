@@ -78,6 +78,7 @@ typedef enum en_mes_pipe_type {
     MES_TYPE_EMBEDDED = 5, // embedded mode, reserved
     MES_TYPE_DIRECT = 6,   // direct mode, reserved
     MES_TYPE_RDMA = 7,     // direct mode, reserved
+    MES_TYPE_UBC = 8,     // direct mode, reserved
     MES_TYPE_CEIL
 } mes_pipe_type_t;
 
