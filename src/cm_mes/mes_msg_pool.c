@@ -905,7 +905,7 @@ static mes_buffer_item_t* mes_get_buf_item_from_shared_pool(mes_msg_buffer_pool_
     uint32 buf_count = 0;
     if (enable_flow_control) {
         buf_count = queue->count;
-        if (buf_count > 0 && queue->init_count / buf_count <= RECV_MSG_POOL_FC_THRESHOLD) {
+        if ((buf_count == 0) || (buf_count > 0 && queue->init_count / buf_count > RECV_MSG_POOL_FC_THRESHOLD)) {
             return NULL;
         }
     }
