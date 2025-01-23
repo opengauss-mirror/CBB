@@ -38,6 +38,7 @@
 #include "mes_recv.h"
 #include "mes_stat.h"
 #include "mec_adapter.h"
+#include "cm_system.h"
 
 mes_instance_t g_cbb_mes = {0};
 mes_callback_t g_cbb_mes_callback;
@@ -1353,6 +1354,7 @@ static void mes_heartbeat_entry(thread_t *thread)
     char thread_name[CM_MAX_THREAD_NAME_LEN];
     PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_heartbeat_%u", inst_id));
     cm_set_thread_name(thread_name);
+    cm_block_sighup_signal();
 
     mes_context_t *mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
     uint64 periods = 0;
