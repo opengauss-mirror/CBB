@@ -658,6 +658,13 @@ void mes_get_mem_usage_stat_row(mes_mem_stat_t mem_id, mes_mem_info_stat_t *mes_
 int mes_get_message_pool_minimum_info(mes_profile_t *profile, unsigned char is_send,
     mes_msg_pool_minimum_info_t *minimum_info);
 
+
+/*
+ * @brief thread mask sighup signal.
+ * @return
+ */
+void mes_block_sighup_signal();
+
 #ifdef __cplusplus
 }
 #endif

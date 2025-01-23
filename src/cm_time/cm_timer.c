@@ -24,6 +24,7 @@
 
 #include "cm_timer.h"
 #include "cm_log.h"
+#include "cm_system.h"
 
 #define DAY_USECS (uint64)86400000000
 #define MES_DEFAULT_SLEEP_TIME 100000  // 0.1ms
@@ -59,6 +60,7 @@ static void timer_proc(thread_t *thread)
     start_time = cm_now();
 
     cm_set_thread_name("timer");
+    cm_block_sighup_signal();
 
 #ifndef _WIN32
     struct timespec tq, tr;

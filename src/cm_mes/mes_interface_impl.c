@@ -554,3 +554,8 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
 
     return CM_SUCCESS;
 }
+
+void mes_block_sighup_signal()
+{
+    cm_block_sighup_signal();
+}

@@ -28,6 +28,7 @@
 #include "mes_recv.h"
 #include "mes_interface.h"
 #include "mes_func.h"
+#include "cm_system.h"
 
 typedef union un_ev_data {
     struct {
@@ -233,6 +234,7 @@ static void mes_recv_proc(thread_t *thread)
     struct epoll_event events[CM_MES_MAX_CHANNEL_NUM];
     ev_data_t ev_data;
     char thread_name[CM_MAX_THREAD_NAME_LEN];
+    cm_block_sighup_signal();
 
     PRTS_RETVOID_IFERR(
         sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_recv_%u_%u", receiver->priority, receiver->id));
