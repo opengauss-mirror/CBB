@@ -24,6 +24,7 @@
 
 #include "cm_profile_stat.h"
 #include "cm_text.h"
+#include "cm_system.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -337,6 +338,7 @@ static void stat_free(void)
 static void cm_profile_stat_entry(thread_t *thread)
 {
     cm_set_thread_name("cm_profile_stat");
+    cm_block_sighup_signal();
 
     date_t last_check_time = g_timer()->monotonic_now;
 

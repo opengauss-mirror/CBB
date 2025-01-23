@@ -26,6 +26,7 @@
 #include "cm_epoll.h"
 #include "cm_file.h"
 #include "mes_interface.h"
+#include "cm_system.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -102,6 +103,7 @@ static void srv_tcp_lsnr_proc(thread_t *thread)
 
     pipe.type = CS_TYPE_TCP;
     cm_set_thread_name("tcp_lsnr");
+    cm_block_sighup_signal();
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (cb_thread_init != NULL) {

@@ -43,6 +43,7 @@ char *cm_sys_platform_name(void);
 int64 cm_sys_ticks(void);
 status_t cm_sys_process_start_time(uint64 pid, int64 *process_time);
 bool32 cm_sys_process_alived(uint64 pid, int64 start_time);
+void cm_block_sighup_signal();
 
 #ifdef __cplusplus
 }

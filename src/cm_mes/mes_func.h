@@ -42,6 +42,7 @@
 #include "mes_type.h"
 #include "mes_stat.h"
 #include "mes_task_threadpool_interface.h"
+#include "cm_system.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -336,6 +336,22 @@ bool32 cm_sys_process_alived(uint64 pid, int64 start_time)
 #endif
 }
 
+void cm_block_sighup_signal()
+{
+#ifndef _WIN32
+    sigset_t sigmask;
+    sigemptyset(&sigmask);
+    sigaddset(&sigmask, SIGHUP);
+
+    int ret = pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
+    if (ret == -1) {
+        LOG_RUN_ERR("pthread_sigmask fail");
+        return;
+    }
+#endif
+    return;
+}
+
 #ifdef __cplusplus
 }
 #endif

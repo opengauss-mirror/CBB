@@ -28,6 +28,7 @@
 #include "mes_interface.h"
 #include "mec_adapter.h"
 #include "cm_hash.h"
+#include "cm_system.h"
 
 typedef struct st_mes_compress_ctx_t {
     compress_t *compress_ctx[COMPRESS_CEIL];
@@ -990,6 +991,7 @@ void mes_task_proc(thread_t *thread)
         PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_worker_%u", my_task_index));
     }
     cm_set_thread_name(thread_name);
+    cm_block_sighup_signal();
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
     if (!is_send && cb_thread_init != NULL) {
