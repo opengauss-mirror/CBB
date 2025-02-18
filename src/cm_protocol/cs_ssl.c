@@ -55,6 +55,7 @@ extern "C" {
 static spinlock_t g_ssl_init_lock = 0;
 static volatile bool32 g_ssl_initialized = 0;
 static spinlock_t g_get_pem_passwd_lock = 0;
+static bool8 g_crl_expired = CM_FALSE;
 
 const char *g_ssl_default_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
                                         "ECDHE-ECDSA-AES128-GCM-SHA256:"
@@ -857,6 +858,13 @@ static status_t cs_load_crl_file(SSL_CTX *ctx, const char *file)
         (void)BIO_free(in);
         return CM_ERROR;
     }
+    const ASN1_TIME *next_update = X509_CRL_get0_nextUpdate(crl);
+    if (X509_cmp_current_time(next_update) <= 0) {
+        LOG_RUN_WAR("The ssl crl file is expired, jump load crl");
+        X509_CRL_free(crl);
+        (void)BIO_free(in);
+        return CM_ERROR;
+    }
 
     st = SSL_CTX_get_cert_store(ctx);
     if (!X509_STORE_add_crl(st, crl)) {
@@ -885,7 +893,8 @@ static status_t cs_ssl_set_crl_file(SSL_CTX *ctx, ssl_config_t *config)
         while (file_name.len > 0) {
             CM_RETURN_IFERR(cm_text2str(&file_name, filepath, sizeof(filepath)));
             if (cs_load_crl_file(ctx, filepath) != CM_SUCCESS) {
-                return CM_ERROR;
+            LOG_RUN_WAR("[MEC]the ssl crl file load failed");
+                return CM_SUCCESS;
             }
 
             cs_ssl_fetch_file_name(&file_list, &file_name);
@@ -1231,6 +1240,30 @@ static SSL_CTX *cs_ssl_create_context(ssl_config_t *config, bool32 is_client)
     return ctx;
 }
 
+static bool32 cs_is_crl_invalid(int32 errcode)
+{
+    const int32 err_scenarios[] = {
+        X509_V_ERR_UNABLE_TO_GET_CRL,
+        X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE,
+        X509_V_ERR_CRL_SIGNATURE_FAILURE,
+        X509_V_ERR_CRL_NOT_YET_VALID,
+        X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD,
+        X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD,
+        X509_V_ERR_UNABLE_TO_GET_CRL_ISSUER,
+        X509_V_ERR_KEYUSAGE_NO_CRL_SIGN,
+        X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION,
+        X509_V_ERR_DIFFERENT_CRL_SCOPE,
+        X509_V_ERR_CRL_PATH_VALIDATION_ERROR
+    };
+
+    for (int32 i = 0; i < sizeof(err_scenarios) / sizeof(err_scenarios[0]); i++) {
+        if (errcode == err_scenarios[i]) {
+            return CM_TRUE;
+        }
+    }
+    return CM_FALSE;
+}
+
 /*
  * Certificate verification callback
  *
@@ -1245,6 +1278,32 @@ static SSL_CTX *cs_ssl_create_context(ssl_config_t *config, bool32 is_client)
  */
 static int32 cs_ssl_verify_cb(int32 ok, X509_STORE_CTX *ctx)
 {
+    if (ok) {
+        return ok;
+    }
+    int err_code = X509_STORE_CTX_get_error(ctx);
+    if (err_code == X509_V_ERR_CRL_HAS_EXPIRED) {
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        if (!g_crl_expired) {
+            LOG_RUN_WAR("the ssl crl file is expired");
+            g_crl_expired = CM_TRUE;
+        }
+        return 1;
+    } else if (cs_is_crl_invalid(err_code)) {
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        if (!g_crl_expired) {
+            const char *errmsg = X509_verify_cert_error_string(err_code);
+            LOG_RUN_WAR("SSL connection warning: the ssl crl file is invalid. "
+            "{ssl err code: %d, ssl err message: %s}",
+            err_code, errmsg);
+            g_crl_expired = CM_TRUE;
+        }
+        return 1;
+    }
+    if (err_code == X509_V_ERR_CERT_REVOKED && g_crl_expired) {
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        return 1;
+    }
     return ok;
 }
 
@@ -1321,6 +1380,58 @@ void ssl_ca_cert_expire(const ssl_ctx_t *ssl_context, int32 alert_day)
     return;
 }
 
+static status_t ssl_check_crl_expire(X509_CRL *crl, int32 alert_day)
+{
+    const ASN1_TIME *next_update_time = NULL;
+    int32 expire_day;
+
+    if (crl == NULL) {
+        return CM_SUCCESS;
+    }
+
+    next_update_time = X509_CRL_get0_nextUpdate(crl);
+    if (X509_cmp_current_time(next_update_time) <= 0) {
+        LOG_RUN_WAR("[MEC]The %s is expired","crl");
+        return CM_ERROR;
+    } else {
+        time_t curr_time = cm_current_time();
+        expire_day = ssl_get_expire_day(next_update_time, &curr_time);
+        if (expire_day >= 0 && alert_day >= expire_day) {
+            LOG_RUN_WAR("[MEC]The %s will expire in %d days", "crl", expire_day);
+            return CM_SUCCESS;
+        }
+    }
+    return CM_SUCCESS;
+}
+
+status_t ssl_crl_expire(const ssl_ctx_t *ssl_context, int32 alert_day)
+{
+    SSL_CTX *ctx = SSL_CTX_PTR(ssl_context);
+    X509_CRL *crl = NULL;
+    X509_STORE *crl_store = NULL;
+    X509_OBJECT *obj = NULL;
+
+    if (ssl_context == NULL) {
+        return CM_SUCCESS;
+    }
+
+    crl_store = SSL_CTX_get_cert_store(ctx);
+    if (crl_store == NULL) {
+        return CM_SUCCESS;
+    }
+    STACK_OF(X509_OBJECT) *objects = X509_STORE_get0_objects(crl_store);
+    for (int i = 0; i < sk_X509_OBJECT_num(objects); i++) {
+        obj = sk_X509_OBJECT_value(objects, i);
+        if (X509_OBJECT_get_type(obj) == X509_LU_CRL) {
+            crl = X509_OBJECT_get0_X509_CRL(obj);
+            if (ssl_check_crl_expire(crl, alert_day) == CM_ERROR) {
+                return CM_ERROR;
+            }
+        }
+    }
+
+    return CM_SUCCESS;
+}
 ssl_ctx_t *cs_ssl_create_acceptor_fd(ssl_config_t *config)
 {
     SSL_CTX *ssl_fd = NULL;
@@ -1372,7 +1483,7 @@ ssl_ctx_t *cs_ssl_create_connector_fd(ssl_config_t *config)
     }
 
     /* Init the SSL_CTX as a "connector" ie. the client side */
-    SSL_CTX_set_verify(ssl_fd, verify, NULL);
+    SSL_CTX_set_verify(ssl_fd, verify, cs_ssl_verify_cb);
     SSL_CTX_set_verify_depth(ssl_fd, SSL_VERIFY_DEPTH);
 
     return (ssl_ctx_t *)ssl_fd;

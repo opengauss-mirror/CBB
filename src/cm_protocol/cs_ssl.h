@@ -203,6 +203,7 @@ status_t cs_ssl_verify_certificate(ssl_link_t *link, ssl_verify_t vmode, const c
 status_t cs_ssl_verify_file_stat(const char *file_name);
 
 void ssl_ca_cert_expire(const ssl_ctx_t *ssl_context, int32 alert_day);
+status_t ssl_crl_expire(const ssl_ctx_t *ssl_context, int32 alert_day);
 
 void cs_ssl_throw_error(int32 ssl_err);
 

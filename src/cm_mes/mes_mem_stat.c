@@ -35,36 +35,38 @@ mes_mem_info_stat_t g_mes_mem_info_stat[MES_MEM_STAT_ROW_RESULT_COUNT] = {
     {"mes_receive_msgitem", 0, 0, 0},
 };
 
-uint64 mes_calc_channels_mem(uint32 channel_cnt)
+uint64 mes_calc_channel_and_pipe_msgbuf(mes_profile_t *profile)
 {
     uint64 total_mem = (uint64)(sizeof(mes_channel_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_channel_t) * MES_MAX_INSTANCES * channel_cnt);
-    // send queue
-    total_mem += (uint64)(sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt);
-    // receive queue
-    total_mem += (uint64)(sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
-        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * channel_cnt);
-    // send msg item
-    total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * (uint64)sizeof(mes_msgitem_t);
-    // receive msg item
+        sizeof(mes_channel_t) * MES_MAX_INSTANCES * profile->channel_cnt);
+    total_mem += 
+        (MES_MAX_INSTANCES - 1) * profile->channel_cnt * MES_PRIORITY_CEIL * MES_CHANNEL_MAX_SEND_BUFFER_SIZE(profile);
+    return total_mem;
+}
+
+uint64 mes_calc_msgqueue_and_msgitem(mes_profile_t *profile, bool8 is_send)
+{
+    if (is_send && !mes_check_need_msg_send_pool(profile)) {
+        return 0;
+    }
+    // msg queue
+    uint64 total_mem = (uint64)(sizeof(mes_msgqueue_t *) * MES_MAX_INSTANCES +
+        sizeof(mes_msgqueue_t) * MES_MAX_INSTANCES * profile->channel_cnt);
+    // msg item
     total_mem += INIT_MSGITEM_BUFFER_SIZE * MAX_POOL_BUFFER_COUNT * (uint64)sizeof(mes_msgitem_t);
     return total_mem;
 }
 
 uint64 mes_calc_room_pool()
 {
-    uint64 total_mem = (uint64)sizeof(mes_waiting_room_pool_t);
     // broadcast_msg
-    total_mem += sizeof(void *) * CM_MAX_MES_ROOMS * MES_MAX_INSTANCES;
-    return total_mem;
+    return (uint64)(sizeof(void *) * CM_MAX_MES_ROOMS * MES_MAX_INSTANCES);
+
 }
 
 uint64 mes_calc_buffer_pool_mem(mes_profile_t *profile, bool8 is_send)
 {
-    if (is_send && profile->send_directly &&
-        (profile->enable_compress_priority == 0 || profile->algorithm == COMPRESS_NONE ||
-        profile->algorithm >= COMPRESS_CEIL)) {
+    if (is_send && !mes_check_need_msg_send_pool(profile)) {
         return 0;
     }
     return profile->msg_pool_attr.total_size;
@@ -77,8 +79,12 @@ long long mes_calc_mem_usage(mes_profile_t *profile)
     total_mem += mes_calc_buffer_pool_mem(profile, CM_TRUE);
     // mes receive buffer pool
     total_mem += mes_calc_buffer_pool_mem(profile, CM_FALSE);
-    // mes channels
-    total_mem += mes_calc_channels_mem(profile->channel_cnt);
+    // mes channel_t and pipe_msgbuf
+    total_mem += mes_calc_channel_and_pipe_msgbuf(profile);
+    // mes send mq msgqueue and msgitem
+    total_mem += mes_calc_msgqueue_and_msgitem(profile, CM_TRUE);
+    // mes receive mq msgqueue and msgitem
+    total_mem += mes_calc_msgqueue_and_msgitem(profile, CM_FALSE);
     // mes room pool
     total_mem += mes_calc_room_pool();
     return total_mem;

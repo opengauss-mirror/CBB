@@ -510,6 +510,13 @@ int mes_set_param(const char *param_name, const char *param_value);
 int mes_chk_ssl_cert_expire(void);
 
 /*
+ * @brief check ssl crl expire
+ *
+ * @return 0 - success;otherwise: failed
+*/
+int mes_chk_ssl_crl_expire(void);
+
+/*
  * @brief get global variable address
  * @return global variable address
 */
