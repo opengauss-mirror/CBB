@@ -254,6 +254,7 @@ status_t cm_create_thread(thread_entry_t entry, uint32 stack_size, void *argumen
 
     errnum = pthread_create(&thread->id, &attr, cm_thread_run, (void *)thread);
     if (errnum != 0) {
+        thread->id = 0;
         (void)pthread_attr_destroy(&attr);
         CM_THROW_ERROR_EX(ERR_CREATE_THREAD, "thread create failed, errnum=%d", errnum);
         return CM_ERROR;
