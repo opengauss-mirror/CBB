@@ -133,7 +133,7 @@ status_t cm_create_thread_pool(cm_thread_pool_t *pool, uint32 thread_stack_size,
 void cm_destroy_thread_pool(cm_thread_pool_t *pool)
 {
     uint32 i;
-    pooling_thread_t *obj = NULL;
+    thread_t *thread = NULL;
 
     if (pool->starts == 0) {
         CM_FREE_PROT_PTR(pool->threads);
@@ -142,8 +142,20 @@ void cm_destroy_thread_pool(cm_thread_pool_t *pool)
 
     cm_thread_lock(&pool->lock);
     for (i = 0; i < pool->starts; ++i) {
-        obj = &pool->threads[i];
-        cm_close_thread(&obj->thread);
+        thread = &pool->threads[i].thread;
+        thread->closed = CM_TRUE;
+    }
+    for (i = 0; i < pool->starts; ++i) {
+        thread = &pool->threads[i].thread;
+#ifdef WIN32
+        WaitForSingleObject(thread->handle, INFINITE);
+#else
+        void *ret = NULL;
+        if (thread->id != 0) {
+            (void)pthread_join(thread->id, &ret);
+            thread->id = 0;
+        }
+#endif
     }
     cm_thread_unlock(&pool->lock);
 
