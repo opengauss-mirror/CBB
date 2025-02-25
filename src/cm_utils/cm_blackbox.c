@@ -326,7 +326,7 @@ void cm_sig_collect_backtrace(uint32 log_id, thread_t* thread, const char *forma
         cnt++;
     }
     if (g_sig_bt_buffer.status == SIG_BUFFER_COLLECTED) {
-        if (log_id== LOG_BLACKBOX) {
+        if (log_id== CM_LOG_BLACKBOX) {
             LOG_BLACKBOX_INF("%s", log_head);
             LOG_BLACKBOX_INF("%s", g_sig_bt_buffer.buf);
         } else {
