@@ -1246,13 +1246,6 @@ static status_t mes_create_ssl_fd(ssl_config_t *ssl_cfg)
         return CM_ERROR;
     }
 
-    // check crl expire
-    if (mes_chk_ssl_crl_expire() != CM_SUCCESS) {
-        MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
-        LOG_RUN_ERR("[mes] check ssl crl failed");
-        return CM_ERROR;
-    }
-
     // create connector fd
     MES_GLOBAL_INST_MSG.ssl_connector_fd = cs_ssl_create_connector_fd(ssl_cfg);
     MEMS_RETURN_IFERR(memset_s(plain, sizeof(plain), 0, sizeof(plain)));
@@ -1377,7 +1370,6 @@ static void mes_heartbeat_entry(thread_t *thread)
         if (periods == SECONDS_PER_DAY && g_ssl_enable) {
             periods = 0;
             (void)mes_chk_ssl_cert_expire();
-            (void)mes_chk_ssl_crl_expire();
         }
         periods++;
 
@@ -2112,14 +2104,6 @@ int mes_chk_ssl_cert_expire(void)
     param_value_t cert_notify;
     CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT_NOTIFY_TIME, &cert_notify));
     ssl_ca_cert_expire(MES_GLOBAL_INST_MSG.ssl_acceptor_fd, (int32)cert_notify.ssl_cert_notify_time);
-    return CM_SUCCESS;
-}
-
-int mes_chk_ssl_crl_expire(void)
-{
-    param_value_t crl_notify;
-    CM_RETURN_IFERR(mes_md_get_param(CBB_PARAM_SSL_CERT_NOTIFY_TIME, &crl_notify));
-    (void)ssl_crl_expire(MES_GLOBAL_INST_MSG.ssl_acceptor_fd, (int32)crl_notify.ssl_cert_notify_time);
     return CM_SUCCESS;
 }
 

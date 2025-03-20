@@ -707,15 +707,6 @@ int mes_init_msg_inst_pool_set(bool8 is_send)
     return ret;
 }
 
-bool8 mes_check_need_msg_send_pool(mes_profile_t *profile)
-{
-    if (profile->send_directly && (profile->enable_compress_priority == 0 || profile->algorithm == COMPRESS_NONE ||
-        profile->algorithm >= COMPRESS_CEIL)) {
-        return CM_FALSE;
-    }
-    return CM_TRUE;
-}
-
 int mes_init_message_pool(bool8 is_send)
 {
     int ret = CM_SUCCESS;
@@ -729,7 +720,9 @@ int mes_init_message_pool(bool8 is_send)
         return CM_SUCCESS;
     }
 
-    if (is_send && !mes_check_need_msg_send_pool(profile)) {
+    if (is_send && profile->send_directly &&
+        (profile->enable_compress_priority == 0 || profile->algorithm == COMPRESS_NONE ||
+        profile->algorithm >= COMPRESS_CEIL)) {
         // send_directly and disable compress
         cm_spin_unlock(&mq_ctx->msg_pool_init_lock);
         LOG_RUN_INF("[mes][msg pool] no need to init send message pool, cause send directly and compress disable.");
@@ -1365,7 +1358,9 @@ int mes_get_message_pool_minimum_info(mes_profile_t *profile, uint8 is_send,
 
 static int mes_check_message_pool_size_inner(mes_profile_t *profile, bool8 is_send, uint64 all_metadata_size)
 {
-    if (is_send && !mes_check_need_msg_send_pool(profile)) {
+    if (is_send && profile->send_directly &&
+        (profile->enable_compress_priority == 0 || profile->algorithm == COMPRESS_NONE ||
+        profile->algorithm >= COMPRESS_CEIL)) {
         // send_directly and disable compress means no need send message pool
         return CM_SUCCESS;
     }
