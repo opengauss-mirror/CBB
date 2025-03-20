@@ -154,6 +154,10 @@ static const char *cs_ssl_last_err_string(char *buf, uint32 size)
             ERR_GET_REASON(err), (fstr ? fstr : "<null>"), (rstr ? rstr : "<null>")) == -1) {
             return buf;
         }
+    } else {
+        if (snprintf_s(buf, size, size - 1, "ERR_GET_error failed, error code = %lu", err) == -1) {
+            return buf;
+        }
     }
     return buf;
 }
