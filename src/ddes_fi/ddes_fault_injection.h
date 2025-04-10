@@ -130,6 +130,14 @@ typedef struct st_fi_run_ctx {
         }                                                                                           \
     } while (0)
 
+#define DDES_FAULT_INJECTION_ACTION_TRIGGER_CUSTOM_ALWAYS(point, action)            \
+    do {                                                                            \
+        if (ddes_fi_entry_custom_valid(point)) {                                    \
+            LOG_DEBUG_INF("[ddes_fi] fi cust action happens at %s", __FUNCTION__);  \
+            action;                                                                 \
+        }                                                                           \
+    } while (0)
+
 #define DDES_FAULT_INJECTION_CALL(point, ...)              \
     do {                                                   \
         ddes_fi_entry_t *entry = ddes_fi_get_entry(point); \
@@ -144,6 +152,7 @@ typedef struct st_fi_run_ctx {
 #define DDES_FAULT_INJECTION_INACTIVE(point, flag)
 #define DDES_FAULT_INJECTION_ACTION_TRIGGER(action)
 #define DDES_FAULT_INJECTION_ACTION_TRIGGER_CUSTOM(point, action)
+#define DDES_FAULT_INJECTION_ACTION_TRIGGER_CUSTOM_ALWAYS(point, action)
 #define DDES_FAULT_INJECTION_CALL(point, ...)
 
 #endif
