@@ -524,6 +524,29 @@ unsigned int cm_dl_alloc_lease(
     return lock_id;
 }
 
+int cm_dl_modify_lease(unsigned int lock_id, unsigned int lease_sec)
+{
+    if (lock_id >= CM_MAX_DISKLOCK_COUNT) {
+        LOG_RUN_ERR("DL:invalid lock_id:%u.", lock_id);
+        return CM_DL_ERR_INVALID_LOCK_ID;
+    }
+
+    cm_dl_t *lock_info = &g_dl_ctx.lock_info[lock_id];
+    if (lock_info->fd <= 0) {
+        LOG_RUN_ERR("DL:invalid lock not ready,lock_id:%u.", lock_id);
+        return CM_DL_ERR_INVALID_LOCK_ID;
+    }
+
+    if(lock_info->type != LT_LEASE) {
+        LOG_RUN_ERR("DL:lock is not lease lock,lock_id:%u.", lock_id);
+        return CM_DL_ERR_INVALID_PARAM;
+    }
+
+    lock_info->lease_sec = lease_sec;
+
+    return CM_SUCCESS;
+}
+
 int cm_dl_check_lock_remain(unsigned int lock_id, unsigned long long inst_id, unsigned int *is_remain)
 {
     *is_remain = CM_FALSE;
