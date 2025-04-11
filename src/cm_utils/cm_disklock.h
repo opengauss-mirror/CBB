@@ -117,6 +117,16 @@ int cm_dl_getowner(unsigned int lock_id, unsigned long long *inst_id);
  * @return != 0 fail
  */
 int cm_dl_getlocktime(unsigned int lock_id, unsigned long long *locktime);
+
+/**
+ * modify the lease lock's lease duration.
+ * @param [in] lock_id: lock_id
+ * @param [in] lease_sec: lease duration,unit second.
+ * @return 0 success
+ * @return != 0 fail
+ */
+int cm_dl_modify_lease(unsigned int lock_id, unsigned int lease_sec);
+
 /**
  * Check whether the lock remains.
  * @param [in] lock_id: lock_id
