@@ -869,8 +869,10 @@ int mes_start_lsnr(void)
         MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.host[1][0] = '\0';
     }
 
-    if (cs_start_tcp_lsnr(&(MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp), mes_tcp_accept) != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes]:Start tcp lsnr failed. Host_name: %s, inst_id:%u, port:%hu, os error:%d.",
+    if (cs_start_tcp_lsnr1(&(MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp), 
+            mes_tcp_accept,
+            MES_GLOBAL_INST_MSG.profile.connect_timeout) != CM_SUCCESS) {
+        		LOG_RUN_ERR("[mes]:Start tcp lsnr failed. Host_name: %s, inst_id:%u, port:%hu, os error:%d.",
                     lsnr_host, MES_GLOBAL_INST_MSG.profile.inst_id, MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp.port,
                     cm_get_sock_error());
         return ERR_MES_START_LSRN_FAIL;
