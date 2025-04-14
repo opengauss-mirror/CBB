@@ -37,19 +37,11 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
 {
     pipe->type = CS_TYPE_TCP;
     tcp_link_t *link = &pipe->link.tcp;
+    link->sock = sock_ready;
     link->local.salen = (socklen_t)sizeof(link->local.addr);
-    (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
-
     link->remote.salen = (socklen_t)sizeof(link->remote.addr);
-#ifdef WIN32
-    link->sock = (socket_t)accept(sock_ready, SOCKADDR(&link->remote), &link->remote.salen);
-#else
-    link->sock = (socket_t)accept4(sock_ready, SOCKADDR(&link->remote), &link->remote.salen, SOCK_CLOEXEC);
-#endif
-
-    if (link->sock == CS_INVALID_SOCKET) {
-        return CM_FALSE;
-    }
+    (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
+    (void)getpeername(sock_ready, SOCKADDR(&link->remote), (socklen_t *)&link->remote.salen);
 
     /* set default options of sock */
     cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
@@ -181,7 +173,7 @@ void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
         return;
     }
 
-    for (loop = 0; loop < ret && (uint32)loop < CM_MAX_LSNR_HOST_COUNT; ++loop) {
+    for (loop = 0; loop < ret && (uint32)loop < CM_MAX_POLL_COUNT; ++loop) {
         sock_ready = evnts[loop].data.fd;
         if(cs_is_listen_sock(lsnr, sock_ready)) {
 #ifdef WIN32
