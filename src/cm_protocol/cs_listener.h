@@ -35,6 +35,8 @@
 extern "C" {
 #endif
 
+#define CM_MAX_POLL_COUNT (100)
+
 #define CS_SOCKET_SLOT_USED (CS_INVALID_SOCKET - 1)
 
 typedef enum en_lsnr_type {

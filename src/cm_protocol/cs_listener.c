@@ -36,19 +36,11 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
 {
     pipe->type = CS_TYPE_TCP;
     tcp_link_t *link = &pipe->link.tcp;
+    link->sock = sock_ready;
     link->local.salen = (socklen_t)sizeof(link->local.addr);
-    (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
-
     link->remote.salen = (socklen_t)sizeof(link->remote.addr);
-#ifdef WIN32
-    link->sock = (socket_t)accept(sock_ready, SOCKADDR(&link->remote), &link->remote.salen);
-#else
-    link->sock = (socket_t)accept4(sock_ready, SOCKADDR(&link->remote), &link->remote.salen, SOCK_CLOEXEC);
-#endif
-
-    if (link->sock == CS_INVALID_SOCKET) {
-        return CM_FALSE;
-    }
+    (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
+    (void)getpeername(sock_ready, SOCKADDR(&link->remote), (socklen_t *)&link->remote.salen);
 
     /* set default options of sock */
     cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
@@ -59,11 +51,24 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
     return CM_TRUE;
 }
 
+static bool32 cs_is_listen_sock(tcp_lsnr *lsnr, socket_t sock)
+{
+    for ( int 64 i=0; i< lsnr->sock_count; i++) {
+        if(lsnr->sock[i] == sock) {
+            return CM_TRUE;
+        }
+    }
+
+    return CM_FALSE;
+}
+
 void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
 {
     socket_t sock_ready;
-    int32 loop;
-    int32 ret;
+    int32 loop, ret;
+    struct epoll_event ev;
+    ev.events = (EPOLLIN | EPOLLRDHUP | EPOLLERR);
+
     struct epoll_event evnts[CM_MAX_LSNR_HOST_COUNT];
 
     ret = epoll_wait(lsnr->epoll_fd, evnts, (int)lsnr->sock_count, CM_POLL_WAIT);
@@ -74,18 +79,54 @@ void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
         return;
     }
 
-    for (loop = 0; loop < ret && (uint32)loop < CM_MAX_LSNR_HOST_COUNT; ++loop) {
+    for (loop = 0; loop < ret && (uint32)loop < CM_MAX_POLL_COUNT; ++loop) {
         sock_ready = evnts[loop].data.fd;
-        if (!cs_create_tcp_link(sock_ready, pipe)) {
-            continue;
-        }
-        if (lsnr->status != LSNR_STATUS_RUNNING) {
-            cs_tcp_disconnect(&pipe->link.tcp);
-            continue;
-        }
-        if (lsnr->action(lsnr, pipe) != CM_SUCCESS) {
-            cs_tcp_disconnect(&pipe->link.tcp);
-            continue;
+        if(cs_is_listen_sock(lsnr, sock_ready)) {
+#ifdef WIN32
+            sock_t sock_accept = (socket_t)accept(sock_ready, NULL, NULL);
+#else
+            sock_t sock_accept = (socket_t)accept4(sock_ready, NULL, NULL, SOCK_CLOEXEC);
+#endif
+            if (sock_accept == CS_INVALID_SOCKET) {
+                continue;
+            }
+
+            ev.data.fd = sock_accept;
+            if(epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_ADD, sock_accept, &ev) != 0) {
+                cm_close_file(sock_accept);
+                LOG_DEBUG_ERR(
+                    "[mes] add accepted sock to epoll fd failed:sock:%d,errno%d", sock_ready,cm_get_os_error());
+                continue;
+            }
+        } else {
+            if ((events[loop].events & EPOLLRDHUP) || (events[loop].events & EPOLLERR)) {
+                (void)epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_DEL,sock_ready, &ev);
+                cm_close_file(sock_ready);
+                LOG_DEBUG_ERR("[mes] listner received a abnormal event, close the sock:%d,event:%d",
+                    sock_ready,
+                    events[loop].events);
+                continue;
+            } else if (events[loop].events & EPOLLIN) {
+                (void)epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_DEL,sock_ready, &ev);
+                if(!cs_create_tcp_link(sock_ready, pipe)) {
+                    cm_close_file(sock_ready);
+                    LOG_DEBUG_ERR("[mes] listner cs_create_tcp_link failed:%d", sock_ready);
+                    continue;
+                }
+
+                if (lsnr->status != LSNR_STATUS_RUNNING) {
+                    cs_tcp_disconnect(&pipe->link.tcp);
+                    LOG_DEBUG_ERR("[mes] listener status is abnorma:%d", sock_ready);
+                    continue;
+                }
+                if (lsnr->action(lsnr, pipe) != CM_SUCCESS) {
+                    cs_tcp_disconnect(&pipe->link.tcp);
+                    LOG_DEBUG_ERR("[mes] connect action failed:%d", sock_ready);
+                    continue;
+                }
+            } else {
+                LOG_DEBUG_ERR("[mes] listener get unknown event on sock:%d, evnet:%d", sock_ready, events[loop].events);
+            }
         }
     }
 }
