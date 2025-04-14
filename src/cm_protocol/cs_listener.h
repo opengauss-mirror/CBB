@@ -30,12 +30,14 @@
 #include "cm_spinlock.h"
 #include "cs_tcp.h"
 #include "cs_pipe.h"
+#include "cm_bilist.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define CM_MAX_POLL_COUNT (100)
+#define CM_LSNR_TIMEOUT (5000)
 
 #define CS_SOCKET_SLOT_USED (CS_INVALID_SOCKET - 1)
 
@@ -54,8 +56,15 @@ typedef enum en_lsnr_status {
 typedef struct st_tcp_lsnr tcp_lsnr_t;
 typedef status_t (*connect_action_t)(tcp_lsnr_t *lsnr, cs_pipe_t *pipe);
 
+typedef struct st_accept_sock {
+    bilist_node_t node;
+    socket_t accept_sock;
+    uint64 accept_time_ms;
+} accept_sock_t;
+
 typedef struct st_tcp_lsnr {
-    spinlock_t lock;
+    //spinlock_t lock;
+    int timeout_ms;
     lsnr_type_t type;
     lsnr_status_t status;
     char host[CM_MAX_LSNR_HOST_COUNT][CM_MAX_IP_LEN];
@@ -66,9 +75,11 @@ typedef struct st_tcp_lsnr {
     socket_t socks[CM_MAX_LSNR_HOST_COUNT];
     thread_t thread;
     connect_action_t action; // action when a connect accepted
+    bilist_t accepted_socks;
 } tcp_lsnr_t;
 
 status_t cs_start_tcp_lsnr(tcp_lsnr_t *lsnr, connect_action_t action);
+status_t cs_start_tcp_lsnr1(tcp_lsnr_t *lsnr, connect_action_t action, int timeout_ms);
 void cs_stop_tcp_lsnr(tcp_lsnr_t *lsnr);
 
 status_t cs_create_lsnr_socks(tcp_lsnr_t *lsnr);
