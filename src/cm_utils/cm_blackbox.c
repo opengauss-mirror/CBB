@@ -326,8 +326,13 @@ void cm_sig_collect_backtrace(uint32 log_id, thread_t* thread, const char *forma
         cnt++;
     }
     if (g_sig_bt_buffer.status == SIG_BUFFER_COLLECTED) {
-        LOG_BLACKBOX_INF("%s", log_head);
-        LOG_BLACKBOX_INF("%s", g_sig_bt_buffer.buf);
+        if (log_id== LOG_BLACKBOX) {
+            LOG_BLACKBOX_INF("%s", log_head);
+            LOG_BLACKBOX_INF("%s", g_sig_bt_buffer.buf);
+        } else {
+            LOG_DYNAMIC_INF("%s", log_head);
+            LOG_DYNAMIC_INF("%s", g_sig_bt_buffer.buf);
+        }
     }
     g_sig_bt_buffer.status = SIG_BUFFER_IDLE;
     cm_spin_unlock(&g_sig_bt_buffer.lock);

@@ -53,6 +53,7 @@ typedef enum en_log_type {
     LOG_BLACKBOX,
     LOG_DMS_EVT_TRC,
     LOG_DMS_RFM_TRC,
+    LOG_DYNAMIC,
     LOG_COUNT // LOG COUNT
 } log_type_t;
 
@@ -204,6 +205,7 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
     uint32 code_line_num, const char *module_name, bool32 need_rec_filelog, const char *format, va_list args);
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
+void cm_write_dynamic_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 
 #define LOG_DYN_TRC_CB (cm_log_param_instance()->dyn_trc_cbs.dyn_trc)
 
@@ -239,6 +241,13 @@ status_t cm_recovery_log_file(log_type_t log_type);
     do {                                                              \
         if (LOG_ON) {                                                 \
             cm_write_blackbox_log(format, ##__VA_ARGS__);             \
+        }                                                             \
+    } while (0)
+
+#define LOG_DYNAMIC_INF(format, ...)                                  \
+    do {                                                              \
+        if (LOG_ON) {                                                 \
+            cm_write_dynamic_log(format, ##__VA_ARGS__);              \
         }                                                             \
     } while (0)
 
