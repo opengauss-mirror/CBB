@@ -40,6 +40,7 @@ extern "C" {
 #define SIGRTMAX 64
 #endif
 
+#define SIG_DYN_LOG ((SIGRTMIN) + 4)
 #define SIG_BACKTRACE ((SIGRTMIN) + 8)
 
 typedef void (*signal_proc)(int32);
