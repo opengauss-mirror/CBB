@@ -315,7 +315,7 @@ void cm_dump_mem(void *dump_addr, uint32 dump_len)
     uchar row_data[16] = {0};
     uint32 row_index = 0;
     char buf[CM_MAX_LOG_HEAD_LENGTH];
-    log_file_handle_t *handle = cm_log_logger_file(LOG_MEC);
+    log_file_handle_t *handle = cm_log_logger_file(CM_LOG_MEC);
     uchar *dump_loc = (uchar *)dump_addr;
     if (!LOG_MEC_ON) {
         return;
