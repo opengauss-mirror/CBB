@@ -78,7 +78,10 @@ static log_file_handle_t g_logger[LOG_COUNT] = {
         .file_inode = 0 },
     [LOG_DMS_RFM_TRC] = {
         .file_handle = CM_INVALID_FD,
-        .file_inode = 0 }
+        .file_inode = 0 },
+    [LOG_DYNAMIC] = {
+        .file_handle = CM_INVALID_FD,
+        .file_inode = 0 },
 };
 
 #define MAX_THREAD_NUM_COUNT 1000
@@ -758,7 +761,8 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     if (log_file_handle->file_handle != CM_INVALID_FD && buf != NULL) {
         // Replace the string terminator '\0' with newline character '\n'.
         if (log_file_handle->log_type != LOG_MEC && log_file_handle->log_type != LOG_BLACKBOX &&
-            log_file_handle->log_type != LOG_DMS_RFM_TRC && log_file_handle->log_type != LOG_DMS_EVT_TRC) {
+            log_file_handle->log_type != LOG_DMS_RFM_TRC && log_file_handle->log_type != LOG_DMS_EVT_TRC
+            && log_file_handle->log_type != LOG_DYNAMIC) {
             buf[size] = '\n';
             size++;
         }
@@ -1484,6 +1488,21 @@ void cm_write_blackbox_log(const char *format, ...)
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
     text_t buf_text;
     log_file_handle_t *log_file_handle = &g_logger[LOG_BLACKBOX];
+
+    va_list args;
+    va_start(args, format);
+    buf_text.str = buf;
+    buf_text.len = (uint32)strlen(buf);
+    cm_log_fulfil_write_buf(log_file_handle, &buf_text, sizeof(buf), CM_TRUE, format, args);
+    va_end(args);
+}
+
+void cm_write_dynamic_log(const char *format, ...)
+{
+    char buf[CM_MAX_LOG_CONTENT_LENGTH + 1];
+    buf[0] = '\0';
+    text_t buf_text;
+    log_file_handle_t *log_file_handle = &g_logger[LOG_DYNAMIC];
 
     va_list args;
     va_start(args, format);
