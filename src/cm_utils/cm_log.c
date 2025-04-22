@@ -41,8 +41,6 @@
 extern "C" {
 #endif
 
-
-#define CM_INVALID_FD (-1)
 bool32 g_high_frequency_restart_process = CM_FALSE;
 
 static log_file_handle_t g_logger[LOG_COUNT] = {
@@ -251,7 +249,7 @@ static void cm_log_chmod_dir(const char *log_dir, log_type_t log_type)
     (void)chmod(log_dir, g_log_param.log_path_permissions);
 }
 
-static void cm_log_create_dir(const log_file_handle_t *log_file_handle)
+void cm_log_create_dir(const log_file_handle_t *log_file_handle)
 {
     char log_dir[CM_FILE_NAME_BUFFER_SIZE] = {0};
     cm_log_get_dir(log_dir, CM_FILE_NAME_BUFFER_SIZE, log_file_handle->file_name);
