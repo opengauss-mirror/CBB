@@ -295,7 +295,7 @@ static void cm_log_build_normal_head(char *buf, uint32 buf_size, log_level_t log
     }
 }
 
-static void cm_log_close_file(log_file_handle_t *log_file_handle)
+void cm_log_close_file(log_file_handle_t *log_file_handle)
 {
     if (log_file_handle->file_handle != CM_INVALID_FD) {
         (void)close(log_file_handle->file_handle);
@@ -304,7 +304,7 @@ static void cm_log_close_file(log_file_handle_t *log_file_handle)
     }
 }
 
-static bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode)
+bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode)
 {
     struct stat st;
 
