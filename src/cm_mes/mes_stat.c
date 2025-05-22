@@ -42,8 +42,16 @@ int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_in
     mes_worker_info->is_active = mq_ctx->work_thread_idx[worker_id].is_active;
     mes_worker_info->msg_ruid = mq_ctx->work_thread_idx[worker_id].msg_ruid;
     mes_worker_info->msg_src_inst = mq_ctx->work_thread_idx[worker_id].msg_src_inst;
+    mes_worker_info->longest_cost_time = mq_ctx->work_thread_idx[worker_id].longest_cost_time;
+    mes_worker_info->longest_get_msgitem_time = mq_ctx->work_thread_idx[worker_id].longest_get_msgitem_time;
     errno_t ret = memcpy_s(mes_worker_info->data, sizeof(mes_worker_info->data),
         mq_ctx->work_thread_idx[worker_id].data, sizeof(mes_worker_info->data));
+    if (ret != EOK) {
+        LOG_RUN_ERR("[mes] memcpy_s failed.");
+        return CM_ERROR;
+    }
+    ret = memcpy_s(mes_worker_info->longest_data, sizeof(mes_worker_info->longest_data),
+        mq_ctx->work_thread_idx[worker_id].longest_data, sizeof(mes_worker_info->longest_data));
     if (ret != EOK) {
         LOG_RUN_ERR("[mes] memcpy_s failed.");
         return CM_ERROR;
@@ -68,6 +76,11 @@ int mes_get_worker_priority_info(unsigned int priority_id, mes_task_priority_inf
     mes_task_priority_info->inqueue_msgitem_num = task_priority->inqueue_msgitem_num;
     mes_task_priority_info->finished_msgitem_num = task_priority->finished_msgitem_num;
     mes_task_priority_info->msgitem_free_num = 0;
+    mes_task_priority_info->avg_cost_time = 0;
+    if (task_priority->finished_msgitem_num > 0) {
+        mes_task_priority_info->avg_cost_time = (double)task_priority->total_cost_time /
+                                                task_priority->finished_msgitem_num;
+    }
     return CM_SUCCESS;
 }
 
