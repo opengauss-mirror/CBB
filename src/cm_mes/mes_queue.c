@@ -901,6 +901,8 @@ void mes_task_proc_inner(thread_t *thread)
     bool8 *is_active = &arg->is_active;
     mes_priority_t *priority_temp = &arg->priority;
     uint64 *get_msgitem_time = &arg->get_msgitem_time;
+    uint64 *longest_get_msgitem_time = &arg->longest_get_msgitem_time;
+    uint64 *longest_cost_time = &arg->longest_cost_time;
     uint64 *msg_ruid = &arg->msg_ruid;
     uint32 *src_inst = &arg->msg_src_inst;
     mes_msgqueue_t *my_queue = &mq_ctx->tasks[my_task_index].queue;
@@ -962,6 +964,14 @@ void mes_task_proc_inner(thread_t *thread)
         } else {
             mes_work_proc(msgitem, my_task_index);
         }
+        uint64 cost_time = (uint64)g_timer()->now - *get_msgitem_time;
+        task_priority->total_cost_time += cost_time;
+        if (cost_time >= *longest_cost_time) { // sometime, cost_time = 0
+            *longest_cost_time = cost_time;
+            *longest_get_msgitem_time = *get_msgitem_time;
+            memcpy_s(arg->longest_data, sizeof(arg->longest_data), arg->data, sizeof(arg->data));
+        }
+
         *is_active = CM_FALSE;
         mes_put_msgitem_nolock(&finished_msgitem_queue, msgitem);
         (void)cm_atomic_inc((atomic_t *)(&task_priority->finished_msgitem_num));
