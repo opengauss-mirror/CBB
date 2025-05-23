@@ -64,6 +64,12 @@ typedef volatile uint32 ip_spinlock_t;
         }                                \
     }
 
+#ifdef WIN32
+#define CM_TIME_PER_TICK       (1)    // ms
+#else
+#define CM_TIME_PER_TICK       (100)  // ms
+#endif
+
 typedef struct st_spin_statis {
     uint64 spins;
     uint64 wait_usecs;
