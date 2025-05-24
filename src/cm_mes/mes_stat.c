@@ -32,29 +32,62 @@ mes_msg_size_stats_t g_mes_msg_size_stat;
 
 int mes_get_worker_info(unsigned int worker_id, mes_worker_info_t *mes_worker_info)
 {
-    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
-    if (worker_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[worker_id].is_start) {
-        return CM_ERROR;
-    }
-    mes_worker_info->tid = mq_ctx->work_thread_idx[worker_id].tid;
-    mes_worker_info->priority = mq_ctx->work_thread_idx[worker_id].priority;
-    mes_worker_info->get_msgitem_time = mq_ctx->work_thread_idx[worker_id].get_msgitem_time;
-    mes_worker_info->is_active = mq_ctx->work_thread_idx[worker_id].is_active;
-    mes_worker_info->msg_ruid = mq_ctx->work_thread_idx[worker_id].msg_ruid;
-    mes_worker_info->msg_src_inst = mq_ctx->work_thread_idx[worker_id].msg_src_inst;
-    mes_worker_info->longest_cost_time = mq_ctx->work_thread_idx[worker_id].longest_cost_time;
-    mes_worker_info->longest_get_msgitem_time = mq_ctx->work_thread_idx[worker_id].longest_get_msgitem_time;
-    errno_t ret = memcpy_s(mes_worker_info->data, sizeof(mes_worker_info->data),
-        mq_ctx->work_thread_idx[worker_id].data, sizeof(mes_worker_info->data));
-    if (ret != EOK) {
-        LOG_RUN_ERR("[mes] memcpy_s failed.");
-        return CM_ERROR;
-    }
-    ret = memcpy_s(mes_worker_info->longest_data, sizeof(mes_worker_info->longest_data),
-        mq_ctx->work_thread_idx[worker_id].longest_data, sizeof(mes_worker_info->longest_data));
-    if (ret != EOK) {
-        LOG_RUN_ERR("[mes] memcpy_s failed.");
-        return CM_ERROR;
+    if (ENABLE_MES_TASK_THREADPOOL) {
+        mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
+        mes_task_threadpool_worker_t *worker = &tpool->all_workers[worker_id];
+        if (worker == NULL) {
+            return CM_ERROR;
+        }
+        if (worker->status != MTTP_WORKER_STATUS_IN_GROUP) {
+            mes_worker_info->is_free = CM_TRUE;
+            return CM_SUCCESS;
+        }
+        mes_worker_info->tid = worker->tid;
+        mes_worker_info->priority = worker->group_id;
+        mes_worker_info->get_msgitem_time = worker->get_msgitem_time;
+        mes_worker_info->is_active = worker->is_active;
+        mes_worker_info->msg_ruid = worker->msg_ruid;
+        mes_worker_info->msg_src_inst = worker->msg_src_inst;
+        mes_worker_info->longest_cost_time = worker->longest_cost_time;
+        mes_worker_info->longest_get_msgitem_time = worker->longest_get_msgitem_time;
+        mes_worker_info->longest_cmd = worker->longest_cmd;
+        errno_t ret =
+            memcpy_s(mes_worker_info->data, sizeof(mes_worker_info->data), worker->data, sizeof(mes_worker_info->data));
+        if (ret != EOK) {
+            LOG_RUN_ERR("[mes] memcpy_s failed.");
+            return CM_ERROR;
+        }
+        ret = memcpy_s(mes_worker_info->longest_data, sizeof(mes_worker_info->longest_data),
+            worker->longest_data, sizeof(mes_worker_info->longest_data));
+        if (ret != EOK) {
+            LOG_RUN_ERR("[mes] memcpy_s failed.");
+            return CM_ERROR;
+        }
+    } else {
+        mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+        if (worker_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[worker_id].is_start) {
+            return CM_ERROR;
+        }
+        mes_worker_info->tid = mq_ctx->work_thread_idx[worker_id].tid;
+        mes_worker_info->priority = mq_ctx->work_thread_idx[worker_id].priority;
+        mes_worker_info->get_msgitem_time = mq_ctx->work_thread_idx[worker_id].get_msgitem_time;
+        mes_worker_info->is_active = mq_ctx->work_thread_idx[worker_id].is_active;
+        mes_worker_info->msg_ruid = mq_ctx->work_thread_idx[worker_id].msg_ruid;
+        mes_worker_info->msg_src_inst = mq_ctx->work_thread_idx[worker_id].msg_src_inst;
+        mes_worker_info->longest_cost_time = mq_ctx->work_thread_idx[worker_id].longest_cost_time;
+        mes_worker_info->longest_get_msgitem_time = mq_ctx->work_thread_idx[worker_id].longest_get_msgitem_time;
+        errno_t ret = memcpy_s(mes_worker_info->data, sizeof(mes_worker_info->data),
+            mq_ctx->work_thread_idx[worker_id].data, sizeof(mes_worker_info->data));
+        if (ret != EOK) {
+            LOG_RUN_ERR("[mes] memcpy_s failed.");
+            return CM_ERROR;
+        }
+        ret = memcpy_s(mes_worker_info->longest_data, sizeof(mes_worker_info->longest_data),
+            mq_ctx->work_thread_idx[worker_id].longest_data, sizeof(mes_worker_info->longest_data));
+        if (ret != EOK) {
+            LOG_RUN_ERR("[mes] memcpy_s failed.");
+            return CM_ERROR;
+        }
     }
     return CM_SUCCESS;
 }
@@ -64,22 +97,37 @@ int mes_get_worker_priority_info(unsigned int priority_id, mes_task_priority_inf
     if (priority_id >= MES_GLOBAL_INST_MSG.profile.priority_cnt) {
         return CM_ERROR;
     }
+    if (ENABLE_MES_TASK_THREADPOOL) {
+        mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
+        mes_task_threadpool_group_t *group = &tpool->groups[priority_id];
 
-    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
-    mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority_id];
-    if (!task_priority->is_set) {
-        return CM_ERROR;
-    }
+        mes_task_priority_info->priority = group->attr.group_id;
+        mes_task_priority_info->worker_num = group->worker_list.count;
+        mes_task_priority_info->inqueue_msgitem_num = group->attr.inqueue_msgitem_num;
+        mes_task_priority_info->finished_msgitem_num = group->attr.finished_msgitem_num;
+        mes_task_priority_info->msgitem_free_num = 0;
+        mes_task_priority_info->avg_cost_time = 0;
+        if (group->attr.finished_msgitem_num > 0) {
+            mes_task_priority_info->avg_cost_time =
+                (double)group->attr.total_cost_time / group->attr.finished_msgitem_num;
+        }
+    } else {
+        mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+        mes_task_priority_t *task_priority = &mq_ctx->priority.task_priority[priority_id];
+        if (!task_priority->is_set) {
+            return CM_ERROR;
+        }
 
-    mes_task_priority_info->priority = task_priority->priority;
-    mes_task_priority_info->worker_num = task_priority->task_num;
-    mes_task_priority_info->inqueue_msgitem_num = task_priority->inqueue_msgitem_num;
-    mes_task_priority_info->finished_msgitem_num = task_priority->finished_msgitem_num;
-    mes_task_priority_info->msgitem_free_num = 0;
-    mes_task_priority_info->avg_cost_time = 0;
-    if (task_priority->finished_msgitem_num > 0) {
-        mes_task_priority_info->avg_cost_time = (double)task_priority->total_cost_time /
-                                                task_priority->finished_msgitem_num;
+        mes_task_priority_info->priority = task_priority->priority;
+        mes_task_priority_info->worker_num = task_priority->task_num;
+        mes_task_priority_info->inqueue_msgitem_num = task_priority->inqueue_msgitem_num;
+        mes_task_priority_info->finished_msgitem_num = task_priority->finished_msgitem_num;
+        mes_task_priority_info->msgitem_free_num = 0;
+        mes_task_priority_info->avg_cost_time = 0;
+        if (task_priority->finished_msgitem_num > 0) {
+            mes_task_priority_info->avg_cost_time = (double)task_priority->total_cost_time /
+                                                    task_priority->finished_msgitem_num;
+        }
     }
     return CM_SUCCESS;
 }

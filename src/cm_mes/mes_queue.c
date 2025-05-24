@@ -854,12 +854,21 @@ static bool32 mes_is_empty_queue_count(const mq_context_t *mq_ctx, mes_priority_
 
 void mes_set_cur_msg_info(uint32 work_id, void *data, unsigned int size)
 {
-    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
-    if (work_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[work_id].is_start) {
-        return;
+    if (ENABLE_MES_TASK_THREADPOOL) {
+        mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
+        mes_task_threadpool_worker_t *worker = &tpool->all_workers[work_id];
+        if (worker == NULL || worker->status != MTTP_WORKER_STATUS_IN_GROUP) {
+            return;
+        }
+        MEMS_RETVOID_IFERR(memcpy_s(worker->data, sizeof(worker->data), data, size));
+    } else {
+        mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+        if (work_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[work_id].is_start) {
+            return;
+        }
+        MEMS_RETVOID_IFERR(
+            memcpy_s(mq_ctx->work_thread_idx[work_id].data, sizeof(mq_ctx->work_thread_idx[work_id].data), data, size));
     }
-    MEMS_RETVOID_IFERR(
-        memcpy_s(mq_ctx->work_thread_idx[work_id].data, sizeof(mq_ctx->work_thread_idx[work_id].data), data, size));
 }
 
 // Helper function to get message item from multiple queues

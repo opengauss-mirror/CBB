@@ -48,6 +48,18 @@ typedef struct st_mes_task_threadpool_worker {
     mes_task_threadpool_worker_status_e status;
     unsigned int group_id;
     cm_event_t event;
+    uint32 tid;
+    uint64 get_msgitem_time;
+    uint64 msg_ruid;
+    uint32 msg_src_inst;
+    bool8 is_active;
+    char data[MES_INFO_LEN];
+    struct {
+        uint64 longest_cost_time; // longest_cost_time in history
+        uint64 longest_get_msgitem_time; // longest_get_msgitem_time in history
+        uint32 longest_cmd; // longest_cmd in history
+        char longest_data[MES_INFO_LEN];
+    };
 } mes_task_threadpool_worker_t;
 
 typedef enum st_mes_task_threadpool_queue_status {
@@ -102,6 +114,7 @@ typedef struct st_mes_task_threadpool {
 status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr);
 status_t mes_task_threadpool_uninit();
 void mes_put_msgitem_to_threadpool(mes_msgitem_t *msgitem);
+status_t mes_check_task_threadpool_attr(mes_profile_t *profile);
 
 #ifdef __cplusplus
 }
