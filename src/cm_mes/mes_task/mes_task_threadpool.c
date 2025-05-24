@@ -5,7 +5,7 @@
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
  *
- *          http://license.coscl.org.cn/MulanPSL2
+ * http://license.coscl.org.cn/MulanPSL2
  *
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
  * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
@@ -17,7 +17,7 @@
  *
  *
  * IDENTIFICATION
- *    src/cm_mes/mes_task/mes_task_threadpool.c
+ * src/cm_mes/mes_task/mes_task_threadpool.c
  *
  * -------------------------------------------------------------------------
  */
@@ -32,13 +32,9 @@ status_t mes_task_threadpool_start_thread()
 {
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
     unsigned int group_num = tpool->attr.group_num;
-    for (int i = 0; i < group_num; i++) {
+    for (unsigned int i = 0; i < group_num; i++) {
         mes_task_threadpool_group_t *cur_group = &tpool->groups[i];
-        if (!cur_group->attr.enabled) {
-            continue;
-        }
-
-        for (int j = 0; j < cur_group->attr.min_cnt; j++) {
+        for (unsigned int j = 0; j < cur_group->attr.min_cnt; j++) {
             mes_task_add_worker_status_t ret = MTTP_ADD_WORKER_STATUS_SUCCESS;
             do {
                 ret = mes_task_threadpool_group_add_worker(cur_group);
@@ -51,14 +47,12 @@ status_t mes_task_threadpool_start_thread()
                 } 
             } while (ret != MTTP_ADD_WORKER_STATUS_SUCCESS);
 
-            if (!cur_group->is_available) {
-                cur_group->is_available = CM_TRUE;
-            }
+              cur_group->is_available = CM_TRUE;
         }
         LOG_DEBUG_INF("[MES TASK THREADPOOL][init] group add worker finished, group_id:%u",
             cur_group->attr.group_id);
-
     }
+
     status_t ret = cm_create_thread(mes_task_threadpool_scheduler, 0, &tpool->scheduler, &tpool->scheduler.thread);
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[MES TASK THREADPOOL][init] start mttp_scheduler failed");
@@ -73,14 +67,10 @@ void mes_task_threadpool_stop_thread()
     cm_close_thread(&tpool->scheduler.thread);
 
     unsigned int group_num = tpool->attr.group_num;
-    for (int i = 0; i < group_num; i++) {
+    for (unsigned int i = 0; i < group_num; i++) {
         mes_task_threadpool_group_t *cur_group = &tpool->groups[i];
-        if (!cur_group->attr.enabled) {
-            continue;
-        }
-
         bilist_node_t *node = cur_group->worker_list.head;
-        for (int i = 0; i < cur_group->worker_list.count; i++) {
+        for (uint32 j = 0; j < cur_group->worker_list.count; j++) {
             mes_task_threadpool_worker_t *cur_worker = (mes_task_threadpool_worker_t*)node;
             cm_close_thread(&cur_worker->thread);
             node = BINODE_NEXT(node);
@@ -105,7 +95,7 @@ status_t mes_task_threadpool_init(mes_task_threadpool_attr_t *tpool_attr)
     tpool->all_workers = (mes_task_threadpool_worker_t*)ptr;
     ptr = NULL;
     cm_bilist_init(&tpool->free_workers);
-    for (int i = 0; i < max_worker; i++) {
+    for (unsigned int i = 0; i < max_worker; i++) {
         mes_task_threadpool_worker_t *cur_worker = &tpool->all_workers[i];
         cur_worker->node.prev = cur_worker->node.next = NULL;
         cur_worker->worker_id = i;
