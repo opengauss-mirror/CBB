@@ -208,6 +208,9 @@ void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
 void cm_write_dynamic_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 void cm_log_create_dir(const log_file_handle_t *log_file_handle);
+bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode);
+void cm_log_close_file(log_file_handle_t *log_file_handle);
+
 #define LOG_DYN_TRC_CB (cm_log_param_instance()->dyn_trc_cbs.dyn_trc)
 
 #define LOG_DYN_TRC(level, level_str, format, ...)                                                               \

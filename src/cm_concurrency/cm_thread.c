@@ -292,6 +292,13 @@ void cm_close_thread_with_sem(thread_t *thread, cm_sem_t *sem)
     cm_close_thread(thread);
 }
 
+void cm_close_thread_with_event(thread_t *thread, cm_event_t *event)
+{
+    thread->closed = CM_TRUE;
+    cm_event_notify(event);
+    cm_close_thread(thread);
+}
+
 void cm_release_thread(thread_t *thread)
 {
 #ifdef WIN32
