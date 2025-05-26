@@ -31,8 +31,7 @@
 void mes_task_threadpool_scheduler(thread_t *thread)
 {
     char thread_name[CM_MAX_THREAD_NAME_LEN];
-    PRTS_RETVOID_IFERR(
-        sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mttp_scheduler"));
+    PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mttp_scheduler"));
     cm_set_thread_name(thread_name);
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
@@ -44,11 +43,8 @@ void mes_task_threadpool_scheduler(thread_t *thread)
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
     while (!thread->closed) {
         uint32 group_num = tpool->attr.group_num;
-        for (int i = 0; i < group_num; i++) {
+        for (uint32 i = 0; i < group_num; i++) {
             mes_task_threadpool_group_t *group = &tpool->groups[i];
-            if (!group->attr.enabled) {
-                continue;
-            }
             mes_task_threadpool_group_adjust(group);
         }
         cm_sleep(MES_TASK_THREADPOOL_SCHEDULER_TIME_UNIT);
