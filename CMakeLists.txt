@@ -137,6 +137,7 @@ set(CBB_INTERFACE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/interface)
 set(CBB_SERVICE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/service)
 set(CBB_MEC_PATH			    ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_mec_adapter)
 set(CBB_COMPRESS_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/cm_compress)
+set(CBB_SSL_CERT                ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_ssl_cert)
 set(CBB_FAULT_INJECTION_PATH    ${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_fi)
 CONFIGURE_FILE(cm_version.h.in  ${CBB_UTIL_PATH}/cm_version.h)
 

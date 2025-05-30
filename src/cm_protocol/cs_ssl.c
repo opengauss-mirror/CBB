@@ -1669,6 +1669,7 @@ status_t cs_ssl_connect_socket(ssl_link_t *link, socket_t sock, int32 timeout)
     } while (tv < timeout && !SSL_is_init_finished(ssl));
 
     if (status == CM_SUCCESS) {
+        cs_ssl_show_certs(ssl);
         return CM_SUCCESS;
     }
 
