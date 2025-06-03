@@ -38,18 +38,20 @@ extern "C" {
 
 #define MES_MAX_BUFFER_QUEUE_NUM (0xFF)
 
-typedef struct st_mes_chunk_info {
+typedef struct st_mes_buffer_item_tag {
     inst_type inst_id;
     mes_priority_t priority;
-    uint8 chunk_no;
-    bool8 is_send;
-} mes_chunk_info_t;
+    uint8 buf_pool_no;
+    uint8 queue_no;
+    unsigned char is_send : 1;
+    unsigned char is_shared : 1;
+    unsigned char reserved : 6;
+    uint8 reserved2;
+} mes_buffer_item_tag_t;
 
 typedef struct st_mes_buffer_item {
     struct st_mes_buffer_item *next;
-    mes_chunk_info_t chunk_info;
-    uint8 queue_no;
-    uint8 reserved[1];
+    mes_buffer_item_tag_t tag;
     char data[0];
 } mes_buffer_item_t;
 
@@ -66,7 +68,7 @@ typedef struct st_mes_buffer_item {
 typedef struct st_mes_buf_queue {
     spinlock_t lock;
     spinlock_t init_lock; // defer format memory to buffer item allocation, to speed mes_init
-    mes_chunk_info_t chunk_info;
+    uint32 init_count;
     uint8 queue_no;
     volatile bool8 inited;
     uint8 reserved[2];
@@ -76,25 +78,6 @@ typedef struct st_mes_buf_queue {
     mes_buffer_item_t *last;
     char *addr;
 } mes_buf_queue_t;
-
-typedef struct st_mes_buf_chunk {
-    uint32 buf_size;
-    uint8 chunk_no;
-    volatile uint8 queue_num;
-    uint8 reserved[2];
-    mes_buf_queue_t *queues;
-    char aligned1[CM_CACHE_LINE_SIZE];
-    union {
-        volatile uint8 current_no;
-        char aligned2[CM_CACHE_LINE_SIZE];
-    };
-} mes_buf_chunk_t;
-
-typedef struct st_mes_pool {
-    uint32 count;
-    mes_buf_chunk_t chunk[MES_MAX_BUFFPOOL_NUM];
-    memory_chunk_t mem_chunk;
-} mes_pool_t;
 
 typedef struct st_message_pool {
     spinlock_t lock;
@@ -108,14 +91,73 @@ typedef struct st_message_pool {
     int mr_id; // used for xnet register id
 } message_pool_t;
 
-int mes_init_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
-void mes_destroy_message_pool(bool32 is_send, uint32 inst_id, mes_priority_t priority);
-void mes_destroy_all_message_pool(void);
+typedef struct st_mes_msg_buffer_inner_pool {
+    uint32 queue_num;
+    mes_buf_queue_t *queues;
+    uint32 pop_cursor; // used for thread find queue
+    uint32 push_cursor;
+} mes_msg_buffer_inner_pool_t;
+
+typedef struct st_mes_msg_buffer_pool_tag {
+    bool8 is_send;
+    bool8 enable_inst_dimension;
+    uint8 inst_id;
+    uint8 buf_pool_no;
+} mes_msg_buffer_pool_tag_t;
+
+typedef struct st_mes_msg_buffer_pool {
+    bool8 inited;
+    mes_msg_buffer_pool_tag_t tag;
+    uint32 buf_size;
+    uint32 buf_num;
+    uint32 priority_cnt;
+    mes_msg_buffer_inner_pool_t private_pool[MES_PRIORITY_CEIL];
+    mes_msg_buffer_inner_pool_t shared_pool;
+    void *msg_pool;
+    atomic32_t pop_priority;
+    bool8 need_recycle;
+    uint32 recycle_threshold;
+    uint32 recycle_queue_no;
+    spinlock_t mem_chunk_lock;
+    memory_chunk_t mem_chunk;
+} mes_msg_buffer_pool_t;
+
+typedef struct st_mes_msg_pool_tag {
+    bool8 is_send;
+    bool8 enable_inst_dimension;
+    inst_type inst_id;
+} mes_msg_pool_tag_t;
+
+typedef struct st_mes_msg_pool {
+    mes_msg_pool_tag_t tag;
+    unsigned long long size;
+    uint32 buf_pool_count;
+    mes_msg_buffer_pool_t *buf_pool[MES_MAX_BUFFPOOL_NUM];
+    memory_chunk_t mem_chunk;
+} mes_msg_pool_t;
+
+typedef struct st_mes_msg_inst_pool_set {
+    uint64 total_size;
+    uint32 inst_pool_count;
+    uint64 per_inst_pool_size;
+    mes_msg_pool_t *inst_pool[MES_MAX_INSTANCES];
+} mes_msg_inst_pool_set_t;
+
+typedef struct st_mes_msg_buffer_relation {
+    uint8 buf_count;
+    uint32 origin_buf_size[MES_MAX_BUFFPOOL_NUM];
+    uint32 changed_buf_size[MES_MAX_BUFFPOOL_NUM];
+} mes_msg_buffer_relation_t;
+
+int mes_check_msg_pool_attr(mes_profile_t *profile, mes_profile_t *out_profile, bool8 check_proportion,
+    mes_msg_buffer_relation_t *buf_rel);
+int mes_init_message_pool(bool8 is_send);
+void mes_deinit_all_message_pool();
 char *mes_alloc_buf_item(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 char *mes_alloc_buf_item_fc(uint32 len, bool32 is_send, uint32 dst_inst, mes_priority_t priority);
 void mes_free_buf_item(char *buffer);
 uint32 mes_get_priority_max_msg_size(mes_priority_t priority);
-uint64 mes_calc_message_pool_size(mes_profile_t *profile, uint32 priority);
+int mes_check_message_pool_size(mes_profile_t *profile);
 
 #ifdef __cplusplus
 }

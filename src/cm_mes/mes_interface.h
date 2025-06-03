@@ -126,16 +126,26 @@ typedef enum en_compress_algorithm {
     COMPRESS_CEIL = 2,
 } compress_algorithm_t;
 
-typedef struct st_mes_buffer_attr {
-    unsigned int size;
-    unsigned int count;
-} mes_buffer_attr_t;
+typedef struct st_mes_msg_buffer_inner_pool_attr {
+    unsigned int queue_num;
+} mes_msg_buffer_inner_pool_attr_t;
 
-typedef struct st_mes_buffer_pool_attr {
-    unsigned int pool_count;
-    unsigned int queue_count;
-    mes_buffer_attr_t buf_attr[MES_MAX_BUFFPOOL_NUM];
-} mes_buffer_pool_attr_t;
+typedef struct st_mes_msg_buffer_pool_attr {
+    unsigned int buf_size;
+    double proportion;
+    mes_msg_buffer_inner_pool_attr_t priority_pool_attr[MES_PRIORITY_CEIL];
+    mes_msg_buffer_inner_pool_attr_t shared_pool_attr;
+} mes_msg_buffer_pool_attr_t;
+
+typedef struct st_mes_msg_pool_attr {
+    unsigned long long total_size;
+    unsigned char enable_inst_dimension;
+    unsigned int buf_pool_count;
+    mes_msg_buffer_pool_attr_t buf_pool_attr[MES_MAX_BUFFPOOL_NUM];
+    unsigned int max_buf_size[MES_PRIORITY_CEIL];
+    // max buf size in priority, used for compress feature
+    // if no buffer belong to priority, follow anthor priority setting
+} mes_msg_pool_attr_t;
 
 typedef struct st_mes_addr {
     inst_type inst_id;
@@ -170,7 +180,7 @@ typedef struct st_mes_profile {
     inst_type inst_id;
     unsigned int inst_cnt;
     mes_pipe_type_t pipe_type;
-    mes_buffer_pool_attr_t buffer_pool_attr[MES_PRIORITY_CEIL];
+    mes_msg_pool_attr_t msg_pool_attr;
     unsigned int channel_cnt;
     unsigned int priority_cnt;
     unsigned char mes_elapsed_switch;
@@ -257,6 +267,17 @@ typedef struct st_mes_mem_info_stat {
     unsigned long long used;
     double used_percentage;
 } mes_mem_info_stat_t;
+
+typedef struct st_mes_msg_pool_minimum_info {
+    unsigned long long total_minimum_size;
+    unsigned long long metadata_size;
+    unsigned long long buf_pool_total_size; // sum of buf_pool_minimum_size
+    unsigned char buf_pool_count;
+    unsigned long long buf_pool_minimum_size[MES_MAX_BUFFPOOL_NUM];
+    // buf order in buf_pool_minimum_size same as profile.msg_pool_attr.buf_pool_attr
+    // if choose tototal_minimum_size as msg_pool size and want buf_pool[i] smallest,
+    //      buf_pool_attr[i].proportion = buf_pool_minimum_size[i] / buf_pool_total_size
+} mes_msg_pool_minimum_info_t;
 
 typedef void (*mes_thread_init_t)(unsigned char need_startup, char **reg_data);
 typedef void (*mes_thread_deinit_t)();
@@ -549,13 +570,11 @@ void mes_set_compress_level(unsigned int level);
 int mes_is_different_endian(inst_type dst_inst);
 
 /*
- * @brief get memory capacity of a specified priority.
- *        every instance is the same
+ * @brief get memory capacity of send/receive message pool
  * @param is_send - 1:send; 0:receive
- * @param priority - priority
- * @return memory capacity of a specified priority
+ * @return memory capacity of a send/receive message pool
  */
-long long mes_get_mem_capacity(unsigned char is_send, mes_priority_t priority);
+long long mes_get_mem_capacity(unsigned char is_send);
 
 /*
  * @brief get the count of started work thread task.
@@ -628,6 +647,16 @@ void mes_collect_mem_usage_stat();
  * @return
  */
 void mes_get_mem_usage_stat_row(mes_mem_stat_t mem_id, mes_mem_info_stat_t *mes_mem_stat_row_result);
+
+/*
+ * @brief get minimum message pool size
+ * @[in]param profile - config value
+ * @[in]param is_send - true:send message pool; false receive message pool
+ * @[out]param minimum_info - message pool minimum info
+ * @return whether success, if not, some parameter in profile not correct
+ */
+int mes_get_message_pool_minimum_info(mes_profile_t *profile, unsigned char is_send,
+    mes_msg_pool_minimum_info_t *minimum_info);
 
 #ifdef __cplusplus
 }
