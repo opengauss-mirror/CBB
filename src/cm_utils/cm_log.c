@@ -208,7 +208,7 @@ static status_t cm_log_create_directory(const char *log_dir)
     size_t lastPos = 0;
     for (size_t i = 1; i < len; i++) {
         if (tmp[i] == '/') {
-            count = i - lastPos + 1;
+            count = i - lastPos;
             MEMS_RETURN_IFERR(strncat_s(path_name, CM_MAX_PATH_LEN, &tmp[lastPos], (size_t)count));
             lastPos = i;
             if (make_dir(path_name, g_log_param.log_path_permissions) != 0 && errno != EEXIST && errno != EACCES) {

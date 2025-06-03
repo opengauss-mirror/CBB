@@ -40,6 +40,7 @@ extern "C" {
 #define EPOLLHUP 0x002
 #define EPOLLRDHUP  0x004
 #define EPOLLONESHOT 0x008
+#define EPOLLERR 0x010
 
 #define EPOLL_CTL_ADD 0
 #define EPOLL_CTL_MOD 1

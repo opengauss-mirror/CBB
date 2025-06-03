@@ -1620,10 +1620,12 @@ int mes_connect(inst_type inst_id)
     }
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id &&
-            !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
-            LOG_RUN_WAR("[mes] do not need create connection, inst_id %u", inst_id);
-            return CM_SUCCESS;
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id) {
+            if(!MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+                LOG_RUN_WAR("[mes] do not need create connection, inst_id %u", inst_id);
+                return CM_SUCCESS;
+            }
+            break;
         }
     }
 

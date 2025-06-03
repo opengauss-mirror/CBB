@@ -107,6 +107,12 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
             "D. at least one special character: `~!@#$%%^&*()-_=+\\|[{}]:\'\",<.>/? and space",
     [ERR_PASSWORD_FORMAT_ERROR]    = "The password was invalid: %s",
     [ERR_INVALID_PARAM] = "Invalid parameter: %s",
+    [ERR_PARAMETER_TOO_LARGE]      = "The value of parameter \"%s\" is too large, at most %lld",
+    [ERR_PARAMETER_TOO_SMALL]      = "The value of parameter \"%s\" is too small, at least %lld",
+    [ERR_OPERATIONS_NOT_SUPPORT]   = "Operation \"%s\" is not support on %s",
+    [ERR_LINE_TOO_LONG]            = "The length of row %d is too long",
+    [ERR_INVALID_PARAMETER_ENUM]   = "The value of parameter \"%s\" cannot be recognized: \"%s\"",
+    [ERR_PARAM_COUNT_OVERFLOW]     = "The parameter count %d is too large, at most %lld",
     /* Error msg for access interface of SCSI */
     [ERR_SCSI_LOCK_OCCUPIED] = "The lock is already occupied",
     [ERR_SCSI_REG_CONFLICT] = "Register conflict, rk %llu",
@@ -141,6 +147,9 @@ const char *g_error_desc[CM_ERROR_COUNT] = {
     [ERR_SSL_CONNECT_FAILED]       = "The SSL connection failed, %s",
     [ERR_SSL_FILE_PERMISSION]      = "SSL certificate file \"%s\" has execute, group or world access permission",
     [ERR_FULL_PACKET]              = "%s packet size(%u) exceeds the max value(%u)",
+    [ERR_INVALID_IPADDRESS_OR_DOMAIN_LENGTH] = "Invalid IP address or domain length: %u",
+    [ERR_IPADDRESS_OR_DOMAIN_NUM_EXCEED]     = "Number of IP address or domain exceeds the maximum(%u)",
+    [ERR_TCP_INVALID_URLADDRESS]   = "Invalid Ip address or domain: %s",
 
     // MES, range [2700, 2799]
     [ERR_MEC_INIT_FAIL          ] = "MEC init failed, %s.",

@@ -54,7 +54,7 @@ typedef struct st_sock_addr {
 #define SOCKADDR_FAMILY(sa) (SOCKADDR(sa)->sa_family)
 #define SOCKADDR_PORT(sa)   (SOCKADDR_FAMILY(sa) == AF_INET ? SOCKADDR_IN4(sa)->sin_port : SOCKADDR_IN6(sa)->sin6_port)
 
-
+typedef enum { HOST_TYPE_IP_V4, HOST_TYPE_IP_V6, HOST_TYPE_DOMAIN } host_type_t;
 static inline const char *cm_inet_ntop(struct sockaddr *addr, char *buffer, int size)
 {
     errno_t errcode = 0;

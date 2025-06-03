@@ -26,6 +26,32 @@ else ()
     message(FATAL_ERROR "unknown CMAKE_BUILD_TYPE = " ${CMAKE_BUILD_TYPE})
 endif ()
 
+set(COMPONENT "GaussDB Kernel")
+
+if(OPENGAUSS STREQUAL "yes")
+    message(STATUS "OPENGAUSS=yes")
+    add_definitions(-DOPENGAUSS)
+    set(COMPONENT "openGauss")
+endif()
+
+EXECUTE_PROCESS(
+        COMMAND bash -c "git rev-parse HEAD | cut -b 1-8"
+        OUTPUT_VARIABLE COMMIT_ID
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+EXECUTE_PROCESS(
+        COMMAND bash -c "date \"+%Y-%m-%d %H:%M:%S\""
+        OUTPUT_VARIABLE COMPILE_TIME
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# CBB_VERSION_STR like: libcbb.a (openGauss build ab4a14da) compiled at 2000-01-01 00:00:00 debug)
+SET(CBB_VERSION_STR
+        "libcbb.a (${COMPONENT} build ${COMMIT_ID}) compiled at ${COMPILE_TIME} ${CMAKE_BUILD_TYPE}"
+)
+
+message(STATUS "Version info: ${CBB_VERSION_STR}")
+
 set(CMAKE_C_FLAGS "-std=c99 ${CMAKE_C_FLAGS} -D__FILE_NAME__='\"$(notdir $(subst .o,,$(abspath $@)))\"'")
 
 add_compile_options(-fPIC -Wall -MMD -fno-strict-aliasing -fsigned-char -fms-extensions -lpthread)
@@ -111,6 +137,8 @@ set(CBB_INTERFACE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/interface)
 set(CBB_SERVICE_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_perctrl/service)
 set(CBB_MEC_PATH			    ${CMAKE_CURRENT_SOURCE_DIR}/src/cm_mec_adapter)
 set(CBB_COMPRESS_PATH			${CMAKE_CURRENT_SOURCE_DIR}/src/cm_compress)
+set(CBB_FAULT_INJECTION_PATH    ${CMAKE_CURRENT_SOURCE_DIR}/src/ddes_fi)
+CONFIGURE_FILE(cm_version.h.in  ${CBB_UTIL_PATH}/cm_version.h)
 
 ## other dependency include
 set(CBB_SECUREC_INC_PATH        "${CMAKE_CURRENT_SOURCE_DIR}/library/huawei_security/include/")
