@@ -18,6 +18,7 @@ include_directories(${CBB_SERVICE_PATH})
 include_directories(${CBB_MEC_PATH})
 include_directories(${CBB_COMPRESS_PATH})
 include_directories(${CBB_FAULT_INJECTION_PATH})
+include_directories(${CNN_SSL_CERT_PATH})
 
 include_directories(.)
 
@@ -49,6 +50,7 @@ aux_source_directory(./ddes_perctrl/service CM_SERVICE_SRC)
 aux_source_directory(./cm_mec_adapter CM_MEC_SRC)
 aux_source_directory(./cm_compress CM_COMPRESS_SRC)
 aux_source_directory(./ddes_fi CM_FAULT_INJECTION_SRC)
+aux_source_directory(./cm_ssl_cert CM_SSL_CERT_SRC)
 
 set(COMMON_ALL_SRC
         ${COMMON_SRC}
@@ -71,6 +73,7 @@ set(COMMON_ALL_SRC
         ${CM_COMPRESS_SRC}
         ${CM_MES_TASK_SRC}
         ${CM_FAULT_INJECTION_SRC}
+        ${CM_SSL_CERT_SRC}
         )
 
 add_library(cbb SHARED ${COMMON_ALL_SRC})
