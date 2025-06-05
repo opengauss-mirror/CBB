@@ -141,8 +141,7 @@ int mec_accept(cs_pipe_t *pipe)
 
 static int mec_get_message_buf(mes_message_t *msg, const mec_message_head_adapter_t *mec_head)
 {
-    uint64 stat_time = 0;
-    mes_get_consume_time_start(&stat_time);
+    uint64 stat_time = cm_get_time_usec();
     char *msg_buf = NULL;
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head->flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
     uint32 size = mec_head->size;
@@ -220,12 +219,11 @@ static status_t mec_check_recv_head_info(const mec_message_head_adapter_t *mec_h
 int mec_process_event(mes_pipe_t *pipe)
 {
     LOG_DEBUG_INF("[mes_mec] mec_process_event start");
-    uint64 stat_time = 0;
     mes_message_t msg;
     mec_message_head_adapter_t mec_head;
     mes_message_head_t mes_head;
 
-    mes_get_consume_time_start(&stat_time);
+    uint64 stat_time = cm_get_time_usec();
 
     int ret = cs_read_fixed_size(&pipe->recv_pipe, (char *)&mec_head, MEC_MSG_HEAD_SIZE_ADAPTER);
     if (ret != CM_SUCCESS) {
@@ -275,7 +273,7 @@ int mec_process_event(mes_pipe_t *pipe)
         return ERR_MES_SOCKET_FAIL;
     }
 
-    mes_consume_with_time(msg.head->cmd, MES_TIME_READ_MES, stat_time);
+    mes_consume_with_time(msg.head->app_cmd, MES_TIME_READ_SOCKET, stat_time);
 
     (void)cm_atomic_inc(&(pipe->recv_count));
 

@@ -45,9 +45,10 @@ mes_callback_t g_cbb_mes_callback;
 static spinlock_t g_profile_lock;
 
 static mes_global_ptr_t g_mes_ptr = {
-    .g_cbb_mes_ptr = &g_cbb_mes,
-    .g_mes_stat_ptr = &g_mes_stat,
-    .g_mes_elapsed_stat = &g_mes_elapsed_stat
+    .mes_ptr = &g_cbb_mes,
+    .cmd_count_stats_ptr = &g_mes_stat,
+    .cmd_time_stats_ptr = &g_mes_elapsed_stat,
+    .cmd_size_stats_ptr = &g_mes_msg_size_stat
 };
 
 #define MES_CONNECT(pipe) g_cbb_mes_callback.connect_func(pipe)
@@ -1056,8 +1057,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
         return;
     }
 
-    uint64 start_time = 0;
-    mes_get_consume_time_start(&start_time);
+    uint64 start_time = cm_get_time_usec();
     mes_msgitem_t *msgitem = NULL;
 
     mes_recv_message_stat(msg);
@@ -1077,7 +1077,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
 
     msgitem->msg.head = msg->head;
     msgitem->msg.buffer = msg->buffer;
-    msgitem->enqueue_time = g_timer()->monotonic_now;
+    msgitem->enqueue_time = cm_get_time_usec();
 
     if (ENABLE_MES_TASK_THREADPOOL) {
         mes_put_msgitem_to_threadpool(msgitem);
@@ -1086,7 +1086,7 @@ void mes_process_message(mes_msgqueue_t *my_queue, mes_message_t *msg)
 
     uint32 work_index = 0;
     mes_put_msgitem_enqueue(msgitem, CM_FALSE, &work_index);
-    mes_consume_with_time(msg->head->cmd, MES_TIME_PUT_QUEUE, start_time);
+    mes_consume_with_time(msg->head->app_cmd, MES_TIME_PUT_QUEUE, start_time);
     if (work_index == CM_INVALID_ID32 || work_index >= MES_MAX_TASK_NUM) {
         mes_release_message_buf(msg);
         LOG_RUN_ERR("[mes] mes_process_message, get work index failed.");
