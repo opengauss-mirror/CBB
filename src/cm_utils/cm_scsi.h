@@ -108,10 +108,10 @@ status_t cm_scsi2_release(int32 fd);
 // scsi3 register/reserve/release/clear/preempt
 int32 cm_scsi3_register(int32 fd, int64 sark);
 int32 cm_scsi3_unregister(int32 fd, int64 rk);
-status_t cm_scsi3_reserve(int32 fd, int64 rk);
-status_t cm_scsi3_release(int32 fd, int64 rk);
+status_t cm_scsi3_reserve(int32 fd, int64 rk, uint32 type);
+status_t cm_scsi3_release(int32 fd, int64 rk, uint32 type);
 status_t cm_scsi3_clear(int32 fd, int64 rk);
-status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark);
+status_t cm_scsi3_preempt(int32 fd, int64 rk, int64 sark, uint32 type);
 // scsi3 vaai compare and write
 // return : GS_TIMEDOUT/CM_SUCCESS/CM_ERROR/CM_SCSI_ERR_MISCOMPARE
 int32 cm_scsi3_caw(int32 fd, uint64 block_addr, char *buff, int32 buff_len);

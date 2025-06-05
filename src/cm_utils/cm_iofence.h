@@ -35,6 +35,7 @@ typedef struct st_iof_reg_out {
     int64 rk;      // unique register key for each host
     int64 rk_kick; // The rk of the host to be kicked
     char *dev;     // scsi device path
+    scsi_reserv_type_e type;
 } iof_reg_out_t;
 
 typedef struct st_iof_reg_in {
