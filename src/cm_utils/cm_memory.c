@@ -640,8 +640,15 @@ void ddes_sub_used_context_memory(memory_context_t *context, int64 size)
     }
 }
 
-memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 max_size, char *name)
+memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 max_size, char *name,
+    cm_memory_allocator_t *mem_allocator)
 {
+    cm_memory_allocator_t memory_allocator_temp = {0};
+    if (mem_allocator == NULL) {
+        memory_allocator_temp.malloc_proc = malloc;
+        memory_allocator_temp.free_proc = free;
+        mem_allocator = &memory_allocator_temp;
+    }
     cm_spin_lock(&g_mem_context_lock, NULL);
     int32 ret;
     uint64 size = sizeof(memory_context_t);
@@ -649,7 +656,7 @@ memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 ma
     if (parent != NULL) {
         context = (memory_context_t *)ddes_alloc(parent, size);
     } else {
-        context = (memory_context_t *)cm_malloc_prot(size);
+        context = (memory_context_t *)mem_allocator->malloc_proc(size);
     }
     if (context == NULL) {
         LOG_RUN_ERR("cm_memory: mem_context create failed, malloc failed");
@@ -661,7 +668,7 @@ memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 ma
         if (parent != NULL) {
             ddes_free(context);
         } else {
-            CM_FREE_PROT_PTR(context);
+            mem_allocator->free_proc(context);
         }
         return NULL;
     }
@@ -672,7 +679,7 @@ memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 ma
         if (parent != NULL) {
             ddes_free(context);
         } else {
-            CM_FREE_PROT_PTR(context);
+            mem_allocator->free_proc(context);
         }
         return NULL;
     }
@@ -692,6 +699,7 @@ memory_context_t* ddes_memory_context_create(memory_context_t *parent, uint64 ma
         }
         parent->firstchild = (memory_context_t *)context;
     }
+    context->mem_allocator = *mem_allocator;
     context->is_init = CM_TRUE;
     cm_spin_unlock(&g_mem_context_lock);
     return (memory_context_t *)context;
@@ -703,10 +711,12 @@ void ddes_memory_context_destroy_self(memory_context_t *context)
         return;
     }
     cm_spin_lock(&context->lock, NULL);
+    cm_memory_allocator_t *mem_allocator = &context->mem_allocator;
     mem_context_block_t *block = context->blocks;
     while (block) {
         mem_context_block_t *next = block->next;
-        CM_FREE_PROT_PTR(block);
+        CM_MAGIC_CHECK(block, mem_context_block_t);
+        mem_allocator->free_proc(block);
         block = next;
     }
     context->blocks = NULL;
@@ -725,14 +735,14 @@ void ddes_memory_context_destroy_self(memory_context_t *context)
     }
 }
 
-void ddes_memory_context_destroy_low(memory_context_t *context)
+void ddes_memory_context_destroy_inner(memory_context_t *context)
 {
     if (context->is_init == CM_FALSE) {
         return;
     }
     memory_context_t *child = context->firstchild;
     while (child) {
-        ddes_memory_context_destroy_low(child);
+        ddes_memory_context_destroy_inner(child);
         child = child->nextchild;
     }
     ddes_memory_context_destroy_self(context);
@@ -750,10 +760,10 @@ void ddes_memory_context_destroy(memory_context_t *context)
     }
     ddes_sub_used_context_memory(context, context->used_size);
     ddes_update_allocated_context_memory(context, -context->allocated_size);
-    ddes_memory_context_destroy_low(context);
+    ddes_memory_context_destroy_inner(context);
     cm_spin_unlock(&g_mem_context_lock);
     if (context->parent == NULL) {
-        CM_FREE_PROT_PTR(context);
+        context->mem_allocator.free_proc(context);
     }
     LOG_RUN_INF("memory context destroy successful");
 }
@@ -768,8 +778,9 @@ void *ddes_alloc(memory_context_t *context, uint64 size)
         LOG_RUN_ERR("ddes_alloc failed, context mem used size has reached mem_max_size");
         return NULL;
     }
+    cm_memory_allocator_t *mem_allocator = &context->mem_allocator;
     uint64 alloc_size = size + sizeof(ddes_buffer_head_t) + sizeof(mem_context_block_t);
-    mem_context_block_t *block = (mem_context_block_t *)cm_malloc_prot(alloc_size);
+    mem_context_block_t *block = (mem_context_block_t *)mem_allocator->malloc_proc(alloc_size);
     if (block == NULL) {
         ddes_sub_used_context_memory(context, size);
         return NULL;
@@ -777,9 +788,9 @@ void *ddes_alloc(memory_context_t *context, uint64 size)
     block->size = alloc_size;
     cm_spin_lock(&context->lock, NULL);
     block->next = context->blocks;
-    block->pre = NULL;
+    block->prev = NULL;
     if (context->blocks != NULL) {
-        context->blocks->pre = block;
+        context->blocks->prev = block;
     }
     context->blocks = block;
     cm_spin_unlock(&context->lock);
@@ -789,6 +800,8 @@ void *ddes_alloc(memory_context_t *context, uint64 size)
     head->context = context;
     head->size = size;
     ddes_update_allocated_context_memory(context, alloc_size);
+    CM_MAGIC_SET(block, mem_context_block_t);
+    CM_MAGIC_SET(head, ddes_buffer_head_t);
     return (void*)buf;
 }
 
@@ -802,8 +815,9 @@ void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size)
         LOG_RUN_ERR("ddes_alloc failed, context mem used size has reached mem_max_size");
         return NULL;
     }
+    cm_memory_allocator_t *mem_allocator = &context->mem_allocator;
     uint64 alloc_size = size + (alignment -1) + sizeof(ddes_buffer_head_t) + sizeof(mem_context_block_t);
-    mem_context_block_t *block = (mem_context_block_t *)cm_malloc_prot(alloc_size);
+    mem_context_block_t *block = (mem_context_block_t *)mem_allocator->malloc_proc(alloc_size);
     if (block == NULL) {
         ddes_sub_used_context_memory(context, size);
         return NULL;
@@ -811,9 +825,9 @@ void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size)
     block->size = alloc_size;
     cm_spin_lock(&context->lock, NULL);
     block->next = context->blocks;
-    block->pre = NULL;
+    block->prev = NULL;
     if (context->blocks != NULL) {
-        context->blocks->pre = block;
+        context->blocks->prev = block;
     }
     context->blocks = block;
     cm_spin_unlock(&context->lock);
@@ -823,6 +837,8 @@ void *ddes_alloc_align(memory_context_t *context, uint32 alignment, uint64 size)
     head->context = context;
     head->size = size;
     ddes_update_allocated_context_memory(context, alloc_size);
+    CM_MAGIC_SET(block, mem_context_block_t);
+    CM_MAGIC_SET(head, ddes_buffer_head_t);
     return (void*)buf;
 }
 
@@ -832,20 +848,23 @@ void ddes_free(void *ptr)
     memory_context_t *context = head->context;
     ddes_sub_used_context_memory(context, head->size);
     mem_context_block_t *block = (mem_context_block_t *)((char *)ptr - head->offset);
+    CM_MAGIC_CHECK(block, mem_context_block_t);
+    CM_MAGIC_CHECK(head, ddes_buffer_head_t);
     cm_spin_lock(&context->lock, NULL);
     if (context->blocks == block) {
         context->blocks = block->next;
     }
     if (block->next != NULL) {
-        block->next->pre = block->pre;
+        block->next->prev = block->prev;
     }
 
-    if (block->pre != NULL) {
-        block->pre->next = block->next;
+    if (block->prev != NULL) {
+        block->prev->next = block->next;
     }
     cm_spin_unlock(&context->lock);
     ddes_update_allocated_context_memory(context, -block->size);
-    CM_FREE_PROT_PTR(block);
+    cm_memory_allocator_t *mem_allocator = &context->mem_allocator;
+    mem_allocator->free_proc(block);
 }
 
 #ifdef __cplusplus
