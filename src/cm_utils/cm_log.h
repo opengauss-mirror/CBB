@@ -97,6 +97,7 @@ typedef struct st_log_param {
     bool8 log_compressed;
     atomic32_t reference_count;
     spinlock_t lock;
+    bool32 log_instance_starting;
 } log_param_t;
 
 /* _log_level */

@@ -524,6 +524,31 @@ unsigned int cm_dl_alloc_lease(
     return lock_id;
 }
 
+int cm_dl_check_lock_remain(unsigned int lock_id, unsigned long long inst_id, unsigned int *is_remain)
+{
+    *is_remain = CM_FALSE;
+    if (lock_id >= CM_MAX_DISKLOCK_COUNT) {
+        LOG_RUN_ERR("DL:invalid lock_id:%u.", lock_id);
+        return CM_DL_ERR_INVALID_LOCK_ID;
+    }
+    cm_dl_t *lock_info = &g_dl_ctx.lock_info[lock_id];
+    dl_stat_t *lock_stat = &lock_info->lock_stat[inst_id + 1];
+    if (lock_info->fd <= 0) {
+        LOG_RUN_ERR("DL:invalid lock not ready, lock_id:%u.", lock_id);
+        return CM_DL_ERR_INVALID_LOCK_ID;
+    }
+    ssize_t size = pread(
+        lock_info->fd, lock_stat, CM_BLOCK_SIZE, (off_t)(lock_info->offset + CM_BLOCK_SIZE * (inst_id + 1)));
+    if(size != CM_BLOCK_SIZE) {
+        LOG_RUN_ERR("DL:read path failed:%d,%s.", errno, strerror(errno));
+        return CM_DL_ERR_IO;
+    }
+    if (lock_stat->locked != LS_NO_LOCK) {
+        *is_remain = CM_TRUE;
+    }
+    return CM_SUCCESS;
+}
+
 #ifdef __cplusplus
 }
 #endif

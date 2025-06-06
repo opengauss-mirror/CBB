@@ -117,6 +117,15 @@ int cm_dl_getowner(unsigned int lock_id, unsigned long long *inst_id);
  * @return != 0 fail
  */
 int cm_dl_getlocktime(unsigned int lock_id, unsigned long long *locktime);
+/**
+ * Check whether the lock remains.
+ * @param [in] lock_id: lock_id
+ * @param [in] inst_id: inst_id
+ * @param [out] is_remain: lock remain result. 
+ * @return 0 success
+ * @return != 0 fail
+ */
+int cm_dl_check_lock_remain(unsigned int lock_id, unsigned long long inst_id, unsigned int *is_remain);
 
 #ifdef __cplusplus
 }
