@@ -315,7 +315,22 @@ int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, uns
     return ret;
 }
 
-int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
+mes_interrupt_func g_mes_interrupt_func = NULL;
+
+void mes_register_interrupt(mes_interrupt_func func)
+{
+    g_mes_interrupt_func = func;
+}
+
+int mes_interrupt(void *arg, int wait_time)
+{
+    if (g_mes_interrupt_func == NULL) {
+        return CM_FALSE;
+    }
+    return g_mes_interrupt_func(arg, wait_time);
+}
+
+int mes_get_response_ex(ruid_type ruid, mes_msg_t* response, int timeout_ms, void *arg)
 {
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
         LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_get_response");
@@ -324,6 +339,7 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     MES_RETURN_IF_BAD_RUID(ruid);
     uint64 start_stat_time = cm_get_time_usec();
     int32 wait_time = 0;
+    int interrupt = CM_FALSE;
     mes_message_t msg;
     mes_waiting_room_t *room = mes_ruid_get_room(ruid);
     CM_ASSERT(room != NULL);
@@ -346,11 +362,11 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     for (;;) {
         if (!mes_mutex_timed_lock(&room->mutex, MES_WAIT_TIMEOUT)) {
             wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout_ms || MES_WAITS_INTERRUPTED) {
+            interrupt = mes_interrupt(arg, wait_time);
+            if (wait_time >= timeout_ms || interrupt) {
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_timeout(room);
-                LOG_DYN_TRC_WAR("[MES][%llu][%llu-%llu]RWT, INT=%u",
-                    (uint64)ruid, (uint64)room->room_index, room->rsn, MES_WAITS_INTERRUPTED);
+                LOG_DYN_TRC_WAR("[MES][%llu][%d-%llu]RWT, INT=%d", ruid, room->room_index, room->rsn, interrupt);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;
             }
@@ -382,6 +398,11 @@ int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms)
     mes_consume_with_time((&msg)->head->app_cmd, MES_TIME_MSG_RECV, start_stat_time);
 
     return CM_SUCCESS;
+}
+
+int mes_get_response(ruid_type ruid, mes_msg_t *response, int timeout_ms)
+{
+    return mes_get_response_ex(ruid, response, timeout_ms, NULL);
 }
 
 int mes_broadcast_x(flag_type flag, unsigned int count, ...)
@@ -515,7 +536,7 @@ int mes_broadcast_request_sp(inst_type* inst_list, unsigned int inst_count,
     return mes_broadcast_request_spx(inst_list, inst_count, flag, ruid, 1, msg_data, size);
 }
 
-int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms)
+int mes_broadcast_get_response_ex(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms, void *arg)
 {
     if (SECUREC_UNLIKELY(MES_GLOBAL_INST_MSG.profile.disable_request)) {
         LOG_RUN_ERR(
@@ -524,6 +545,7 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
     }
     MES_RETURN_IF_BAD_RUID(ruid);
     int32 wait_time = 0;
+    int interrupt = CM_FALSE;
     mes_waiting_room_t *room = mes_ruid_get_room(ruid);
     CM_ASSERT(room != NULL);
 
@@ -533,12 +555,12 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
         }
         if (!mes_mutex_timed_lock(&room->broadcast_mutex, MES_WAIT_TIMEOUT)) {
             wait_time += MES_WAIT_TIMEOUT;
-            if (wait_time >= timeout_ms || MES_WAITS_INTERRUPTED) {
+            interrupt = mes_interrupt(arg, wait_time);
+            if (wait_time >= timeout_ms || interrupt) {
                 room->ack_count = 0; // invalid broadcast ack
                 // when timeout the ack msg may reach, so need do some check and protect.
                 mes_protect_when_brcast_timeout(room);
-                LOG_DYN_TRC_WAR("[mes]room %hhu with rsn=%llu has timed out on brcast, INT=%u",
-                    room->room_index, room->rsn - 1, MES_WAITS_INTERRUPTED);
+                LOG_DYN_TRC_WAR("[MES][%llu][%d-%llu]RWT, INT=%d", ruid, room->room_index, room->rsn, interrupt);
                 mes_free_room(room);
                 return ERR_MES_WAIT_OVERTIME;
             }
@@ -553,4 +575,14 @@ int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int ti
     mes_free_room(room);
 
     return CM_SUCCESS;
+}
+
+int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t *responses, int timeout_ms)
+{
+    return mes_broadcast_get_response_ex(ruid, responses, timeout_ms, NULL);
+}
+
+void mes_block_sighup_signal()
+{
+    cm_block_sighup_signal();
 }

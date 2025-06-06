@@ -25,6 +25,7 @@
 #include "cm_thread_pool.h"
 #include "cm_log.h"
 #include "cm_error.h"
+#include "cm_system.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,7 @@ static void cm_pooling_thread_entry(thread_t *obj)
     status_t ret;
 
     cm_set_thread_name("pooling_thread");
+    cm_block_sighup_signal();
 
     pooling_thread->spid = cm_get_current_thread_id();
 

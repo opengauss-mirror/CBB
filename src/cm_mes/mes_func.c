@@ -39,6 +39,7 @@
 #include "mes_recv.h"
 #include "mes_stat.h"
 #include "mec_adapter.h"
+#include "cm_system.h"
 
 mes_instance_t g_cbb_mes = {0};
 mes_callback_t g_cbb_mes_callback;
@@ -1370,6 +1371,7 @@ static void mes_heartbeat_entry(thread_t *thread)
     char thread_name[CM_MAX_THREAD_NAME_LEN];
     PRTS_RETVOID_IFERR(sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_heartbeat_%u", inst_id));
     cm_set_thread_name(thread_name);
+    cm_block_sighup_signal();
 
     mes_context_t *mes_ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
     uint64 periods = 0;
@@ -1499,7 +1501,6 @@ int mes_init(mes_profile_t *profile)
     mes_init_stat(profile);
 
     MES_GLOBAL_INST_MSG.mes_ctx.phase = SHUTDOWN_PHASE_NOT_BEGIN;
-    MES_WAITS_INTERRUPTED = CM_FALSE;
     do {
         ret = cm_start_timer(g_timer());
         if (ret != CM_SUCCESS) {
@@ -2146,16 +2147,6 @@ void mes_discard_response(ruid_type ruid)
         mes_mutex_unlock(&room->mutex);
     }
     cm_spin_unlock(&room->lock);
-}
-
-void mes_interrupt_get_response(void)
-{
-    MES_WAITS_INTERRUPTED = CM_TRUE;
-}
-
-void mes_resume_get_response(void)
-{
-    MES_WAITS_INTERRUPTED = CM_FALSE;
 }
 
 int mes_is_different_endian(inst_type dst_inst)

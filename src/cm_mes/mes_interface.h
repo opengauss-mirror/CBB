@@ -414,15 +414,12 @@ int mes_send_response_x(inst_type dest_inst, flag_type flag, ruid_type ruid, uns
  * @return CM_SUCCESS - success;otherwise: failed
  */
 int mes_get_response(ruid_type ruid, mes_msg_t* response, int timeout_ms);
+int mes_get_response_ex(ruid_type ruid, mes_msg_t *response, int timeout_ms, void *arg);
+
+typedef int (*mes_interrupt_func)(void *arg, int wait_time);
+void mes_register_interrupt(mes_interrupt_func func);
 
 void mes_release_msg(mes_msg_t* msg);
-
-/*
- * @brief mes_interrupt_get_response cancels all response waits,
- * until mes_resume_get_response restores them
- */
-void mes_interrupt_get_response(void);
-void mes_resume_get_response(void);
 
 /*
  * @brief Broadcast Message
@@ -444,6 +441,7 @@ int mes_broadcast_request_sp(inst_type* inst_list, unsigned int inst_count,
 int mes_broadcast_request_spx(inst_type* inst_list, unsigned int inst_count,
     flag_type flag, ruid_type* ruid, unsigned int count, ...);
 int mes_broadcast_get_response(ruid_type ruid, mes_msg_list_t* responses, int timeout_ms);
+int mes_broadcast_get_response_ex(ruid_type ruid, mes_msg_list_t *responses, int timeout_ms, void *arg);
 void mes_release_msg_list(mes_msg_list_t* message_list);
 
 /*
@@ -657,6 +655,13 @@ void mes_get_mem_usage_stat_row(mes_mem_stat_t mem_id, mes_mem_info_stat_t *mes_
  */
 int mes_get_message_pool_minimum_info(mes_profile_t *profile, unsigned char is_send,
     mes_msg_pool_minimum_info_t *minimum_info);
+
+
+/*
+ * @brief thread mask sighup signal.
+ * @return
+ */
+void mes_block_sighup_signal();
 
 #ifdef __cplusplus
 }
