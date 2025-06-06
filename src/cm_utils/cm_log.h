@@ -53,6 +53,7 @@ typedef enum en_log_type {
     LOG_BLACKBOX,
     LOG_DMS_EVT_TRC,
     LOG_DMS_RFM_TRC,
+    LOG_DYNAMIC,
     LOG_COUNT // LOG COUNT
 } log_type_t;
 
@@ -204,58 +205,30 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
     uint32 code_line_num, const char *module_name, bool32 need_rec_filelog, const char *format, va_list args);
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
+void cm_write_dynamic_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 
 #define LOG_DYN_TRC_CB (cm_log_param_instance()->dyn_trc_cbs.dyn_trc)
-#define LOG_DYN_TRC_INF(format, ...)                                                                             \
+
+#define LOG_DYN_TRC(level, level_str, format, ...)                                                               \
     do {                                                                                                         \
         if (CM_DYNAMIC_TRACE_ENABLED) {                                                                          \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                       \
+            LOG_DYN_TRC_CB(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         };                                                                                                       \
-        if (LOG_DEBUG_INF_ON) {                                                                                  \
+        if (LOG_DEBUG_##level_str##_ON) {                                                                        \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,    \
+                cm_log_param_instance()->log_write(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,  \
+                cm_write_normal_log(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
     } while (0)
 
-#define LOG_DYN_TRC_WAR(format, ...)                                                                             \
-    do {                                                                                                         \
-        if (CM_DYNAMIC_TRACE_ENABLED) {                                                                          \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,                       \
-                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
-        };                                                                                                       \
-        if (LOG_DEBUG_WAR_ON) {                                                                                  \
-            if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,    \
-                    LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
-            } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,              \
-                    LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-            }                                                                                                    \
-        }                                                                                                        \
-    } while (0)
-
-#define LOG_DYN_TRC_ERR(format, ...)                                                                             \
-    do {                                                                                                         \
-        if (CM_DYNAMIC_TRACE_ENABLED) {                                                                          \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,                      \
-                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
-        };                                                                                                       \
-        if (LOG_DEBUG_ERR_ON) {                                                                                  \
-            if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,   \
-                    LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
-            } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,             \
-                    LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-            }                                                                                                    \
-        }                                                                                                        \
-    } while (0)
+#define LOG_DYN_TRC_INF(format, ...) LOG_DYN_TRC(LEVEL_INFO, INF, format, ##__VA_ARGS__)
+#define LOG_DYN_TRC_WAR(format, ...) LOG_DYN_TRC(LEVEL_WARN, WAR, format, ##__VA_ARGS__)
+#define LOG_DYN_TRC_ERR(format, ...) LOG_DYN_TRC(LEVEL_INFO, ERR, format, ##__VA_ARGS__)
 
 #define CM_SS_DYN_TRC_SET_TRACE_FLAG(val)                                   \
     do {                                                                    \
@@ -271,55 +244,33 @@ status_t cm_recovery_log_file(log_type_t log_type);
         }                                                             \
     } while (0)
 
-#define LOG_DEBUG_INF(format, ...)                                                                               \
+#define LOG_DYNAMIC_INF(format, ...)                                  \
+    do {                                                              \
+        if (LOG_ON) {                                                 \
+            cm_write_dynamic_log(format, ##__VA_ARGS__);              \
+        }                                                             \
+    } while (0)
+
+#define DEBUG_LOG(level, level_str, format, ...)                                                                 \
     do {                                                                                                         \
         if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                       \
+            LOG_DYN_TRC_CB(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         };                                                                                                       \
-        if (LOG_DEBUG_INF_ON) {                                                                                  \
+        if (LOG_DEBUG_##level_str##_ON) {                                                                        \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,    \
+                cm_log_param_instance()->log_write(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,  \
+                cm_write_normal_log(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
     } while (0)
 
-#define LOG_DEBUG_WAR(format, ...)                                                                               \
-    do {                                                                                                         \
-        if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,                       \
-                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
-        };                                                                                                       \
-        if (LOG_DEBUG_WAR_ON) {                                                                                  \
-            if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,    \
-                    LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
-            } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,              \
-                    LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-            }                                                                                                    \
-        }                                                                                                        \
-    } while (0)
-#define LOG_DEBUG_ERR(format, ...)                                                                               \
-    do {                                                                                                         \
-        if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
-            LOG_DYN_TRC_CB(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,                      \
-                LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
-        };                                                                                                       \
-        if (LOG_DEBUG_ERR_ON) {                                                                                  \
-            if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,   \
-                    LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
-            } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(LOG_DEBUG, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,             \
-                    LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
-            }                                                                                                    \
-        }                                                                                                        \
-    } while (0)
+#define LOG_DEBUG_INF(format, ...) DEBUG_LOG(LEVEL_INFO, INF, format, ##__VA_ARGS__)
+#define LOG_DEBUG_WAR(format, ...) DEBUG_LOG(LEVEL_WARN, WAR, format, ##__VA_ARGS__)
+#define LOG_DEBUG_ERR(format, ...) DEBUG_LOG(LEVEL_INFO, ERR, format, ##__VA_ARGS__)
 
 // 10s print 5 times
 #define LOG_DEBUG_ERR_EX(format, ...)                                                                               \
