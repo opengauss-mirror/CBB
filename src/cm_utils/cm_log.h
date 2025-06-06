@@ -34,7 +34,8 @@
 extern "C" {
 #endif
 
-extern bool32 g_high_frequency_restrt_process;
+#define CM_INVALID_FD (-1)
+extern bool32 g_high_frequency_restart_process;
 typedef enum en_log_level {
     LEVEL_ERROR = 0, // error conditions
     LEVEL_WARN,      // warning conditions
@@ -206,7 +207,7 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
 void cm_write_dynamic_log(const char *format, ...) CM_CHECK_FMT(1, 2);
-
+void cm_log_create_dir(const log_file_handle_t *log_file_handle);
 #define LOG_DYN_TRC_CB (cm_log_param_instance()->dyn_trc_cbs.dyn_trc)
 
 #define LOG_DYN_TRC(level, level_str, format, ...)                                                               \
