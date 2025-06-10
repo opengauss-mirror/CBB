@@ -29,6 +29,10 @@
 #include "cm_signal.h"
 #include "cm_file.h"
 #include "openssl/x509v3.h"
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include "openssl/param_build.h"
+#include "openssl/core_names.h"
+#endif
 #include "cm_date.h"
 #include "cm_utils.h"
 
@@ -147,11 +151,19 @@ static const char *cs_ssl_last_err_string(char *buf, uint32 size)
 
     ulong err = ERR_get_error();
     if (err) {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         const char *fstr = ERR_func_error_string(err);
+#endif
         const char *rstr = ERR_reason_error_string(err);
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         if (snprintf_s(buf, size, size - 1, "error code = %lu, reason code = %d, ssl function = %s:%s ", err,
-            ERR_GET_REASON(err), (fstr ? fstr : "<null>"), (rstr ? rstr : "<null>")) == -1) {
+            ERR_GET_REASON(err), (fstr ? fstr : "<null>"), (rstr ? rstr : "<null>")) == -1)
+#else
+        if (snprintf_s(buf, size, size - 1, "error code = %lu, reason code = %d, ssl function = %s ", err,
+            ERR_GET_REASON(err), (rstr ? rstr : "<null>")) == -1)
+#endif
+        {
             return buf;
         }
     } else {
@@ -558,6 +570,7 @@ static unsigned char g_dh3072_g[] = {
 };
 
 /* function to generate DH key pair */
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 static DH *get_dh3072(void)
 {
     DH *dh;
@@ -580,6 +593,70 @@ static DH *get_dh3072(void)
 
     return dh;
 }
+#else
+static EVP_PKEY *get_dh3072(void)
+{
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DH, NULL);
+    if (!ctx) {
+        return NULL;
+    }
+
+    EVP_PKEY *pkey = NULL;
+    BIGNUM *p = NULL;
+    BIGNUM *g = NULL;
+    OSSL_PARAM *params = NULL;
+    OSSL_PARAM_BLD *param_bld = NULL;
+
+    do {
+        p = BN_bin2bn(g_dh3072_p, sizeof(g_dh3072_p), NULL);
+        g = BN_bin2bn(g_dh3072_g, sizeof(g_dh3072_g), NULL);
+        if (!p || !g) {
+            break;
+        }
+
+        if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+            break;
+        }
+
+        param_bld = OSSL_PARAM_BLD_new();
+        if (!param_bld) {
+            break;
+        }
+
+        if (!OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_P, p) ||
+            !OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_FFC_G, g)) {
+            break;
+        }
+
+        params = OSSL_PARAM_BLD_to_param(param_bld);
+        if (!params) {
+            break;
+        }
+
+        if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEY_PARAMETERS, params) <= 0) {
+            break;
+        }
+    } while (0);
+
+    if (param_bld) {
+        OSSL_PARAM_BLD_free(param_bld);
+    }
+    if (params) {
+        OSSL_PARAM_free(params);
+    }
+    if (p) {
+        BN_free(p);
+    }
+    if (g) {
+        BN_free(g);
+    }
+    if (ctx) {
+        EVP_PKEY_CTX_free(ctx);
+    }
+
+    return pkey;
+}
+#endif
 
 /**
  * Callback function for get PEM info for SSL, add thread lock protect call for 'PEM_def_callback'.
@@ -928,15 +1005,25 @@ void cs_ssl_throw_error(int32 ssl_err)
     ulong ret_code;
     const char *file = NULL;
     const char *data = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    const char *func = NULL;
+#endif
     int32 line = 0;
     int32 flags = 0;
     int32 ret;
 
     /* try get line data from ssl error queue */
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     while ((ret_code = ERR_get_error_line_data(&file, &line, &data, &flags))) {
         ret = snprintf_s(err_buf1 + err_len, CM_MESSAGE_BUFFER_SIZE - err_len, CM_MESSAGE_BUFFER_SIZE - 1 - err_len,
             "OpenSSL:%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2), file, line,
             ((uint32)flags & ERR_TXT_STRING) ? data : "");
+#else
+    while ((ret_code = ERR_get_error_all(&file, &line, &func, &data, &flags))) {
+        ret = snprintf_s(err_buf1 + err_len, CM_MESSAGE_BUFFER_SIZE - err_len, CM_MESSAGE_BUFFER_SIZE - 1 - err_len,
+            "OpenSSL:%s-%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2), file, line, func,
+            ((uint32)flags & ERR_TXT_STRING) ? data : "");
+#endif
         if (ret == -1) {
             continue;
         }
@@ -1099,6 +1186,7 @@ static status_t cs_ssl_set_cert_auth(SSL_CTX *ctx, const char *cert_file, const 
     return CM_SUCCESS;
 }
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 static status_t cs_ssl_set_tmp_dh(SSL_CTX *ctx)
 {
     DH *dh = get_dh3072();
@@ -1114,6 +1202,22 @@ static status_t cs_ssl_set_tmp_dh(SSL_CTX *ctx)
     DH_free(dh);
     return CM_SUCCESS;
 }
+#else
+static status_t cs_ssl_set_tmp_dh(SSL_CTX *ctx)
+{
+    EVP_PKEY *dh_pkey = get_dh3072();
+    if (dh_pkey == NULL) {
+        return CM_ERROR;
+    }
+
+    if (!SSL_CTX_set0_tmp_dh_pkey(ctx, dh_pkey)) {
+        EVP_PKEY_free(dh_pkey);
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+#endif
 
 static bool32 ssl_check_is_gmtls(ssl_config_t *config)
 {
@@ -1513,7 +1617,6 @@ static SSL *cs_ssl_create_socket(SSL_CTX *ctx, socket_t sock)
     }
     return ssl_sock;
 }
-
 
 static char *get_common_name(X509_NAME *cert_name, char *buf, uint32 len)
 {
