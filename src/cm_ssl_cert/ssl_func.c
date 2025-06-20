@@ -177,11 +177,6 @@ status_t ser_cert_accept(cs_pipe_t *pipe)
     if (cs_ssl_accept(g_ser_ssl.ssl_fd, pipe) != CM_SUCCESS) {
         return CM_ERROR;
     }
-    bool32 ready;
-    if (cs_wait(pipe, CS_WAIT_FOR_READ, CM_CONNECT_TIMEOUT, &ready) != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes]: wait failed.");
-        return ERR_MES_WAIT_FAIL;
-    }
 
     return CM_SUCCESS;
 }
