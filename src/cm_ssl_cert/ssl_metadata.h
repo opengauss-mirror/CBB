@@ -47,10 +47,12 @@ typedef enum en_cert_param {
     CERT_PARAM_SER_SSL_CA,
     CERT_PARAM_SER_SSL_KEY,
     CERT_PARAM_SER_SSL_CERT,
+    CERT_PARAM_SER_SSL_CRL,
     CERT_PARAM_SER_SSL_CERT_NOTIFY_TIME,
     CERT_PARAM_CLI_SSL_CA,
     CERT_PARAM_CLI_SSL_KEY,
     CERT_PARAM_CLI_SSL_CERT,
+    CERT_PARAM_CLI_SSL_CRL,
     CERT_PARAM_CLI_SSL_CERT_NOTIFY_TIME,
     CERT_PARAM_CEIL,
 } cert_param_t;
@@ -62,10 +64,12 @@ typedef union un_cert_param_value {
     char ser_ssl_ca[CM_FULL_PATH_BUFFER_SIZE];
     char ser_ssl_key[CM_FULL_PATH_BUFFER_SIZE];
     char ser_ssl_cert[CM_FULL_PATH_BUFFER_SIZE];
+    char ser_ssl_crl[CM_FULL_PATH_BUFFER_SIZE];
     uint32 cli_ssl_cert_notify_time;
     char cli_ssl_ca[CM_FULL_PATH_BUFFER_SIZE];
     char cli_ssl_key[CM_FULL_PATH_BUFFER_SIZE];
     char cli_ssl_cert[CM_FULL_PATH_BUFFER_SIZE];
+    char cli_ssl_crl[CM_FULL_PATH_BUFFER_SIZE];
 } cert_param_value_t;
 
 typedef enum en_cert_param_val_type {

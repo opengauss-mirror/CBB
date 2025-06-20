@@ -31,11 +31,13 @@ static cert_param_item_t g_parameters[] = {
     [CERT_PARAM_SER_SSL_CA] = {"SER_SSL_CA", {.ser_ssl_ca = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_SER_SSL_KEY] = {"SER_SSL_KEY", {.ser_ssl_key = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_SER_SSL_CERT] = {"SER_SSL_CERT", {.ser_ssl_cert = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
+    [CERT_PARAM_SER_SSL_CRL] = {"SER_SSL_CRL", {.ser_ssl_crl = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_SER_SSL_CERT_NOTIFY_TIME] = {"SER_SSL_CERT_NOTIFY_TIME", {.ser_ssl_cert_notify_time = 30},
                                              get_cert_ssl_notify_time, "[7,180]", CERT_PARAM_UINT32},
     [CERT_PARAM_CLI_SSL_CA] = {"CLI_SSL_CA", {.cli_ssl_ca = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_CLI_SSL_KEY] = {"CLI_SSL_KEY", {.cli_ssl_key = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_CLI_SSL_CERT] = {"CLI_SSL_CERT", {.cli_ssl_cert = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
+    [CERT_PARAM_CLI_SSL_CRL] = {"CLI_SSL_CRL", {.cli_ssl_crl = ""}, get_cert_param_string, "", CERT_PARAM_STRING},
     [CERT_PARAM_CLI_SSL_CERT_NOTIFY_TIME] = {"CLI_SSL_CERT_NOTIFY_TIME", {.cli_ssl_cert_notify_time = 30},
                                              get_cert_ssl_notify_time, "[7,180]", CERT_PARAM_UINT32}
 };
@@ -70,6 +72,10 @@ status_t get_cert_param_string(cert_param_t param_type, const char *param_value,
             errcode = strncpy_s(out_value->ser_ssl_cert, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
                 strlen((const char *)param_value));
             break;
+        case CERT_PARAM_SER_SSL_CRL:
+            errcode = strncpy_s(out_value->ser_ssl_crl, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
+                strlen((const char *)param_value));
+            break;
         case CERT_PARAM_CLI_SSL_CA:
             errcode = strncpy_s(out_value->cli_ssl_ca, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
                 strlen((const char *)param_value));
@@ -80,6 +86,10 @@ status_t get_cert_param_string(cert_param_t param_type, const char *param_value,
             break;
         case CERT_PARAM_CLI_SSL_CERT:
             errcode = strncpy_s(out_value->cli_ssl_cert, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
+                strlen((const char *)param_value));
+            break;
+        case CERT_PARAM_CLI_SSL_CRL:
+            errcode = strncpy_s(out_value->cli_ssl_crl, CM_FULL_PATH_BUFFER_SIZE, (const char *)param_value,
                 strlen((const char *)param_value));
             break;
         default:

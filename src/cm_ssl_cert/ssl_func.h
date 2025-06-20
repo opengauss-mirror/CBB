@@ -45,10 +45,11 @@ typedef struct st_ssl_instance {
 extern ssl_instance_t g_cli_ssl;
 extern ssl_instance_t g_ser_ssl;
 
-status_t cli_init_ssl(void);
-status_t cli_ssl_connect(cs_pipe_t *pipe);
+status_t cli_init_ssl(ssl_instance_t *ssl_inst);
+status_t cli_ssl_connect(ssl_instance_t *ssl_inst, cs_pipe_t *pipe);
 status_t ser_init_ssl(socket_t sock);
 void ser_ssl_uninit(void);
+void cli_ssl_uninit(ssl_instance_t *ssl_inst);
 status_t ser_cert_accept(cs_pipe_t *pipe);
 
 #endif
