@@ -51,5 +51,5 @@ status_t ser_init_ssl(socket_t sock);
 void ser_ssl_uninit(void);
 void cli_ssl_uninit(ssl_instance_t *ssl_inst);
 status_t ser_cert_accept(cs_pipe_t *pipe);
-
+status_t ser_cert_reload();
 #endif

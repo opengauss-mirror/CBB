@@ -24,6 +24,7 @@
 #include <float.h>
 #include <math.h>
 #include <unistd.h>
+#include <time.h>
 #include "cm_ip.h"
 #include "cm_memory.h"
 #include "cm_spinlock.h"
@@ -309,4 +310,70 @@ status_t ser_init_ssl(socket_t sock)
 
     LOG_RUN_INF("[mes] mes_init success.");
     return ret;
+}
+
+static void get_cert_expire_day(const char *cert_file)
+{
+    FILE *cert_fd = fopen(cert_file, "r");
+    X509 *cert = PEM_read_X509(cert_fd, NULL, NULL, NULL);
+    fclose(cert_fd);
+
+    ASN1_TIME *not_after = X509_get_notAfter(cert);
+
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    if (ASN1_TIME_to_tm(not_after, &tm) != 1) {
+        LOG_DEBUG_ERR("change cert expire time format from ASN1_TIME to tm.");
+        return;
+    }
+    char buffer[CM_BUFLEN_128];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%SZ", &tm);
+    LOG_RUN_INF("%s will be expire at %s", cert_file, buffer);
+}
+
+status_t ser_cert_reload()
+{
+    ssl_config_t ssl_cfg = {0};
+    cert_param_value_t ca;
+    cert_param_value_t key;
+    cert_param_value_t cert;
+    cert_param_value_t crl;
+
+    // Required parameters
+    CM_RETURN_IFERR(ssl_md_get_param(CERT_PARAM_SER_SSL_CA, &ca));
+    ssl_cfg.ca_file = ca.ser_ssl_ca;
+    CM_RETURN_IFERR(ssl_md_get_param(CERT_PARAM_SER_SSL_KEY, &key));
+    ssl_cfg.key_file = key.ser_ssl_key;
+    CM_RETURN_IFERR(ssl_md_get_param(CERT_PARAM_SER_SSL_CERT, &cert));
+    ssl_cfg.cert_file = cert.ser_ssl_cert;
+    CM_RETURN_IFERR(ssl_md_get_param(CERT_PARAM_SER_SSL_CRL, &crl));
+    ssl_cfg.crl_file = crl.ser_ssl_crl;
+
+    ssl_cfg.verify_peer = CM_TRUE;
+
+    if (CM_IS_EMPTY_STR(ssl_cfg.cert_file) || CM_IS_EMPTY_STR(ssl_cfg.key_file) || CM_IS_EMPTY_STR(ssl_cfg.ca_file)) {
+        LOG_RUN_WAR("[ssl] SSL disabled: certificate file or private key file or CA certificate is not available.");
+        LOG_ALARM(WARN_SSL_DIASBLED, "}");
+        return CM_SUCCESS;
+    }
+
+    /* Require no public access to key file */
+    CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.ca_file));
+    CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.key_file));
+    CM_RETURN_IFERR(cs_ssl_verify_file_stat(ssl_cfg.cert_file));
+    // create fd
+    ssl_ctx_t *new_ssl_ctx = cs_ssl_create_acceptor_fd(&ssl_cfg);
+    if (new_ssl_ctx == NULL) {
+        LOG_RUN_ERR("Failed to create new wrserver ssl ctx.");
+        return CM_ERROR;
+    }
+    ssl_ctx_t *old_ctx = g_ser_ssl.ssl_fd;
+    g_ser_ssl.ssl_fd = new_ssl_ctx;
+    if (old_ctx) {
+        SSL_CTX_free((SSL_CTX *)old_ctx);
+    }
+    get_cert_expire_day(ssl_cfg.cert_file);
+    LOG_RUN_INF("Successfully reload server cert");
+
+    return CM_SUCCESS;
 }
