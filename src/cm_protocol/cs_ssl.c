@@ -1426,9 +1426,11 @@ static int32 ssl_get_expire_day(const ASN1_TIME *ctm, time_t *curr_time)
     }
 
     if (!ASN1_TIME_diff(&day, &sec, asn1_cmp_time, ctm)) {
+        ASN1_TIME_free(asn1_cmp_time);
         return -1;
     }
 
+    ASN1_TIME_free(asn1_cmp_time);
     return day;
 }
 
