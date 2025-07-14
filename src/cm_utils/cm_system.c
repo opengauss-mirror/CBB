@@ -42,7 +42,7 @@ extern "C" {
 #pragma warning(disable : 4996)  // avoid GetVersionEx to be warned
 #endif
 
-static const bool32 volatile g_system_initialized = CM_FALSE;
+static volatile bool32 g_system_initialized = CM_FALSE;
 static spinlock_t g_system_lock;
 static char g_program_name[CM_FILE_NAME_BUFFER_SIZE + 1] = {0};
 static char g_user_name[CM_NAME_BUFFER_SIZE] = {0};
@@ -209,7 +209,7 @@ void cm_try_init_system(void)
     cm_get_user_name();
     cm_get_program_name();
     cm_get_platform_name();
-
+    g_system_initialized = CM_TRUE;
     cm_spin_unlock(&g_system_lock);
 }
 
