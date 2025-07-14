@@ -464,9 +464,12 @@ void cs_stop_tcp_lsnr(tcp_lsnr_t *lsnr)
 
 void cs_pause_tcp_lsnr(tcp_lsnr_t *lsnr)
 {
+    if (lsnr->thread.id == 0) {
+        return;
+    }
     lsnr->status = LSNR_STATUS_PAUSING;
     while (lsnr->status != LSNR_STATUS_PAUSED && !lsnr->thread.closed) {
-        cm_sleep(5);
+        cm_sleep(1);
     }
 }
 
