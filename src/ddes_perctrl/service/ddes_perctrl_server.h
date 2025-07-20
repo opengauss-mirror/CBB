@@ -67,8 +67,8 @@ typedef struct st_cm_log_def_t {
 } cm_log_def_t;
 
 cm_log_def_t g_perctrl_log[] = {
-    {CM_LOG_DEBUG, "debug/perctrl.dlog"},
-    {CM_LOG_RUN, "run/perctrl.rlog"},
+    {LOG_DEBUG, "debug/perctrl.dlog"},
+    {LOG_RUN, "run/perctrl.rlog"},
 };
 
 #endif

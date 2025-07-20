@@ -97,8 +97,7 @@ COMM_INC = $(SECURE_INC) \
            $(PROJECT_SOURCE_DIR)/src/ddes_perctrl/interface \
            $(PROJECT_SOURCE_DIR)/src/cm_compress \
            $(PROJECT_SOURCE_DIR)/src/cm_mec_adapter \
-           $(PROJECT_SOURCE_DIR)/src/ddes_fi \
-           $(PROJECT_SOURCE_DIR)/src/cs_ssl_cert
+           $(PROJECT_SOURCE_DIR)/src/ddes_fi
 
 # third part
 ifeq (x$(GCC_VERSION), x)

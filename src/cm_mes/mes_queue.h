@@ -97,7 +97,6 @@ typedef struct st_mes_task_priority {
     char aligned2[CM_CACHE_LINE_SIZE];
     uint64_t finished_msgitem_num;
     uint64_t inqueue_msgitem_num;
-    uint64 total_cost_time;
 } mes_task_priority_t;
 
 typedef struct st_mes_mq_priority {
@@ -126,12 +125,6 @@ typedef struct st_task_arg {
     uint32 msg_src_inst;
     bool8 is_active;
     char data[MES_INFO_LEN];
-    struct {
-        uint64 longest_cost_time; // longest_cost_time in history
-        uint64 longest_get_msgitem_time; // longest_get_msgitem_time in history
-        uint32 longest_cmd; // longest_cmd in history
-        char longest_data[MES_INFO_LEN];
-    };
 } task_arg_t;
 
 typedef struct st_mq_context_t {

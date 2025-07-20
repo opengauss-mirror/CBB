@@ -41,7 +41,7 @@ static bool32 cs_create_tcp_link(socket_t sock_ready, cs_pipe_t *pipe)
     link->local.salen = (socklen_t)sizeof(link->local.addr);
     link->remote.salen = (socklen_t)sizeof(link->remote.addr);
     (void)getsockname(sock_ready, (struct sockaddr *)&link->local.addr, (socklen_t *)&link->local.salen);
-    (void)getpeername(sock_ready, SOCKADDR(&link->remote), &link->remote.salen);
+    (void)getpeername(sock_ready, SOCKADDR(&link->remote), (socklen_t *)&link->remote.salen);
 
     /* set default options of sock */
     cs_set_io_mode(link->sock, CM_TRUE, CM_TRUE);
@@ -70,7 +70,7 @@ static int cs_add_accept_sock(tcp_lsnr_t* lsnr, socket_t sock_accept)
     accept_sock_t* node = cm_malloc_prot(sizeof(accept_sock_t));
     if(node == NULL) {
         cm_close_file(sock_accept);
-        LOG_DEBUG_ERR("[mes] alloc memeory failed:sock:%d,errno:%d", sock_accept, cm_get_os_error());
+        LOG_DEBUG_ERR("[mes] alloc memeory failed. sock:%d,errno:%d", sock_accept, cm_get_os_error());
         return CM_ERROR;
     }
 
@@ -79,7 +79,8 @@ static int cs_add_accept_sock(tcp_lsnr_t* lsnr, socket_t sock_accept)
     if(epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_ADD, sock_accept, &ev) != 0) {
         cm_close_file(sock_accept);
         cm_free_prot(node);
-        LOG_DEBUG_ERR("[mes] add accepted sock to epoll fd failed:sock:%d,errno%d", sock_accept,cm_get_os_error());
+        LOG_DEBUG_ERR(
+            "[mes] add accepted sock to epoll fd failed:sock:%d,errno%d", sock_accept,cm_get_os_error());
         return CM_ERROR;
     }
 
@@ -95,7 +96,7 @@ static int cs_remove_accept_sock(tcp_lsnr_t* lsnr, socket_t sock_accept, bool32 
     struct epoll_event ev;
     ev.events = (EPOLLIN | EPOLLRDHUP | EPOLLERR);
     ev.data.fd = sock_accept;
-
+    
     (void)epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_DEL, sock_accept, &ev);
     accept_sock_t* node = (accept_sock_t*)lsnr->accepted_socks.head;
     if(need_close) {
@@ -112,7 +113,7 @@ static int cs_remove_accept_sock(tcp_lsnr_t* lsnr, socket_t sock_accept, bool32 
         }
     }
 
-    LOG_RUN_ERR("[mes] cs_remove_accept_sock failed:not found sock:%d",sock_accept);
+    LOG_RUN_ERR("[mes] cm_remove_accept_sock failed:not found sock:%d",sock_accept);
     return CM_ERROR;
 }
 
@@ -125,21 +126,23 @@ static void cs_remove_timeout_accept_sock(tcp_lsnr_t* lsnr)
         accept_sock_t* cur = node;
         node =  (accept_sock_t*)node->node.next;
         if(now_time_ms > cur->accept_time_ms + lsnr->timeout_ms) {
-            LOG_RUN_ERR("[mes]accepted sock is timeout,sock=:%d, accept_time=%lld,now=%lld", cur->accept_sock,
-                cur->accept_time_ms, now_time_ms);
+            LOG_RUN_ERR("[mes]accepted sock is timeout,sock=:%d, accept_time=%lld,now=%lld",
+                cur->accept_sock,
+                cur->accept_time_ms,
+                now_time_ms);
             (void)epoll_ctl(lsnr->epoll_fd, EPOLL_CTL_DEL, cur->accept_sock, &ev);
             close(cur->accept_sock);
             cm_bilist_del((bilist_node_t*)cur,&lsnr->accepted_socks);
             cm_free_prot(cur);
         }
-    }
+    }    
 }
 
 static void cs_remove_all_accept_sock(tcp_lsnr_t* lsnr)
 {
     struct epoll_event ev;
-
-    LOG_RUN_INF("[mes] close all accepted sock.");
+    
+    LOG_RUN_ERR("[mes] close all accepted sock.");
     accept_sock_t* node = (accept_sock_t*)lsnr->accepted_socks.head;
     while(node != NULL) {
         accept_sock_t* cur = node;
@@ -155,13 +158,14 @@ static void cs_remove_all_accept_sock(tcp_lsnr_t* lsnr)
 void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
 {
     socket_t sock_ready;
-    int32 loop, ret;
+    int32 loop;
+    int32 ret;
 
-    struct epoll_event evnts[CM_MAX_POLL_COUNT];
+    struct epoll_event evnts[CM_MAX_LSNR_HOST_COUNT];
 
     cs_remove_timeout_accept_sock(lsnr);
 
-    ret = epoll_wait(lsnr->epoll_fd, evnts, CM_MAX_POLL_COUNT, CM_POLL_WAIT);
+    ret = epoll_wait(lsnr->epoll_fd, evnts, (int)lsnr->sock_count, CM_POLL_WAIT);
     if (ret == 0) {
         return;
     }
@@ -199,7 +203,7 @@ void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
                 (void)cs_remove_accept_sock(lsnr, sock_ready, CM_FALSE);
                 if (lsnr->status != LSNR_STATUS_RUNNING) {
                     cs_tcp_disconnect(&pipe->link.tcp);
-                    LOG_DEBUG_ERR("[mes] listener status is abnormal:%d", sock_ready);
+                    LOG_DEBUG_ERR("[mes] listener status is abnorma:%d", sock_ready);
                     continue;
                 }
                 if (lsnr->action(lsnr, pipe) != CM_SUCCESS) {
@@ -207,7 +211,7 @@ void cs_try_tcp_accept(tcp_lsnr_t *lsnr, cs_pipe_t *pipe)
                     continue;
                 }
             } else {
-                LOG_DEBUG_ERR("[mes] listener get unknown event on sock:%d, event:%d", sock_ready, evnts[loop].events);
+                LOG_DEBUG_ERR("[mes] listener get unknown event on sock:%d, evnet:%d", sock_ready, evnts[loop].events);
             }
         }
     }
@@ -380,8 +384,6 @@ status_t cs_create_lsnr_socks(tcp_lsnr_t *lsnr)
         if (host[loop][0] != '\0') {
             if (cs_create_one_lsnr_sock(lsnr, host[loop], &slot_id) != CM_SUCCESS) {
                 cs_close_lsnr_socks(lsnr);
-                LOG_RUN_ERR("[mes]cs_create_one_lsnr_sock failed, error code=%d, error info=%s",
-                    cm_get_error_code(), cm_get_errormsg(cm_get_error_code()));
                 return CM_ERROR;
             }
             lsnr->slots[loop] = slot_id;
@@ -464,12 +466,9 @@ void cs_stop_tcp_lsnr(tcp_lsnr_t *lsnr)
 
 void cs_pause_tcp_lsnr(tcp_lsnr_t *lsnr)
 {
-    if (lsnr->thread.id == 0) {
-        return;
-    }
     lsnr->status = LSNR_STATUS_PAUSING;
     while (lsnr->status != LSNR_STATUS_PAUSED && !lsnr->thread.closed) {
-        cm_sleep(1);
+        cm_sleep(5);
     }
 }
 

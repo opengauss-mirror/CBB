@@ -35,7 +35,8 @@
 // group latch wait time: 0.1 ms * 10^5 = 1s
 #define MES_TASK_GROUP_LATCH_WAIT_TICKETS 10000
 
-void mes_task_threadpool_group_init(mes_task_threadpool_group_t *group, mes_task_threadpool_group_attr_t *attr)
+void mes_task_threadpool_group_init(mes_task_threadpool_group_t *group,
+    mes_task_threadpool_group_attr_t *attr)
 {
     group->attr = *attr;
     cm_bilist_init(&group->worker_list);
@@ -58,7 +59,7 @@ unsigned int mes_task_threadpool_group_get_all_queue_task_num(mes_task_threadpoo
     unsigned int total_cnt = 0;
     unsigned int min_cnt = CM_INVALID_ID32;
     mes_task_threadpool_queue_t *queue = (mes_task_threadpool_queue_t*)group->queue_list.head;
-    for (uint32 i = 0; i < group->queue_list.count; i++) {
+    for (int i = 0; i < group->queue_list.count; i++) {
         unsigned int cnt = queue->self_queue.count;
         if (cnt < min_cnt) {
             group->min_cnt_queue = queue;
@@ -84,7 +85,7 @@ void mes_task_threadpool_group_check_busyness(mes_task_threadpool_group_t *group
     return;
 }
 
-static status_t mes_task_threadpool_group_add_worker_check(mes_task_threadpool_group_t *group)
+mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threadpool_group_t *group)
 {
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
     if (group->leaving_queue != NULL) {
@@ -101,7 +102,8 @@ static status_t mes_task_threadpool_group_add_worker_check(mes_task_threadpool_g
         queue->status = MTTP_QUEUE_RUN;
         cm_spin_unlock(&queue->self_queue.lock);
         group->leaving_queue = NULL;
-        LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker][delete leaving-queue] end, group_id:%u", group->attr.group_id);
+        LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker][delete leaving-queue] end, group_id:%u",
+            group->attr.group_id);
         cm_unlatch(&group->latch, NULL);
     }
     
@@ -112,36 +114,30 @@ static status_t mes_task_threadpool_group_add_worker_check(mes_task_threadpool_g
         return MTTP_ADD_WORKER_STATUS_REACH_MAX;
     }
 
-    if (group->worker_list.count > group->attr.max_cnt || tpool->cur_worker_cnt > tpool->attr.max_cnt) {
+    if (group->worker_list.count > group->attr.max_cnt ||
+        tpool->cur_worker_cnt > tpool->attr.max_cnt) {
         LOG_RUN_ERR("[MES TASK THREADPOOL][add worker] group worker cnt large than max cnt, group_id:%u,"
             "worker cnt%u, max cnt:%u",
             group->attr.group_id, group->worker_list.count, group->attr.max_cnt);
         cm_panic(0);
         return MTTP_ADD_WORKER_STATUS_FAILED_NOT_EXPECT;
     }
-    return MTTP_ADD_WORKER_STATUS_SUCCESS;
-}
 
-mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threadpool_group_t *group)
-{
-    mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
-    mes_task_add_worker_status_t add_worker_status = mes_task_threadpool_group_add_worker_check(group);
-    if (add_worker_status != MTTP_ADD_WORKER_STATUS_SUCCESS) {
-        return add_worker_status;
-    }
-
-    LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] begin, group_id:%u", group->attr.group_id);
+    LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] begin, group_id:%u",
+            group->attr.group_id);
     if (!cm_latch_timed_x(&group->latch, 0, MES_TASK_GROUP_LATCH_WAIT_TICKETS, NULL)) {
-        LOG_DEBUG_WAR("[MES TASK THREADPOOL][add worker] end, can not get latch, group_id:%u", group->attr.group_id);
+        LOG_DEBUG_WAR("[MES TASK THREADPOOL][add worker] end, can not get latch, group_id:%u",
+            group->attr.group_id);
         return MTTP_ADD_WORKER_STATUS_FAILED_TRY_AGAIN;
     }
 
     LOG_DEBUG_INF("[MES TASK THREADPOOL][add worker] before add worker, group_id:%u "
-        "group queue cnt:%u, worker cnt:%u, "
-        "threadpool free queues:%u, free workers:%u, "
-        "current queus:%u, current workers:%u",
-        group->attr.group_id, group->queue_list.count, group->worker_list.count, tpool->free_queues.count,
-        tpool->free_workers.count, tpool->cur_queue_cnt, tpool->cur_worker_cnt);
+            "group queue cnt:%u, worker cnt:%u, "
+            "threadpool free queues:%u, free workers:%u, "
+            "current queus:%u, current workers:%u",
+            group->attr.group_id, group->queue_list.count, group->worker_list.count,
+            tpool->free_queues.count, tpool->free_workers.count,
+            tpool->cur_queue_cnt, tpool->cur_worker_cnt);
     mes_task_threadpool_worker_t *new_worker =
         (mes_task_threadpool_worker_t*)cm_bilist_pop_first(&tpool->free_workers);
     if (new_worker == NULL) {
@@ -167,7 +163,8 @@ mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threa
         group->notify_worker = (mes_task_threadpool_worker_t*)group->worker_list.head;
     }
 
-    mes_task_threadpool_queue_t *new_queue = (mes_task_threadpool_queue_t*)cm_bilist_pop_first(&tpool->free_queues);
+    mes_task_threadpool_queue_t *new_queue =
+        (mes_task_threadpool_queue_t*)cm_bilist_pop_first(&tpool->free_queues);
     if (new_queue == NULL) {
         cm_panic_log(0, "[MES TASK THREADPOOL][add worker] unexcept situation happen, new_queue is NULL.");
     }
@@ -185,18 +182,20 @@ mes_task_add_worker_status_t mes_task_threadpool_group_add_worker(mes_task_threa
         cm_panic(0);
     }
     LOG_RUN_INF("[MES TASK THREADPOOL][add worker] end, group_id:%u "
-        "group queue cnt:%u, worker cnt:%u, "
-        "threadpool free queues:%u, free workers:%u, "
-        "current queus:%u, current workers:%u",
-        group->attr.group_id, group->queue_list.count, group->worker_list.count, tpool->free_queues.count,
-        tpool->free_workers.count, tpool->cur_queue_cnt, tpool->cur_worker_cnt);
+            "group queue cnt:%u, worker cnt:%u, "
+            "threadpool free queues:%u, free workers:%u, "
+            "current queus:%u, current workers:%u",
+            group->attr.group_id, group->queue_list.count, group->worker_list.count,
+            tpool->free_queues.count, tpool->free_workers.count,
+            tpool->cur_queue_cnt, tpool->cur_worker_cnt);
     return MTTP_ADD_WORKER_STATUS_SUCCESS;
 }
 
-static void mes_task_threadpool_group_delete_worker_inner(mes_task_threadpool_group_t *group)
+void mes_task_threadpool_group_delete_worker_inner(mes_task_threadpool_group_t *group)
 {
     mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
-    mes_task_threadpool_worker_t *worker = (mes_task_threadpool_worker_t*)cm_bilist_pop_back(&group->worker_list);
+    mes_task_threadpool_worker_t *worker =
+        (mes_task_threadpool_worker_t*)cm_bilist_pop_back(&group->worker_list);
     /**
      * NOTICE
      * for mttp_sheduler: cm_close_thread use pthread_join to wait thread exit
@@ -212,7 +211,7 @@ static void mes_task_threadpool_group_delete_worker_inner(mes_task_threadpool_gr
     worker->status = MTTP_WORKER_STATUS_IN_FREELIST;
 }
 
-static status_t mes_task_threadpool_group_delete_worker(mes_task_threadpool_group_t *group)
+status_t mes_task_threadpool_group_delete_worker(mes_task_threadpool_group_t *group)
 {
     if (group->worker_list.count == group->attr.min_cnt) {
         return CM_SUCCESS;
@@ -224,9 +223,11 @@ static status_t mes_task_threadpool_group_delete_worker(mes_task_threadpool_grou
         return CM_ERROR;
     }
 
-    LOG_DEBUG_INF("[MES TASK THREADPOOL][delete worker] begin, group_id:%u", group->attr.group_id);
+    LOG_DEBUG_INF("[MES TASK THREADPOOL][delete worker] begin, group_id:%u",
+            group->attr.group_id);
     if (!cm_latch_timed_x(&group->latch, 0, MES_TASK_GROUP_LATCH_WAIT_TICKETS, NULL)) {
-        LOG_DEBUG_WAR("[MES TASK THREADPOOL][delete worker] end, can not get latch, group_id:%u", group->attr.group_id);
+        LOG_DEBUG_WAR("[MES TASK THREADPOOL][delete worker] end, can not get latch, group_id:%u",
+            group->attr.group_id);
         return CM_ERROR;
     }
 
@@ -255,11 +256,12 @@ static status_t mes_task_threadpool_group_delete_worker(mes_task_threadpool_grou
         return CM_ERROR;
     }
     LOG_DEBUG_INF("[MES TASK THREADPOOL][delete worker] before delete worker, group_id:%u "
-        "group queue cnt:%u, worker cnt:%u, "
-        "threadpool free queues:%u, free workers:%u, "
-        "current queus:%u, current workers:%u",
-        group->attr.group_id, group->queue_list.count, group->worker_list.count, tpool->free_queues.count,
-        tpool->free_workers.count, tpool->cur_queue_cnt, tpool->cur_worker_cnt);
+            "group queue cnt:%u, worker cnt:%u, "
+            "threadpool free queues:%u, free workers:%u, "
+            "current queus:%u, current workers:%u",
+            group->attr.group_id, group->queue_list.count, group->worker_list.count,
+            tpool->free_queues.count, tpool->free_workers.count,
+            tpool->cur_queue_cnt, tpool->cur_worker_cnt);
 
     if (group->pop_queue == queue) {
         group->pop_queue = mes_task_threadpool_group_get_pop_queue(group);
@@ -283,11 +285,12 @@ static status_t mes_task_threadpool_group_delete_worker(mes_task_threadpool_grou
     }
 
     LOG_RUN_INF("[MES TASK THREADPOOL][delete worker] end, group_id:%u "
-        "group queue cnt:%u, worker cnt:%u, "
-        "threadpool free queues:%u, free workers:%u, "
-        "current queus:%u, current workers:%u",
-        group->attr.group_id, group->queue_list.count, group->worker_list.count, tpool->free_queues.count,
-        tpool->free_workers.count, tpool->cur_queue_cnt, tpool->cur_worker_cnt);
+            "group queue cnt:%u, worker cnt:%u, "
+            "threadpool free queues:%u, free workers:%u, "
+            "current queus:%u, current workers:%u",
+            group->attr.group_id, group->queue_list.count, group->worker_list.count,
+            tpool->free_queues.count, tpool->free_workers.count,
+            tpool->cur_queue_cnt, tpool->cur_worker_cnt);
     return CM_SUCCESS;
 }
 
@@ -302,7 +305,6 @@ void mes_task_threadpool_group_adjust(mes_task_threadpool_group_t *group)
         mes_task_add_worker_status_t ret = mes_task_threadpool_group_add_worker(group);
         if (ret == MTTP_ADD_WORKER_STATUS_SUCCESS || ret == MTTP_ADD_WORKER_STATUS_REACH_MAX) {
             group->busy_count = 0;
-            group->attr.timeout = CM_FALSE;
         } else if (ret == MTTP_ADD_WORKER_STATUS_FAILED_START_THREAD) {
             cm_panic(0);
         }

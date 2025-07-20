@@ -28,7 +28,6 @@
 #include "cm_error.h"
 #include "cm_atomic.h"
 #include "cm_epoll.h"
-#include "cm_sync.h"
 
 #ifdef WIN32
 #else
@@ -118,7 +117,6 @@ status_t cm_create_thread(thread_entry_t entry, uint32 stack_size, void *argumen
 void cm_close_thread(thread_t *thread);
 void cm_close_thread_nowait(thread_t *thread);
 void cm_close_thread_with_sem(thread_t *thread, cm_sem_t *sem);
-void cm_close_thread_with_event(thread_t *thread, cm_event_t *event);
 
 uint32 cm_get_current_thread_id(void);
 void cm_release_thread(thread_t *thread);
