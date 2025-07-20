@@ -854,21 +854,12 @@ static bool32 mes_is_empty_queue_count(const mq_context_t *mq_ctx, mes_priority_
 
 void mes_set_cur_msg_info(uint32 work_id, void *data, unsigned int size)
 {
-    if (ENABLE_MES_TASK_THREADPOOL) {
-        mes_task_threadpool_t *tpool = MES_TASK_THREADPOOL;
-        mes_task_threadpool_worker_t *worker = &tpool->all_workers[work_id];
-        if (worker == NULL || worker->status != MTTP_WORKER_STATUS_IN_GROUP) {
-            return;
-        }
-        MEMS_RETVOID_IFERR(memcpy_s(worker->data, sizeof(worker->data), data, size));
-    } else {
-        mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
-        if (work_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[work_id].is_start) {
-            return;
-        }
-        MEMS_RETVOID_IFERR(
-            memcpy_s(mq_ctx->work_thread_idx[work_id].data, sizeof(mq_ctx->work_thread_idx[work_id].data), data, size));
+    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
+    if (work_id >= mq_ctx->task_num || !mq_ctx->work_thread_idx[work_id].is_start) {
+        return;
     }
+    MEMS_RETVOID_IFERR(
+        memcpy_s(mq_ctx->work_thread_idx[work_id].data, sizeof(mq_ctx->work_thread_idx[work_id].data), data, size));
 }
 
 // Helper function to get message item from multiple queues
@@ -910,8 +901,6 @@ void mes_task_proc_inner(thread_t *thread)
     bool8 *is_active = &arg->is_active;
     mes_priority_t *priority_temp = &arg->priority;
     uint64 *get_msgitem_time = &arg->get_msgitem_time;
-    uint64 *longest_get_msgitem_time = &arg->longest_get_msgitem_time;
-    uint64 *longest_cost_time = &arg->longest_cost_time;
     uint64 *msg_ruid = &arg->msg_ruid;
     uint32 *src_inst = &arg->msg_src_inst;
     mes_msgqueue_t *my_queue = &mq_ctx->tasks[my_task_index].queue;
@@ -973,14 +962,6 @@ void mes_task_proc_inner(thread_t *thread)
         } else {
             mes_work_proc(msgitem, my_task_index);
         }
-        uint64 cost_time = (uint64)g_timer()->now - *get_msgitem_time;
-        task_priority->total_cost_time += cost_time;
-        if (cost_time >= *longest_cost_time) { // sometime, cost_time = 0
-            *longest_cost_time = cost_time;
-            *longest_get_msgitem_time = *get_msgitem_time;
-            memcpy_s(arg->longest_data, sizeof(arg->longest_data), arg->data, sizeof(arg->data));
-        }
-
         *is_active = CM_FALSE;
         mes_put_msgitem_nolock(&finished_msgitem_queue, msgitem);
         (void)cm_atomic_inc((atomic_t *)(&task_priority->finished_msgitem_num));

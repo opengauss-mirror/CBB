@@ -34,7 +34,6 @@
 extern "C" {
 #endif
 
-#define CM_INVALID_FD (-1)
 extern bool32 g_high_frequency_restart_process;
 typedef enum en_log_level {
     LEVEL_ERROR = 0, // error conditions
@@ -43,19 +42,19 @@ typedef enum en_log_level {
 } log_level_t;
 
 typedef enum en_log_type {
-    CM_LOG_RUN = 0,
-    CM_LOG_DEBUG,
-    CM_LOG_ALARM,
-    CM_LOG_AUDIT,
-    CM_LOG_OPER,
-    CM_LOG_MEC,
-    CM_LOG_TRACE,
-    CM_LOG_PROFILE,
-    CM_LOG_BLACKBOX,
-    CM_LOG_DMS_EVT_TRC,
-    CM_LOG_DMS_RFM_TRC,
-    CM_LOG_DYNAMIC,
-    CM_LOG_COUNT // LOG COUNT
+    LOG_RUN = 0,
+    LOG_DEBUG,
+    LOG_ALARM,
+    LOG_AUDIT,
+    LOG_OPER,
+    LOG_MEC,
+    LOG_TRACE,
+    LOG_PROFILE,
+    LOG_BLACKBOX,
+    LOG_DMS_EVT_TRC,
+    LOG_DMS_RFM_TRC,
+    LOG_DYNAMIC,
+    LOG_COUNT // LOG COUNT
 } log_type_t;
 
 #define CM_MAX_LOG_MODULE_NAME 10
@@ -207,24 +206,21 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
 void cm_write_blackbox_log(const char *format, ...) CM_CHECK_FMT(1, 2);
 status_t cm_recovery_log_file(log_type_t log_type);
 void cm_write_dynamic_log(const char *format, ...) CM_CHECK_FMT(1, 2);
-void cm_log_create_dir(const log_file_handle_t *log_file_handle);
-bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode);
-void cm_log_close_file(log_file_handle_t *log_file_handle);
 
 #define LOG_DYN_TRC_CB (cm_log_param_instance()->dyn_trc_cbs.dyn_trc)
 
 #define LOG_DYN_TRC(level, level_str, format, ...)                                                               \
     do {                                                                                                         \
         if (CM_DYNAMIC_TRACE_ENABLED) {                                                                          \
-            LOG_DYN_TRC_CB(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
+            LOG_DYN_TRC_CB(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         };                                                                                                       \
         if (LOG_DEBUG_##level_str##_ON) {                                                                        \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
+                cm_log_param_instance()->log_write(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
+                cm_write_normal_log(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
@@ -258,15 +254,15 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
 #define DEBUG_LOG(level, level_str, format, ...)                                                                 \
     do {                                                                                                         \
         if (CM_DYNAMIC_TRACE_ENABLED && CM_DYN_TRC_TRACE_LOGS) {                                                 \
-            LOG_DYN_TRC_CB(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
+            LOG_DYN_TRC_CB(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                            \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         };                                                                                                       \
         if (LOG_DEBUG_##level_str##_ON) {                                                                        \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
+                cm_log_param_instance()->log_write(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,    \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
+                cm_write_normal_log(LOG_DEBUG, level, (char *)__FILE_NAME__, (uint32)__LINE__,                   \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
@@ -305,10 +301,10 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
     do {                                                                                                         \
         if (LOG_RUN_INF_ON) {                                                                                    \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(CM_LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__, \
+                cm_log_param_instance()->log_write(LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__, \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                \
+                cm_write_normal_log(LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
@@ -318,10 +314,10 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
     do {                                                                                                         \
         if (LOG_RUN_WAR_ON) {                                                                                    \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(CM_LOG_RUN, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__, \
+                cm_log_param_instance()->log_write(LOG_RUN, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__, \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_RUN, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,                \
+                cm_write_normal_log(LOG_RUN, LEVEL_WARN, (char *)__FILE_NAME__, (uint32)__LINE__,                \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
@@ -331,10 +327,10 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
     do {                                                                                                         \
         if (LOG_RUN_ERR_ON) {                                                                                    \
             if (LOG_REG_CB) {                                                                                    \
-                cm_log_param_instance()->log_write(CM_LOG_RUN, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__, \
+                cm_log_param_instance()->log_write(LOG_RUN, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__, \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                     \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_RUN, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,               \
+                cm_write_normal_log(LOG_RUN, LEVEL_ERROR, (char *)__FILE_NAME__, (uint32)__LINE__,               \
                     LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                            \
             }                                                                                                    \
         }                                                                                                        \
@@ -343,7 +339,7 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
 #define LOG_AUDIT(format, ...)                                                                                   \
     do {                                                                                                         \
         if (LOG_REG_CB) {                                                                                        \
-            cm_log_param_instance()->log_write(CM_LOG_AUDIT, 0, (char *)__FILE_NAME__, (uint32)__LINE__,            \
+            cm_log_param_instance()->log_write(LOG_AUDIT, 0, (char *)__FILE_NAME__, (uint32)__LINE__,            \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         } else if (LOG_INITED) {                                                                                 \
             cm_write_audit_log(format, ##__VA_ARGS__);                                                           \
@@ -353,7 +349,7 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
 #define LOG_ALARM(warn_id, format, ...)                                                                          \
     do {                                                                                                         \
         if (LOG_REG_CB) {                                                                                        \
-            cm_log_param_instance()->log_write(CM_LOG_ALARM, warn_id, (char *)__FILE_NAME__, (uint32)__LINE__,      \
+            cm_log_param_instance()->log_write(LOG_ALARM, warn_id, (char *)__FILE_NAME__, (uint32)__LINE__,      \
                 LOG_MODULE_NAME, format"|1", ##__VA_ARGS__);                                                 \
         } else if (LOG_INITED) {                                                                             \
             cm_write_alarm_log(warn_id, format"|1", ##__VA_ARGS__);                                          \
@@ -363,7 +359,7 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
 #define LOG_ALARM_RECOVER(warn_id, format, ...)                                                                  \
     do {                                                                                                         \
         if (LOG_REG_CB) {                                                                                        \
-            cm_log_param_instance()->log_write(CM_LOG_ALARM, warn_id, (char *)__FILE_NAME__, (uint32)__LINE__,      \
+            cm_log_param_instance()->log_write(LOG_ALARM, warn_id, (char *)__FILE_NAME__, (uint32)__LINE__,      \
                 LOG_MODULE_NAME, format"|2", ##__VA_ARGS__);                                                 \
         } else if (LOG_INITED) {                                                                             \
             cm_write_alarm_log(warn_id, format"|2", ##__VA_ARGS__);                                          \
@@ -390,11 +386,11 @@ void cm_log_close_file(log_file_handle_t *log_file_handle);
         if (LOG_RUN_INF_ON) {                                                                                    \
             if (LOG_REG_CB) {                                                                                    \
                 if (need_record_file_log) {                                                                      \
-                    cm_log_param_instance()->log_write(CM_LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,\
+                    cm_log_param_instance()->log_write(LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,  \
                         LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                 \
                 }                                                                                                \
             } else if (LOG_INITED) {                                                                             \
-                cm_write_normal_log(CM_LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__, LOG_MODULE_NAME,  \
+                cm_write_normal_log(LOG_RUN, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__, LOG_MODULE_NAME,    \
                     need_record_file_log, format, ##__VA_ARGS__);                                                \
             }                                                                                                    \
         }                                                                                                        \
@@ -419,22 +415,22 @@ void cm_write_mec_log(const char *format, ...);
 
 #define LOG_DMS_EVENT_TRACE(buf, size)                              \
     do {                                                            \
-        cm_write_dynamic_trace_log(CM_LOG_DMS_EVT_TRC, buf, size);     \
+        cm_write_dynamic_trace_log(LOG_DMS_EVT_TRC, buf, size);     \
     } while (0)
 
 #define LOG_DMS_REFORM_TRACE(buf, size)                             \
     do {                                                            \
-        cm_write_dynamic_trace_log(CM_LOG_DMS_RFM_TRC, buf, size);     \
+        cm_write_dynamic_trace_log(LOG_DMS_RFM_TRC, buf, size);     \
     } while (0)
 
 #define LOG_PROFILE(format, ...)                                                                                     \
     do {                                                                                                             \
         if (LOG_PROFILE_ON) {                                                                                        \
             if (LOG_REG_CB) {                                                                                        \
-                cm_log_param_instance()->log_write(CM_LOG_PROFILE, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,\
+                cm_log_param_instance()->log_write(LOG_PROFILE, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__, \
                     LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
             } else if (LOG_INITED) {                                                                                 \
-                cm_write_normal_log(CM_LOG_PROFILE, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,               \
+                cm_write_normal_log(LOG_PROFILE, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,                \
                 LOG_MODULE_NAME, CM_TRUE, format, ##__VA_ARGS__);                                                    \
             }                                                                                                        \
         }                                                                                                            \
@@ -445,7 +441,7 @@ void cm_write_oper_log(const char *format, ...);
 #define LOG_OPER(format, ...)                                                                                        \
     do {                                                                                                             \
         if (LOG_REG_CB && LOG_OPER_ON) {                                                                             \
-            cm_log_param_instance()->log_write(CM_LOG_OPER, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,     \
+            cm_log_param_instance()->log_write(LOG_OPER, LEVEL_INFO, (char *)__FILE_NAME__, (uint32)__LINE__,        \
                 LOG_MODULE_NAME, format, ##__VA_ARGS__);                                                         \
         } else {                                                                                 \
             cm_write_oper_log(format, ##__VA_ARGS__);                                                            \

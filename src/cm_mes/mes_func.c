@@ -339,7 +339,6 @@ static int mes_set_priority_task_worker_num(mes_priority_t priority, uint32 task
     task_priority->priority = priority;
     task_priority->finished_msgitem_num = 0;
     task_priority->inqueue_msgitem_num = 0;
-    task_priority->total_cost_time = 0;
     mq_ctx->priority.assign_task_idx += task_num;
 
     LOG_RUN_INF("[mes] set priority %u start_task_idx %hhu task num %u, is_send:%u.",
@@ -423,6 +422,95 @@ static void mes_set_channel_num(uint32 channel_cnt)
 
     LOG_RUN_INF("[mes] set channel num %u.", MES_GLOBAL_INST_MSG.profile.channel_cnt);
     return;
+}
+
+static status_t mes_check_task_threadpool_attr(mes_profile_t *profile)
+{
+    if (!profile->tpool_attr.enable_threadpool) {
+        LOG_RUN_INF("[mes][MES TASK THREADPOOL] work threadpool is off");
+        MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool = CM_FALSE;
+        return CM_SUCCESS;
+    }
+
+    bool8 work_task_count_all_zero = CM_TRUE;
+    for (int i = 0; i < MES_PRIORITY_CEIL; i++) {
+        if (profile->work_task_count[i] > 0 ) {
+            work_task_count_all_zero = CM_FALSE;
+            break;
+        }
+    }
+
+    if (profile->tpool_attr.enable_threadpool && !work_task_count_all_zero) {
+        LOG_RUN_WAR("[mes][MES TASK THREADPOOL] work threadpool is on and work_task_count is not zero, "
+            "which is not allowed. so we turn off work threadpool");
+        profile->tpool_attr.enable_threadpool = CM_FALSE;
+        MES_GLOBAL_INST_MSG.profile.tpool_attr.enable_threadpool = CM_FALSE;
+        return CM_SUCCESS;
+    }
+    
+    mes_task_threadpool_attr_t *tpool_attr = &profile->tpool_attr;
+    if (tpool_attr->group_num > MES_PRIORITY_CEIL) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] group_num large than MES_PRIORITY_CEIL");
+        return CM_ERROR;
+    }
+
+    if (tpool_attr->min_cnt < MES_MIN_TASK_NUM) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] min_cnt less than MES_MIN_TASK_NUM, min_cnt:%u, MES_MIN_TASK_NUM:%u",
+            tpool_attr->min_cnt, MES_MIN_TASK_NUM);
+        return CM_ERROR;
+    }
+
+    if (tpool_attr->max_cnt > MES_MAX_TASK_NUM) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] max_cnt large than MES_MAX_TASK_NUM, max_cnt:%u, MES_MAX_TASK_NUM:%u",
+            tpool_attr->max_cnt, MES_MAX_TASK_NUM);
+        return CM_ERROR;
+    }
+
+    unsigned int total_min = 0;
+    unsigned int total_max = 0;
+    for (int i = 0; i < tpool_attr->group_num; i++) {
+        mes_task_threadpool_group_attr_t *group_attr = &tpool_attr->group_attr[i];
+        if (group_attr->enabled) {
+            if (group_attr->min_cnt > group_attr->max_cnt) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group min_cnt large than max_cnt "
+                    "group_id:%u, min_cnt:%u, max_cnt:%u",
+                    group_attr->group_id, group_attr->min_cnt, group_attr->max_cnt);
+                return CM_ERROR;
+            }
+            if (group_attr->min_cnt < MES_MIN_TASK_NUM) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group min_cnt less than MES_MIN_TASK_NUM "
+                    "group_id:%u, min_cnt:%u, MES_MIN_TASK_NUM:%u",
+                    group_attr->group_id, group_attr->min_cnt, MES_MIN_TASK_NUM);
+                return CM_ERROR;
+            }
+            if (group_attr->max_cnt > MES_MAX_TASK_NUM) {
+                LOG_RUN_ERR("[MES TASK THREADPOOL] group max_cnt large than MES_MAX_TASK_NUM "
+                    "group_id:%u, max_cnt:%u, MES_MAX_TASK_NUM:%u",
+                    group_attr->group_id, group_attr->max_cnt, MES_MAX_TASK_NUM);
+                return CM_ERROR;
+            }
+            total_min += group_attr->min_cnt;
+            total_max += group_attr->max_cnt;
+        }
+    }
+
+    if (total_min != tpool_attr->min_cnt) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] min_cnt not equal to sum of group min_cnt "
+            "min_cnt:%u, sum of group:%u",
+            tpool_attr->min_cnt, total_min);
+        return CM_ERROR;
+    }
+
+    if (total_max != tpool_attr->max_cnt) {
+        LOG_RUN_ERR("[MES TASK THREADPOOL] max_cnt not equal to sum of group max_cnt "
+            "max_cnt:%u, sum of group:%u",
+            tpool_attr->max_cnt, total_max);
+        return CM_ERROR;
+    }
+
+    LOG_RUN_INF("[mes][MES TASK THREADPOOL] work threadpool is on");
+    MES_GLOBAL_INST_MSG.profile.tpool_attr = profile->tpool_attr;
+    return CM_SUCCESS;
 }
 
 static int mes_set_profile(mes_profile_t *profile)
@@ -706,15 +794,8 @@ static int mes_start_work_thread_statically(bool32 is_send)
         mq_ctx->work_thread_idx[loop].get_msgitem_time = CM_INVALID_ID64;
         mq_ctx->work_thread_idx[loop].msg_ruid = CM_INVALID_ID64;
         mq_ctx->work_thread_idx[loop].msg_src_inst = CM_INVALID_ID32;
-        mq_ctx->work_thread_idx[loop].longest_cost_time = 0;
-        mq_ctx->work_thread_idx[loop].longest_get_msgitem_time = CM_INVALID_ID32;
         if (memset_s(&mq_ctx->work_thread_idx[loop].data, sizeof(mq_ctx->work_thread_idx[loop].data), 0,
             sizeof(mq_ctx->work_thread_idx[loop].data)) != EOK) {
-            LOG_RUN_ERR("[mes] memset failed.");
-            return CM_ERROR;
-        }
-        if (memset_s(&mq_ctx->work_thread_idx[loop].longest_data, sizeof(mq_ctx->work_thread_idx[loop].longest_data), 0,
-            sizeof(mq_ctx->work_thread_idx[loop].longest_data)) != EOK) {
             LOG_RUN_ERR("[mes] memset failed.");
             return CM_ERROR;
         }

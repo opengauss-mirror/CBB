@@ -134,7 +134,7 @@ typedef struct st_fi_run_ctx {
     do {                                                                            \
         if (ddes_fi_entry_custom_valid(point)) {                                    \
             LOG_DEBUG_INF("[ddes_fi] fi cust action happens at %s", __FUNCTION__);  \
-            action                                                                  \
+            action;                                                                 \
         }                                                                           \
     } while (0)
 

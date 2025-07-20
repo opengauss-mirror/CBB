@@ -156,15 +156,11 @@ typedef struct st_mes_task_threadpool_group_attr {
     unsigned int group_id;
     unsigned int enabled;
     unsigned char num_fixed;
-    unsigned char timeout;
     unsigned char unused[2];
     unsigned int min_cnt;
     unsigned int max_cnt;
     unsigned int task_num_ceiling;
-    unsigned int finished_msgitem_num; // The address must be 8-byte aligned.
     unsigned int task_num_floor;
-    unsigned int inqueue_msgitem_num; // The address must be 8-byte aligned.
-    unsigned int total_cost_time;
 } mes_task_threadpool_group_attr_t;
 
 typedef struct st_mes_task_threadpool_attr {
@@ -253,11 +249,6 @@ typedef struct st_mes_worker_info {
     unsigned long long msg_ruid;
     unsigned int msg_src_inst;
     char data[MES_INFO_LEN];
-    unsigned long long longest_cost_time;        // longest_cost_time in history
-    unsigned long long longest_get_msgitem_time; // longest_cost_time in history: longest_get_msgitem_time
-    unsigned int longest_cmd;                    // longest_cost_time in history: longest_cmd
-    char longest_data[MES_INFO_LEN];
-    unsigned char is_free;
 } mes_worker_info_t;
 
 typedef struct st_mes_task_priority_info {
@@ -266,7 +257,6 @@ typedef struct st_mes_task_priority_info {
     unsigned long long inqueue_msgitem_num;
     unsigned long long finished_msgitem_num;
     unsigned long long msgitem_free_num;
-    double avg_cost_time;
 } mes_task_priority_info_t;
 
 typedef struct st_mes_mem_info_stat {

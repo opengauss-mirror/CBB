@@ -41,43 +41,45 @@
 extern "C" {
 #endif
 
+
+#define CM_INVALID_FD (-1)
 bool32 g_high_frequency_restart_process = CM_FALSE;
 
-static log_file_handle_t g_logger[CM_LOG_COUNT] = {
-    [CM_LOG_RUN] = {
+static log_file_handle_t g_logger[LOG_COUNT] = {
+    [LOG_RUN] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_DEBUG] = {
+    [LOG_DEBUG] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_ALARM] = {
+    [LOG_ALARM] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_AUDIT] = {
+    [LOG_AUDIT] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_OPER] = {
+    [LOG_OPER] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_MEC] = {
+    [LOG_MEC] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_TRACE] = {
+    [LOG_TRACE] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_PROFILE] = {
+    [LOG_PROFILE] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_BLACKBOX] = {
+    [LOG_BLACKBOX] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_DMS_EVT_TRC] = {
+    [LOG_DMS_EVT_TRC] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_DMS_RFM_TRC] = {
+    [LOG_DMS_RFM_TRC] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
-    [CM_LOG_DYNAMIC] = {
+    [LOG_DYNAMIC] = {
         .file_handle = CM_INVALID_FD,
         .file_inode = 0 },
 };
@@ -237,7 +239,7 @@ static void cm_log_chmod_dir(const char *log_dir, log_type_t log_type)
 {
     (void)chmod(log_dir, g_log_param.log_path_permissions);
 
-    if (log_type == CM_LOG_ALARM) {
+    if (log_type == LOG_ALARM) {
         return;
     }
 
@@ -249,7 +251,7 @@ static void cm_log_chmod_dir(const char *log_dir, log_type_t log_type)
     (void)chmod(log_dir, g_log_param.log_path_permissions);
 }
 
-void cm_log_create_dir(const log_file_handle_t *log_file_handle)
+static void cm_log_create_dir(const log_file_handle_t *log_file_handle)
 {
     char log_dir[CM_FILE_NAME_BUFFER_SIZE] = {0};
     cm_log_get_dir(log_dir, CM_FILE_NAME_BUFFER_SIZE, log_file_handle->file_name);
@@ -295,7 +297,7 @@ static void cm_log_build_normal_head(char *buf, uint32 buf_size, log_level_t log
     }
 }
 
-void cm_log_close_file(log_file_handle_t *log_file_handle)
+static void cm_log_close_file(log_file_handle_t *log_file_handle)
 {
     if (log_file_handle->file_handle != CM_INVALID_FD) {
         (void)close(log_file_handle->file_handle);
@@ -304,7 +306,7 @@ void cm_log_close_file(log_file_handle_t *log_file_handle)
     }
 }
 
-bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode)
+static bool32 cm_log_stat_file(const log_file_handle_t *log_file_handle, uint64 *file_size, uint32 *file_inode)
 {
     struct stat st;
 
@@ -669,7 +671,7 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
     uint32 backup_file_count = 0;
     uint64 file_size;
     uint32 file_inode;
-    uint32 need_bak_file_count = log_file_handle->log_type == CM_LOG_AUDIT ?
+    uint32 need_bak_file_count = log_file_handle->log_type == LOG_AUDIT ?
         g_log_param.audit_backup_file_count : g_log_param.log_backup_file_count;
     uint32 file_name_len = CM_MAX_FILE_NAME_LEN;
     bool32 need_compressed = CM_FALSE;
@@ -699,7 +701,7 @@ static status_t cm_rmv_and_bak_log_file(log_file_handle_t *log_file_handle,
 
     cm_log_get_bak_file_name(log_file_handle, new_bak_file_name);
     cm_log_remove_file(new_bak_file_name);
-    if (log_file_handle->log_type == CM_LOG_OPER
+    if (log_file_handle->log_type == LOG_OPER
         && cm_log_stat_file(log_file_handle, &file_size, &file_inode) == CM_TRUE) {
         if (file_size < g_log_param.max_log_file_size) {
             // multi zsqls write one zsql.olog: zsql.olog has already be renamed
@@ -758,9 +760,9 @@ static void cm_write_log_file(log_file_handle_t *log_file_handle, char *buf, uin
     // It is possible to fail because of the open file.
     if (log_file_handle->file_handle != CM_INVALID_FD && buf != NULL) {
         // Replace the string terminator '\0' with newline character '\n'.
-        if (log_file_handle->log_type != CM_LOG_MEC && log_file_handle->log_type != CM_LOG_BLACKBOX &&
-            log_file_handle->log_type != CM_LOG_DMS_RFM_TRC && log_file_handle->log_type != CM_LOG_DMS_EVT_TRC
-            && log_file_handle->log_type != CM_LOG_DYNAMIC) {
+        if (log_file_handle->log_type != LOG_MEC && log_file_handle->log_type != LOG_BLACKBOX &&
+            log_file_handle->log_type != LOG_DMS_RFM_TRC && log_file_handle->log_type != LOG_DMS_EVT_TRC
+            && log_file_handle->log_type != LOG_DYNAMIC) {
             buf[size] = '\n';
             size++;
         }
@@ -881,7 +883,7 @@ static void cm_stat_and_write_log(log_file_handle_t *log_file_handle, char *buf,
         cm_log_close_file(log_file_handle);
     }
 
-    max_file_size = log_file_handle->log_type == CM_LOG_AUDIT ? g_log_param.max_audit_file_size :
+    max_file_size = log_file_handle->log_type == LOG_AUDIT ? g_log_param.max_audit_file_size :
                     g_log_param.max_log_file_size;
     if ((file_size + 100 > max_file_size && need_rec_filelog == CM_TRUE)
         /*
@@ -1110,7 +1112,7 @@ void cm_write_normal_log_common(log_type_t log_type, log_level_t log_level, cons
 
     errcode = snprintf_s(new_format, CM_MAX_LOG_CONTENT_LENGTH, CM_MAX_LOG_CONTENT_LENGTH - 1, "%s [%s:%u]",
                          format, code_file_name, code_line_num);
-    if (log_param->log_suppress_enable && (log_type == CM_LOG_RUN || log_type == CM_LOG_DEBUG)) {
+    if (log_param->log_suppress_enable && (log_type == LOG_RUN || log_type == LOG_DEBUG)) {
         cm_spin_lock(&log_param->lock, NULL);
         (void)cm_atomic32_inc(&log_param->reference_count);
         cm_spin_unlock(&log_param->lock);
@@ -1147,7 +1149,7 @@ void cm_write_audit_log(const char *format, ...)
 {
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_AUDIT];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_AUDIT];
     va_list args;
     va_start(args, format);
     buf_text.str = buf;
@@ -1171,7 +1173,7 @@ void cm_write_alarm_log_core(uint32 warn_id, uint32 *warn_id_set, char **warn_de
 {
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 2] = {0};
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_ALARM];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_ALARM];
     char date[CM_MAX_TIME_STRLEN] = {0};
     errno_t errcode;
  
@@ -1213,7 +1215,7 @@ void cm_write_oper_log(const char *format, ...)
     }
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_OPER];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_OPER];
 
     cm_log_build_normal_head((char *)buf, sizeof(buf), LEVEL_INFO, LOG_MODULE_NAME, LOG_NORMAL);
 
@@ -1449,7 +1451,7 @@ status_t  cm_recovery_log_file(log_type_t log_type)
 void cm_fync_logfile(void)
 {
 #ifndef _WIN32
-    for (int i = 0; i < CM_LOG_COUNT; i++) {
+    for (int i = 0; i < LOG_COUNT; i++) {
         if (g_logger[i].file_handle != CM_INVALID_FD) {
             (void)fsync(g_logger[i].file_handle);
             cm_log_close_file(&g_logger[i]);
@@ -1460,7 +1462,7 @@ void cm_fync_logfile(void)
 
 void cm_close_logfile(void)
 {
-    for (uint32 i = 0; i < CM_LOG_COUNT; i++) {
+    for (uint32 i = 0; i < LOG_COUNT; i++) {
         if (g_logger[i].file_handle == CM_INVALID_FD) {
             cm_log_close_file(&g_logger[i]);
         }
@@ -1471,7 +1473,7 @@ void cm_write_mec_log(const char *format, ...)
 {
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_MEC];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_MEC];
 
     va_list args;
     va_start(args, format);
@@ -1485,7 +1487,7 @@ void cm_write_blackbox_log(const char *format, ...)
 {
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1] = {0};
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_BLACKBOX];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_BLACKBOX];
 
     va_list args;
     va_start(args, format);
@@ -1500,7 +1502,7 @@ void cm_write_dynamic_log(const char *format, ...)
     char buf[CM_MAX_LOG_CONTENT_LENGTH + 1];
     buf[0] = '\0';
     text_t buf_text;
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_DYNAMIC];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_DYNAMIC];
 
     va_list args;
     va_start(args, format);
@@ -1552,7 +1554,7 @@ void cm_write_trace_log(uint64 tracekey, const char *format, ...)
         return;
     }
 
-    log_file_handle_t *log_file_handle = &g_logger[CM_LOG_TRACE];
+    log_file_handle_t *log_file_handle = &g_logger[LOG_TRACE];
 
     va_list args;
     va_start(args, format);
