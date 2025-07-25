@@ -30,12 +30,17 @@
 #include "ddes_perctrl_api.h"
 
 #define CM_IOF_ERR_DUP_OP (-2)
+// mpathpersist_dss 1K,dss home 64,dev 196,others 96
+#define MULTIBUS_MAX_CMD_LEN (SIZE_K(1) + 64 + 196 + 96)
 
 typedef struct st_iof_reg_out {
     int64 rk;      // unique register key for each host
     int64 rk_kick; // The rk of the host to be kicked
     char *dev;     // scsi device path
     scsi_reserv_type_e type;
+    bool32 linux_multibus;
+    char *mpathpersist_dss_path;
+    char *log_path;
 } iof_reg_out_t;
 
 typedef struct st_iof_reg_in {
