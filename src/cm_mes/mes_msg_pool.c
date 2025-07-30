@@ -1210,12 +1210,12 @@ static int mes_calculate_extra_size_in_msg_pool_minimum_info(uint64 *buf_pool_si
     uint64 max_extra = 0;
     uint64 temp_extra = 0;
     uint64 total_buf_pool_size = 0;
-    for (uint8 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
+    for (uint32 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
         total_buf_pool_size += buf_pool_size_list[buf_pool_no];
     }
 
     double proportion_arr[MES_MAX_BUFFPOOL_NUM] = { 0 };
-    for (uint8 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
+    for (uint32 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
         proportion_arr[buf_pool_no] = (double)buf_pool_size_list[buf_pool_no] / total_buf_pool_size;
         temp_extra = (uint64)(buf_pool_size_list[buf_pool_no] * DBL_EPSILON / proportion_arr[buf_pool_no]) + 1;
         if (temp_extra > max_extra) {
@@ -1233,9 +1233,9 @@ static int mes_calculate_extra_size_in_msg_pool_minimum_info(uint64 *buf_pool_si
 
     double last_proportion_arr[MES_MAX_BUFFPOOL_NUM] = { 0 };
     double left_proportion = 1;
-    for (uint8 tar_no = 0; tar_no < buf_pool_count; tar_no++) {
+    for (uint32 tar_no = 0; tar_no < buf_pool_count; tar_no++) {
         left_proportion = 1;
-        for (uint8 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
+        for (uint32 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
             if (tar_no == buf_pool_no) {
                 continue;
             }
@@ -1250,7 +1250,7 @@ static int mes_calculate_extra_size_in_msg_pool_minimum_info(uint64 *buf_pool_si
         }
     }
 
-    for (uint8 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
+    for (uint32 buf_pool_no = 0; buf_pool_no < buf_pool_count; buf_pool_no++) {
         temp_extra = (uint64)(buf_pool_size_list[buf_pool_no] * DBL_EPSILON / last_proportion_arr[buf_pool_no]) + 1;
         if (temp_extra > max_extra) {
             max_extra = temp_extra;
