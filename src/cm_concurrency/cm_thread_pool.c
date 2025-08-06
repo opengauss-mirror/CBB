@@ -142,6 +142,10 @@ void cm_destroy_thread_pool(cm_thread_pool_t *pool)
         return;
     }
 
+    if (pool->threads == NULL) {
+        return;
+    }
+
     cm_thread_lock(&pool->lock);
     for (i = 0; i < pool->starts; ++i) {
         thread = &pool->threads[i].thread;
