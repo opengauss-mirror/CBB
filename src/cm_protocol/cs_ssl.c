@@ -1021,7 +1021,7 @@ void cs_ssl_throw_error(int32 ssl_err)
 #else
     while ((ret_code = ERR_get_error_all(&file, &line, &func, &data, &flags))) {
         ret = snprintf_s(err_buf1 + err_len, CM_MESSAGE_BUFFER_SIZE - err_len, CM_MESSAGE_BUFFER_SIZE - 1 - err_len,
-            "OpenSSL:%s-%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2), file, line, func,
+            "OpenSSL:%s-%s-%d-%s-%s", ERR_error_string(ret_code, err_buf2), file, line, func,
             ((uint32)flags & ERR_TXT_STRING) ? data : "");
 #endif
         if (ret == -1) {
