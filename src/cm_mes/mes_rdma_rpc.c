@@ -51,6 +51,7 @@ typedef enum {
     OCK_CONFIG_ZERO = 0,
     OCK_CONFIG_ONE,
     OCK_CONFIG_TWO,
+    OCK_CONFIG_THREE,
     OCK_CONFIG_ALL,
 } OCK_CONFIG_NUM;
 
@@ -63,6 +64,7 @@ typedef enum {
 #define OCK_RPC_NO          "no"
 #define OCK_WRK_CPU_SET     "worker.thread.cpuset"
 #define OCK_SEP_CPU_SET     "-"
+#define OCK_CONNECTION_TYPE "server.create.type"
 
 #define PATH_LENGTH PATH_MAX
 #define OCK_RPC_ENV_PATH   "OCK_RPC_LIB_PATH"
@@ -211,6 +213,13 @@ static int mes_init_ock_server_configs(RpcConfigPair* pairs, OckRpcCreateConfig*
     if (ret < 0) {
         LOG_RUN_ERR("construct ock work num failed, ret %d.", ret);
         return CM_ERROR;
+    }
+
+    pairs[OCK_CONFIG_THREE].key = OCK_CONNECTION_TYPE;
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
+        pairs[OCK_CONFIG_THREE].value = "RDMA";
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+        pairs[OCK_CONFIG_THREE].value = "UBC";
     }
 
     if (g_ssl_enable) {
