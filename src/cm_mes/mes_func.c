@@ -187,8 +187,8 @@ static inline void mes_stop_lsnr(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         cs_stop_tcp_lsnr(&MES_GLOBAL_INST_MSG.mes_ctx.lsnr.tcp);
-    }
-    else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+        MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         stop_rdma_rpc_lsnr();
     }
     return;
@@ -686,7 +686,8 @@ static int mes_register_func(void)
         g_cbb_mes_callback.send_func = mes_tcp_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
         g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
-    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+               MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         g_cbb_mes_callback.connect_func = mes_rdma_rpc_try_connect;
         g_cbb_mes_callback.heartbeat_func = mes_rdma_rpc_heartbeat_channel;
         g_cbb_mes_callback.disconnect_func = mes_rdma_rpc_disconnect_handle;
@@ -723,7 +724,8 @@ static int mes_init_pipe_resource(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         return mes_init_tcp_resource();
-    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+               MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         return mes_init_rdma_rpc_resource();
     }
     return CM_ERROR;
@@ -946,7 +948,8 @@ static void mes_destroy_msgitem_pool(void)
 
 static inline void mes_close_libdl(void)
 {
-    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+        MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         FinishOckRpcDl();
     }
 }
@@ -1120,7 +1123,8 @@ static int mes_start_listen_thread(void)
             LOG_RUN_ERR("[mes]mes_init failed.");
             return ret;
         }
-    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+               MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         ret = mes_start_rdma_rpc_lsnr();
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes]mes start rdma rpc lsnr failed, ret: %d", ret);
@@ -1288,7 +1292,8 @@ static status_t mes_init_ssl(void)
         return CM_SUCCESS;
     }
 
-    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+        MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         if (mes_ockrpc_init_ssl() != CM_SUCCESS) {
             LOG_RUN_ERR("[mes] init ockrpc ssl failed");
             return CM_ERROR;
@@ -1320,7 +1325,8 @@ static void mes_stop_channels(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         mes_tcp_stop_channels();
-    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+               MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         mes_rdma_stop_channels();
     }
 }
@@ -2194,7 +2200,8 @@ bool32 mes_connection_ready_with_count(uint32 inst_id, uint32 *ready_count)
             }
         }
         check_ready = (*ready_count == MES_GLOBAL_INST_MSG.profile.channel_cnt * MES_GLOBAL_INST_MSG.profile.priority_cnt);
-    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+        MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
             channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
             pipe = &channel->rpc_pipe;
@@ -2441,7 +2448,8 @@ int mes_init_single_inst_channel(unsigned int inst_id)
         channel->id = (inst_id << CHANNEL_ID_BITS) | i;
         if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
             mes_tcp_init_channels_param((uintptr_t)channel);
-        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
+        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+                   MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
             mes_rdma_rpc_init_channels_param((uintptr_t)channel);
         }
     }
