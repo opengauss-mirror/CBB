@@ -922,7 +922,7 @@ void mes_task_proc_inner(thread_t *thread)
     bool32 is_empty = CM_FALSE;
     uint32 queue_num = task_num > MES_PRIORITY_TASK_QUEUE_NUM ? MES_PRIORITY_TASK_QUEUE_NUM : task_num;
     while (!thread->closed && mes_ctx->phase == SHUTDOWN_PHASE_NOT_BEGIN) {
-        if (pipe_type != MES_TYPE_RDMA) {
+        if (pipe_type != MES_TYPE_RDMA && pipe_type != MES_TYPE_UBC) {
             is_empty = mes_is_empty_queue_count(mq_ctx, task_priority->priority);
             if (is_empty && cm_event_timedwait(event, CM_SLEEP_1_FIXED) != CM_SUCCESS) {
                 continue;
@@ -933,7 +933,7 @@ void mes_task_proc_inner(thread_t *thread)
             mes_get_msgitem(my_queue) : mes_get_msgitem_from_multiple_queues(mq_ctx, task_priority, queue_num, &queue_id);
 
         if (msgitem == NULL) {
-            if (pipe_type == MES_TYPE_RDMA) {
+            if (pipe_type == MES_TYPE_RDMA || pipe_type == MES_TYPE_UBC) {
                 cm_sleep(1);
             }
             continue;
@@ -1037,7 +1037,7 @@ status_t mes_start_task_dynamically(bool32 is_send, uint32 index)
         }
         cm_spin_unlock(&mq_ctx->work_thread_idx[index].lock);
     }
-    if (mq_ctx->work_thread_idx[index].is_start && pipe_type != MES_TYPE_RDMA) {
+    if (mq_ctx->work_thread_idx[index].is_start && pipe_type != MES_TYPE_RDMA && pipe_type != MES_TYPE_UBC) {
         cm_event_notify(&mq_ctx->work_thread_idx[index].event);
     }
     return CM_SUCCESS;
