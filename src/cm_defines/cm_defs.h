@@ -93,6 +93,7 @@ extern "C" {
 #define CM_HOST_NAME_BUFFER_SIZE   (uint32)64
 
 #define CM_NETWORK_IO_TIMEOUT      (uint32)5000 /* mill-seconds */
+#define CM_NETWORK_PACKET_TIMEOUT      (uint32)10000 /* mill-seconds */
 #define CM_SSL_IO_TIMEOUT          (uint32)30000 /* mill-seconds */
 #define CM_MIN_CONNECT_TIMEOUT     (uint32)10 /* mill-seconds */
 

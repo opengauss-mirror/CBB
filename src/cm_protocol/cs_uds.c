@@ -235,7 +235,9 @@ status_t cs_uds_send(const uds_link_t *link, const char *buf, uint32 size, int32
         if (code == WSAEWOULDBLOCK) {
 #else
         code = errno;
-        if (code == EWOULDBLOCK) {
+        LOG_RUN_INF("[mes] cs_uds_send errno: %d, errmsg: %s", code, strerror(code));
+        /* If block by buffer or signo, we should return and retry */
+        if (code == EWOULDBLOCK || code == EAGAIN || code == EINTR) {
 #endif
             *send_size = 0;
             return CM_SUCCESS;
@@ -266,12 +268,14 @@ status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint3
 
     while (remain_size > 0) {
         if (cs_uds_wait(link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
+            LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_wait get event poll failed.");
             return CM_ERROR;
         }
 
         if (!ready) {
             wait_interval += CM_POLL_WAIT;
             if (wait_interval >= timeout) {
+                LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_wait wait timeout.");
                 return CM_ERROR;
             }
 
@@ -279,6 +283,7 @@ status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint3
         }
 
         if (cs_uds_send(link, buf + offset, (uint32)remain_size, &writen_size) != CM_SUCCESS) {
+            LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_send error.");
             return CM_ERROR;
         }
 
