@@ -57,6 +57,22 @@ typedef struct st_ssl_config {
     bool32 verify_peer;
 } ssl_config_t;
 
+/**
+ * Callback function type to get password from external source.
+ * @param [in]  key_file   Path to the private key file
+ * @param [out] password    Buffer to store the password
+ * @param [in]  pwd_size   Size of the password buffer
+ * @return CM_SUCCESS on success, CM_ERROR on failure
+ */
+typedef status_t (*ssl_get_password_cb_t)(const char *key_file, char *password, uint32 pwd_size);
+
+/**
+ * Register a callback function to get password from external source (e.g., KMC, config system).
+ * This allows getting password without storing it in password files.
+ * @param [in] callback  Callback function to get password, NULL to unregister
+ */
+void cs_ssl_register_password_callback(ssl_get_password_cb_t callback);
+
 typedef enum en_ssl_verify {
     VERIFY_SSL,
     VERIFY_CERT,

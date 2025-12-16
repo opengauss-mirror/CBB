@@ -35,6 +35,9 @@
 #endif
 #include "cm_date.h"
 #include "cm_utils.h"
+#include "cm_cipher.h"
+#include <stdio.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +63,26 @@ static spinlock_t g_ssl_init_lock = 0;
 static volatile bool32 g_ssl_initialized = 0;
 static spinlock_t g_get_pem_passwd_lock = 0;
 static bool8 g_crl_expired = CM_FALSE;
+
+/* Structure to pass key file path to password callback */
+typedef struct {
+    char key_file[CM_FILE_NAME_BUFFER_SIZE];
+    char decrypted_pwd[CM_PASSWD_MAX_LEN + 1];
+} ssl_key_passwd_ctx_t;
+
+/* Global callback function to get password from external source (e.g., KMC, config) */
+typedef status_t (*ssl_get_password_cb_t)(const char *key_file, char *password, uint32 pwd_size);
+static ssl_get_password_cb_t g_ssl_get_password_cb = NULL;
+
+/**
+ * Register a callback function to get password from external source.
+ * This allows getting password from KMC, config system, or other sources
+ * instead of reading from password files.
+ */
+void cs_ssl_register_password_callback(ssl_get_password_cb_t callback)
+{
+    g_ssl_get_password_cb = callback;
+}
 
 const char *g_ssl_default_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
                                         "ECDHE-ECDSA-AES128-GCM-SHA256:"
@@ -659,17 +682,185 @@ static EVP_PKEY *get_dh3072(void)
 #endif
 
 /**
+ * Get password from external source (callback function).
+ * This is the preferred method if a callback is registered.
+ */
+static status_t cs_ssl_get_password_from_callback(const char *key_file, char *plain_pwd, uint32 pwd_size)
+{
+    if (g_ssl_get_password_cb == NULL) {
+        return CM_ERROR;
+    }
+    
+    if (g_ssl_get_password_cb(key_file, plain_pwd, pwd_size) == CM_SUCCESS) {
+        LOG_RUN_INF("[ssl] loaded password from external callback for %s", key_file);
+        return CM_SUCCESS;
+    }
+    
+    return CM_ERROR;
+}
+
+/**
+ * Read and decrypt password from encrypted file.
+ * Encrypted file format: .key.enc (binary format with cipher_t structure)
+ * This is a fallback method if no external callback is registered.
+ */
+static status_t cs_ssl_read_encrypted_password(const char *key_file, char *plain_pwd, uint32 pwd_size)
+{
+    char enc_file[CM_FILE_NAME_BUFFER_SIZE] = {0};
+    FILE *fp = NULL;
+    cipher_t cipher = {0};
+    uchar plain[CM_PASSWD_MAX_LEN + 1] = {0};
+    uint32 plain_len = 0;
+    size_t read_len = 0;
+    errno_t ret;
+
+    /* Construct encrypted password file path: key_file.enc */
+    ret = snprintf_s(enc_file, sizeof(enc_file), sizeof(enc_file) - 1, "%s.pass.enc", key_file);
+    if (ret == -1) {
+        LOG_RUN_WAR("[ssl] failed to construct encrypted password file path for %s", key_file);
+        return CM_ERROR;
+    }
+
+    /* Open encrypted password file */
+    fp = fopen(enc_file, "rb");
+
+    if (fp == NULL) {
+        LOG_RUN_WAR("[ssl] encrypted password file %s not found, trying plain password file", enc_file);
+        /* Fallback to plain password file: key_file.pass */
+        ret = snprintf_s(enc_file, sizeof(enc_file), sizeof(enc_file) - 1, "%s", key_file);
+        if (ret == -1) {
+            return CM_ERROR;
+        }
+        char *dot = strrchr(enc_file, '.');
+        if (dot != NULL && strcmp(dot, ".key") == 0) {
+            ret = snprintf_s(dot, sizeof(enc_file) - (dot - enc_file), sizeof(enc_file) - (dot - enc_file) - 1, ".pass");
+            if (ret == -1) {
+                return CM_ERROR;
+            }
+        } else {
+            ret = snprintf_s(enc_file, sizeof(enc_file), sizeof(enc_file) - 1, "%s.pass", key_file);
+            if (ret == -1) {
+                return CM_ERROR;
+            }
+        }
+        fp = fopen(enc_file, "r");
+        if (fp == NULL) {
+            LOG_RUN_WAR("[ssl] password file %s not found, private key may be unencrypted", enc_file);
+            return CM_ERROR;
+        }
+        /* Read plain password from file */
+        if (fgets(plain_pwd, (int)pwd_size, fp) != NULL) {
+            size_t len = strlen(plain_pwd);
+            if (len > 0 && plain_pwd[len - 1] == '\n') {
+                plain_pwd[len - 1] = '\0';
+            }
+            fclose(fp);
+            LOG_RUN_INF("[ssl] loaded plain password from %s", enc_file);
+            return CM_SUCCESS;
+        }
+        fclose(fp);
+        return CM_ERROR;
+    }
+
+    /* Read encrypted password structure */
+    read_len = fread(&cipher, 1, sizeof(cipher_t), fp);
+    fclose(fp);
+
+    if (read_len != sizeof(cipher_t)) {
+        LOG_RUN_ERR("[ssl] failed to read encrypted password file %s, read %zu bytes, expected %zu",
+            enc_file, read_len, sizeof(cipher_t));
+        return CM_ERROR;
+    }
+
+    /* Decrypt password */
+    plain_len = sizeof(plain);
+    if (cm_decrypt_pwd(&cipher, plain, &plain_len) != CM_SUCCESS) {
+        LOG_RUN_ERR("[ssl] failed to decrypt password from %s", enc_file);
+        (void)memset_s(&cipher, sizeof(cipher), 0, sizeof(cipher));
+        return CM_ERROR;
+    }
+
+    /* Copy decrypted password */
+    if (plain_len >= pwd_size) {
+        plain_len = pwd_size - 1;
+    }
+    ret = memcpy_s(plain_pwd, pwd_size, plain, plain_len);
+    if (ret != EOK) {
+        LOG_RUN_ERR("[ssl] failed to copy decrypted password");
+        (void)memset_s(plain, sizeof(plain), 0, sizeof(plain));
+        (void)memset_s(&cipher, sizeof(cipher), 0, sizeof(cipher));
+        return CM_ERROR;
+    }
+    plain_pwd[plain_len] = '\0';
+
+    /* Clear sensitive data from memory */
+    (void)memset_s(plain, sizeof(plain), 0, sizeof(plain));
+    (void)memset_s(&cipher, sizeof(cipher), 0, sizeof(cipher));
+
+    LOG_RUN_INF("[ssl] successfully decrypted password from %s", enc_file);
+    return CM_SUCCESS;
+}
+
+/**
  * Callback function for get PEM info for SSL, add thread lock protect call for 'PEM_def_callback'.
+ * If userdata is ssl_key_passwd_ctx_t*, read encrypted password file and decrypt it.
+ * If userdata is plain string, use it directly.
+ * If userdata is NULL, use default callback (prompt from terminal).
  */
 static int32 cs_ssl_cb_get_pem_passwd(char *buf, int size, int rwflag, void *userdata)
 {
-    int32 ret;
+    int32 ret = 0;
+
     if (userdata == NULL) {
+        /* No userdata, use default callback (prompt from terminal) */
         cm_spin_lock(&g_get_pem_passwd_lock, NULL);
         ret = PEM_def_callback(buf, size, rwflag, userdata);
         cm_spin_unlock(&g_get_pem_passwd_lock);
     } else {
-        ret = PEM_def_callback(buf, size, rwflag, userdata);
+        /* Check if userdata is ssl_key_passwd_ctx_t* or plain string */
+        ssl_key_passwd_ctx_t *ctx = (ssl_key_passwd_ctx_t *)userdata;
+
+        /* Try to interpret as ssl_key_passwd_ctx_t (check if key_file field is valid) */
+        if (strlen(ctx->key_file) > 0) {
+            /* Reserved: First try to get password from external callback (e.g., KMC, config) */
+            if (cs_ssl_get_password_from_callback(ctx->key_file, ctx->decrypted_pwd, sizeof(ctx->decrypted_pwd)) == CM_SUCCESS) {
+                size_t pwd_len = strlen(ctx->decrypted_pwd);
+                if (pwd_len >= (size_t)size) {
+                    pwd_len = (size_t)size - 1;
+                }
+                ret = (int32)memcpy_s(buf, (size_t)size, ctx->decrypted_pwd, pwd_len);
+                if (ret == EOK) {
+                    buf[pwd_len] = '\0';
+                    ret = (int32)pwd_len;
+                    /* Clear password from context after use */
+                    (void)memset_s(ctx->decrypted_pwd, sizeof(ctx->decrypted_pwd), 0, sizeof(ctx->decrypted_pwd));
+                } else {
+                    ret = 0;
+                }
+            }
+            /* Fallback: Read and decrypt password from encrypted file */
+            else if (cs_ssl_read_encrypted_password(ctx->key_file, ctx->decrypted_pwd, sizeof(ctx->decrypted_pwd)) == CM_SUCCESS) {
+                size_t pwd_len = strlen(ctx->decrypted_pwd);
+                if (pwd_len >= (size_t)size) {
+                    pwd_len = (size_t)size - 1;
+                }
+                ret = (int32)memcpy_s(buf, (size_t)size, ctx->decrypted_pwd, pwd_len);
+                if (ret == EOK) {
+                    buf[pwd_len] = '\0';
+                    ret = (int32)pwd_len;
+                    /* Clear password from context after use */
+                    (void)memset_s(ctx->decrypted_pwd, sizeof(ctx->decrypted_pwd), 0, sizeof(ctx->decrypted_pwd));
+                } else {
+                    ret = 0;
+                }
+            } else {
+                /* Failed to read encrypted password, fallback to default callback */
+                ret = PEM_def_callback(buf, size, rwflag, userdata);
+            }
+        } else {
+            /* userdata is plain string password, use it directly */
+            ret = PEM_def_callback(buf, size, rwflag, userdata);
+        }
     }
     return ret;
 }
@@ -1021,7 +1212,8 @@ void cs_ssl_throw_error(int32 ssl_err)
 #else
     while ((ret_code = ERR_get_error_all(&file, &line, &func, &data, &flags))) {
         ret = snprintf_s(err_buf1 + err_len, CM_MESSAGE_BUFFER_SIZE - err_len, CM_MESSAGE_BUFFER_SIZE - 1 - err_len,
-            "OpenSSL:%s-%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2), file, line, func,
+            "OpenSSL:%s-%s-%s-%d-%s", ERR_error_string(ret_code, err_buf2),
+            (file != NULL) ? file : "unkonwn", (func != NULL) ? func : "unkonwn", line,
             ((uint32)flags & ERR_TXT_STRING) ? data : "");
 #endif
         if (ret == -1) {
@@ -1153,6 +1345,8 @@ static status_t cs_ssl_resolve_file_name(const char *filename, char *buf, uint32
 static status_t cs_ssl_set_cert_auth(SSL_CTX *ctx, const char *cert_file, const char *key_file, const char *key_pwd)
 {
     char file_name[CM_FILE_NAME_BUFFER_SIZE];
+    char key_file_buf[CM_FILE_NAME_BUFFER_SIZE] = {0};
+    const char *resolved_key_file = NULL;
 
     if (cert_file == NULL && key_file != NULL) {
         cert_file = key_file;
@@ -1169,13 +1363,25 @@ static status_t cs_ssl_set_cert_auth(SSL_CTX *ctx, const char *cert_file, const 
         }
     }
     if (key_file != NULL) {
-        CM_RETURN_IFERR(cs_ssl_resolve_file_name(key_file, file_name, sizeof(file_name), &key_file));
+        CM_RETURN_IFERR(cs_ssl_resolve_file_name(key_file, key_file_buf, sizeof(key_file_buf), &resolved_key_file));
 
         if (!CM_IS_EMPTY_STR(key_pwd)) {
+            /* Use plain password string directly */
             SSL_CTX_set_default_passwd_cb_userdata(ctx, (void *)key_pwd);
+        } else {
+            /* No plain password provided, try to read from encrypted file */
+            static ssl_key_passwd_ctx_t passwd_ctx = {0};
+            /* Copy resolved key file path to passwd_ctx to ensure it remains valid after function returns */
+            if (resolved_key_file != NULL) {
+                errno_t ret = strcpy_s(passwd_ctx.key_file, sizeof(passwd_ctx.key_file), resolved_key_file);
+                if (ret != EOK) {
+                    CM_SSL_FREE_CTX_AND_RETURN(SSL_INITERR_KEY, ctx, CM_ERROR);
+                }
+            }
+            SSL_CTX_set_default_passwd_cb_userdata(ctx, (void *)&passwd_ctx);
         }
 
-        if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) != 1) {
+        if (SSL_CTX_use_PrivateKey_file(ctx, resolved_key_file, SSL_FILETYPE_PEM) != 1) {
             CM_SSL_FREE_CTX_AND_RETURN(SSL_INITERR_KEY, ctx, CM_ERROR);
         }
     }
