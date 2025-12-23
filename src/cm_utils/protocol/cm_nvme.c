@@ -118,7 +118,7 @@ int32 cm_nvme_register(int32 fd, int64 nrkey)
 {
     uint8 rrega = 0;  // Register Reservation Key
     uint8 cptpl = 0;  // No change to Persist Through Power Loss State
-    bool8 iekey = 0; // Ignore Existing Key
+    bool8 iekey = 1;  // Ignore Existing Key
     uint64 crkey = 0; // Current Reservation Key
     uint32 nsid = 0;
     int32 status = 0;
@@ -159,7 +159,7 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
 {
     uint8 rrega = 1;  // Unregister Reservation Key
     uint8 cptpl = 0;  // No change to Persist Through Power Loss State
-    bool8 iekey = 0; //  Ignore Existing Key
+    bool8 iekey = 1;  // Ignore Existing Key
     uint64 nrkey = 0; // New Reservation Key
     uint32 nsid = 0;
     int32 status = 0;
@@ -199,7 +199,7 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
 
 int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 {
-    bool8 iekey = 0; // Ignore Existing Key
+    bool8 iekey = 1; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 racqa = 0; // Reservation Acquire Action: Acquire
     uint32 nsid = 0;
@@ -239,9 +239,9 @@ int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 
 int32 cm_nvme_release(int32 fd, int64 crkey)
 {
-    bool8 iekey = 0; // Ignore Existing Key
+    bool8 iekey = 1; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
-    uint8 rrela = 0; // Reservation Release Action:Release
+    uint8 rrela = 0; // Reservation Release Action: Release
     uint32 nsid = 0;
     int32 status = 0;
 
@@ -262,7 +262,7 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
         if (status < 0) {
-            LOG_DEBUG_ERR("Sending NVMe release command failed, crkey %lld.error:%s(%d)",
+            LOG_DEBUG_ERR("Sending NVMe release command failed, crkey %lld, error:%s(%d)",
                 crkey, strerror(errno), errno);
             return CM_ERROR;
         } else {
@@ -276,9 +276,9 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
 
 int32 cm_nvme_clear(int32 fd, int64 crkey)
 {
-    bool8 iekey = 0; // Ignore Existing Key
-    uint8 rtype = 0; // Reservation Type:Reserved
-    uint8 rrela = 1; // Reservation Release Action:Clear
+    bool8 iekey = 1; // Ignore Existing Key
+    uint8 rtype = 0; // Reservation Type: Reserved (for Clear action)
+    uint8 rrela = 1; // Reservation Release Action: Clear
     uint32 nsid = 0;
     int32 status = 0;
 
@@ -312,7 +312,7 @@ int32 cm_nvme_clear(int32 fd, int64 crkey)
 
 int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 {
-    bool8 iekey = 0; // Ignore Existing Key
+    bool8 iekey = 1; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 racqa = 1; // Reservation Acquire Action: Preempt
     uint32 nsid = 0;
@@ -334,8 +334,11 @@ int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
-        if (status < 0) {
-            LOG_DEBUG_ERR("Sending NVMe preempt command failed, crkey %lld, nrkey %lld .error:%s(%d)",
+        if (status == CM_NVME_SC_RESERVATION_CONFLICT) {
+            LOG_DEBUG_INF("NVMe preempt get reservation conflict, crkey %lld, nrkey %lld.", crkey, nrkey);
+            return CM_SCSI_ERR_CONFLICT;
+        } else if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe preempt command failed, crkey %lld, nrkey %lld, error:%s(%d)",
                 crkey, nrkey, strerror(errno), errno);
             return CM_ERROR;
         } else {
