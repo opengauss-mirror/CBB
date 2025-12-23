@@ -193,21 +193,58 @@ status_t cs_uds_wait(uds_link_t *link, uint32 wait_for, int32 timeout, bool32 *r
     }
 
     if (ret > 0) {
+        // Check if we have the expected event (POLLIN/POLLOUT)
+        bool32 has_expected_event = CM_FALSE;
+        if (wait_for == CS_WAIT_FOR_READ && ((uint16)fd.revents & POLLIN)) {
+            has_expected_event = CM_TRUE;
+        } else if (wait_for == CS_WAIT_FOR_WRITE && ((uint16)fd.revents & POLLOUT)) {
+            has_expected_event = CM_TRUE;
+        }
+        
+        // If data is available, process it first even if POLLHUP is also set
+        if (has_expected_event) {
+            if (ready != NULL) {
+                *ready = CM_TRUE;
+            }
+            // Log warning if POLLHUP is also set, but don't return error
+            if ((uint16)fd.revents & POLLHUP) {
+                LOG_DEBUG_WAR("[UDS] poll has data with POLLHUP, revents=0x%x, sock=%d, "
+                    "will read data first", (uint16)fd.revents, link->sock);
+            }
+            return CM_SUCCESS;
+        }
+        
+        // No expected event, check for error conditions
+        if ((uint16)fd.revents & POLLHUP) {
+            LOG_RUN_WAR("[UDS] poll got POLLHUP without data, revents=0x%x, sock=%d, "
+                "wait_for=%s", (uint16)fd.revents, link->sock,
+                wait_for == CS_WAIT_FOR_READ ? "READ" : "WRITE");
+            cs_uds_disconnect(link);
+            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds peer closed");
+            return CM_ERROR;
+        }
+        
+        if ((uint16)fd.revents & (POLLERR | POLLNVAL)) {
+            LOG_RUN_WAR("[UDS] poll got error, revents=0x%x (ERR=%d, NVAL=%d), sock=%d",
+                (uint16)fd.revents,
+                ((uint16)fd.revents & POLLERR) ? 1 : 0,
+                ((uint16)fd.revents & POLLNVAL) ? 1 : 0,
+                link->sock);
+            cs_uds_disconnect(link);
+            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds poll error");
+            return CM_ERROR;
+        }
+        
         if (ready != NULL) {
             *ready = CM_TRUE;
-        }
-
-        if ((uint16)fd.revents & POLLHUP) {
-            cs_uds_disconnect(link);
-            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
-            return CM_ERROR;
         }
         return CM_SUCCESS;
     }
 
     if (errno != EINTR) {
+        LOG_RUN_WAR("[UDS] poll failed, ret=%d, errno=%d, sock=%d", ret, errno, link->sock);
         cs_uds_disconnect(link);
-        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
+        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds poll failed");
         return CM_ERROR;
     }
 
