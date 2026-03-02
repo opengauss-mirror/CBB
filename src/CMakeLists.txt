@@ -101,3 +101,6 @@ target_link_libraries(perctrl pthread dl rt -Wl,--whole-archive -Wl,-Bstatic ${v
 
 # Add benchmark
 add_subdirectory(cm_mes/benchmark)
+
+# Add benchmark_rtt
+add_subdirectory(cm_mes/benchmark_rtt)
