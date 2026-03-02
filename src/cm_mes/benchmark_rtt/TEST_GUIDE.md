@@ -35,7 +35,7 @@ gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
     -Ilibrary/zlib/include \
     -Ilibrary/lz4/include \
     -o output/bin/mes_rtt_perf \
-    src/cm_mes/benchmark/mes_rtt_perf.c \
+    src/cm_mes/benchmark_rtt/mes_rtt_perf.c \
     -Loutput/lib \
     -Llibrary/openssl/lib \
     -Llibrary/zlib/lib \
@@ -54,9 +54,9 @@ gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
 #### 步骤1：启动服务器（终端1）
 
 ```bash
-cd /usr1/wyc/source_code/CBB/output/bin
+cd /usr1/wyc/source_code/CBB
 
-./mes_rtt_perf -m server -i 1 --local-ip 127.0.0.1 --local-port 12345
+./output/bin/mes_rtt_perf -m server -i 1 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT>
 ```
 
 **预期输出：**
@@ -66,8 +66,8 @@ MES RTT Performance Test Configuration
 ========================================
 Mode: Server
 Local instance ID: 1
-Local IP: 127.0.0.1
-Local port: 12345
+Local IP: <SERVER_IP>
+Local port: <SERVER_PORT>
 ========================================
 
 Initializing MES...
@@ -77,14 +77,12 @@ Server mode started. Waiting for client requests...
 Press Ctrl+C to stop.
 ```
 
-#### 步骤2：启动客户端（终端2）
+#### 步骤2：启动客户端（终端2）- 单线程测试
 
 ```bash
-cd /usr1/wyc/source_code/CBB/output/bin
+cd /usr1/wyc/source_code/CBB
 
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 1000 -s 64
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64
 ```
 
 **预期输出：**
@@ -94,13 +92,14 @@ MES RTT Performance Test Configuration
 ========================================
 Mode: Client
 Local instance ID: 2
-Local IP: 127.0.0.1
-Local port: 12346
+Local IP: <CLIENT_IP>
+Local port: <CLIENT_PORT>
 Target instance ID: 1
-Target IP: 127.0.0.1
-Target port: 12345
+Target IP: 
+Target port: 0
 Test count: 1000
 Message size: 64 bytes
+Thread count: 1
 Timeout: 5000 ms
 ========================================
 
@@ -110,38 +109,83 @@ MES initialized successfully
 Waiting for connection to server...
 Connected to server 1
 
-Starting RTT performance test...
-
 Starting RTT performance test: Client -> Server
-Test count: 1000, Message size: 64 bytes
-Progress: 100/1000 (10.0%)
-Progress: 200/1000 (20.0%)
-Progress: 300/1000 (30.0%)
-Progress: 400/1000 (40.0%)
-Progress: 500/1000 (50.0%)
-Progress: 600/1000 (60.0%)
-Progress: 700/1000 (70.0%)
-Progress: 800/1000 (80.0%)
-Progress: 900/1000 (90.0%)
+Test count: 1000, Message size: 64 bytes, Threads: 1
 
-========================================
-RTT Performance Test: Client 2 -> Server 1
-========================================
-| Metric                   | Value                |
--------------------------------------------
+==================================================
+RTT Performance Test: Client 2 -> Server 1 (1 threads)
+==================================================
 | Success count            | 1000                 |
 | Timeout count            | 0                     |
-| Average RTT (μs)         | 123.45                |
-| Min RTT (μs)             | 45.67                 |
-| Max RTT (μs)             | 567.89                |
-| P50 RTT (μs)             | 110.34                |
-| P95 RTT (μs)             | 234.56                |
-| P99 RTT (μs)             | 456.78                |
-| Std Dev (μs)             | 45.67                 |
-========================================
+| Average RTT (μs)         | 46.99                 |
+| Min RTT (μs)             | 40.00                 |
+| Max RTT (μs)             | 788.00                |
+| P50 RTT (μs)             | 46.00                 |
+| P95 RTT (μs)             | 52.00                 |
+| P99 RTT (μs)             | 60.00                 |
+| Std Dev (μs)             | 21.61                 |
+| Total time (s)           | 0.47                  |
+| Throughput (req/s)       | 21131.69              |
+==================================================
 
 Cleaning up...
-RTT performance test: completed!
+RTT performance test completed!
+```
+
+#### 步骤3：启动客户端（终端3）- 多线程并发测试
+
+```bash
+cd /usr1/wyc/source_code/CBB
+
+# 使用 4 个并发线程进行测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 4
+```
+
+**预期输出：**
+```
+========================================
+MES RTT Performance Test Configuration
+========================================
+Mode: Client
+Local instance ID: 2
+Local IP: <CLIENT_IP>
+Local port: <CLIENT_PORT>
+Target instance ID: 1
+Target IP: 
+Target port: 0
+Test count: 1000
+Message size: 64 bytes
+Thread count: 4
+Timeout: 5000 ms
+========================================
+
+Initializing MES...
+MES initialized successfully
+
+Waiting for connection to server...
+Connected to server 1
+
+Starting RTT performance test: Client -> Server
+Test count: 1000, Message size: 64 bytes, Threads: 4
+
+==================================================
+RTT Performance Test: Client 2 -> Server 1 (4 threads)
+==================================================
+| Success count            | 1000                 |
+| Timeout count            | 0                     |
+| Average RTT (μs)         | 48.12                 |
+| Min RTT (μs)             | 42.00                 |
+| Max RTT (μs)             | 820.00                |
+| P50 RTT (μs)             | 47.00                 |
+| P95 RTT (μs)             | 54.00                 |
+| P99 RTT (μs)             | 62.00                 |
+| Std Dev (μs)             | 22.34                 |
+| Total time (s)           | 0.12                  |
+| Throughput (req/s)       | 8333.33               |
+==================================================
+
+Cleaning up...
+RTT performance test completed!
 ```
 
 ## 跨节点 RTT 测试
@@ -154,21 +198,29 @@ RTT performance test: completed!
 #### 步骤1：在节点1上启动服务器
 
 ```bash
-# 在节点1 (192.168.1.1) 上运行
-cd /usr1/wyc/source_code/CBB/output/bin
+# 在节点1 (<SERVER_IP>) 上运行
+cd /usr1/wyc/source_code/CBB
 
-./mes_rtt_perf -m server -i 1 --local-ip 192.168.1.1 --local-port 12345
+./output/bin/mes_rtt_perf -m server -i 1 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT>
 ```
 
-#### 步骤2：在节点2上启动客户端
+#### 步骤2：在节点2上启动客户端（单线程）
 
 ```bash
-# 在节点2 (192.168.1.2) 上运行
-cd /usr1/wyc/source_code/CBB/output/bin
+# 在节点2 (<CLIENT_IP>) 上运行
+cd /usr1/wyc/source_code/CBB
 
-./mes_rtt_perf -m client -i 2 --local-ip 192.168.1.2 --local-port 12346 \
-               --target-id 1 --target-ip 192.168.1.1 --target-port 12345 \
-               -c 1000 -s 64 -T 5000
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64
+```
+
+#### 步骤3：在节点2上启动客户端（多线程并发）
+
+```bash
+# 在节点2 (<CLIENT_IP>) 上运行
+# 使用 8 个并发线程进行高负载测试
+cd /usr1/wyc/source_code/CBB
+
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 8
 ```
 
 ## 命令行参数说明
@@ -179,18 +231,15 @@ cd /usr1/wyc/source_code/CBB/output/bin
 |------|------|---------|------|
 | `-m, --mode` | 运行模式：server 或 client | 无 | 是 |
 | `-i, --inst-id` | 本地实例 ID | 无 | 是 |
-| `--local-ip` | 本地 IP 地址 | 127.0.0.1 | 否 |
-| `--local-port` | 本地端口 | 12345 | 否 |
+| `--nodes` | 节点列表格式：id1:ip1:port1,id2:ip2:port2,... | 无 | 否 |
 
 ### 客户端模式参数
 
 | 参数 | 说明 | 默认值 | 必需 |
 |------|------|---------|------|
-| `--target-id` | 目标实例 ID | 无 | 是（客户端模式） |
-| `--target-ip` | 目标 IP 地址 | 无 | 是（客户端模式） |
-| `--target-port` | 目标端口 | 无 | 是（客户端模式） |
 | `-c, --count` | 测试迭代次数 | 1000 | 否 |
 | `-s, --size` | 消息大小（字节） | 64 | 否 |
+| `-t, --threads` | 并发线程数 | 1 | 否 |
 | `-T, --timeout` | 响应超时（毫秒） | 5000 | 否 |
 
 ### 可选参数
@@ -213,6 +262,39 @@ cd /usr1/wyc/source_code/CBB/output/bin
 | P95 RTT (μs) | 95分位往返时间（微秒） |
 | P99 RTT (μs) | 99分位往返时间（微秒） |
 | Std Dev (μs) | 标准差（微秒） |
+| Total time (s) | 总测试时间（秒） |
+| Throughput (req/s) | 吞吐量（每秒请求数） |
+
+## 并发测试场景
+
+### 测试不同并发级别
+
+```bash
+# 单线程测试（基准测试）
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 1
+
+# 2 线程并发测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 2
+
+# 4 线程并发测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 4
+
+# 8 线程并发测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 8
+
+# 16 线程高并发测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 16
+```
+
+### 高负载并发测试
+
+```bash
+# 高并发 + 大消息量测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 50000 -s 1024 -t 16
+
+# 极限压力测试
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 100000 -s 64 -t 32
+```
 
 ## 故障排除
 
@@ -244,53 +326,63 @@ cd /usr1/wyc/source_code/CBB/output/bin
 2. 检查 CBB 库是否已编译
 3. 验证库路径配置正确
 
+### 问题4：高并发时出现超时
+
+**症状：** 使用多线程测试时出现大量超时
+
+**解决方案：**
+1. 检查服务器端处理能力
+2. 适当增加超时时间 `-T` 参数
+3. 减少并发线程数
+4. 检查网络带宽和延迟
+
 ## 高级测试场景
 
 ### 测试不同消息大小
 
 ```bash
 # 测试 1KB 消息
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 1000 -s 1024
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 1024 -t 4
 
 # 测试 4KB 消息
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 1000 -s 4096
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 4096 -t 4
 
 # 测试 16KB 消息
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 1000 -s 16384
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 16384 -t 4
 ```
 
 ### 测试不同负载
 
 ```bash
 # 轻量测试（100 次请求）
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 100 -s 64
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 100 -s 64 -t 1
 
 # 中等测试（1000 次请求）
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 1000 -s 64
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 4
 
 # 重量测试（10000 次请求）
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 10000 -s 64
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 8
 ```
 
 ### 详细日志模式
 
 ```bash
 # 启用详细日志查看 MES 内部操作
-./mes_rtt_perf -m client -i 2 --local-ip 127.0.0.1 --local-port 12346 \
-               --target-id 1 --target-ip 127.0.0.1 --target-port 12345 \
-               -c 100 -s 64 -v
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 100 -s 64 -t 4 -v
+```
+
+### 性能对比测试
+
+```bash
+# 对比单线程和多线程性能
+echo "=== 单线程测试 ==="
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 1
+
+echo "=== 4 线程测试 ==="
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 4
+
+echo "=== 8 线程测试 ==="
+./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 8
 ```
 
 ## 总结
@@ -300,12 +392,26 @@ mes_rtt_perf 工具提供了一个简单而强大的方式来测试 CBB MES 通�
 **关键特性：**
 - 支持客户端-服务器模式
 - 支持跨节点和同节点测试
+- 支持多线程并发压测
 - 使用 CBB MES 通信框架
 - 提供详细的性能统计信息
 - 支持可配置的测试参数
+- 提供吞吐量统计
 
 **使用建议：**
 1. 先在同节点测试验证功能
 2. 然后在跨节点测试网络性能
 3. 使用不同消息大小和负载进行压力测试
-4. 使用详细日志模式进行故障排除
+4. 使用多线程并发测试评估系统吞吐量
+5. 使用详细日志模式进行故障排除
+6. 对比不同并发级别的性能表现
+
+**并发测试最佳实践：**
+1. 从单线程开始，逐步增加并发数
+2. 观察吞吐量和延迟的权衡
+3. 注意 P95 和 P99 延迟在高并发下的变化
+4. 监控超时率，确保系统稳定性
+5. 根据实际应用场景选择合适的并发级别
+
+**注意：**
+- 请将 `<SERVER_IP>`、`<SERVER_PORT>`、`<CLIENT_IP>`、`<CLIENT_PORT>` 替换为实际的服务器和客户端 IP 地址及端口号

@@ -86,6 +86,16 @@ typedef struct {
 } test_statistics_t;
 
 typedef struct {
+    int thread_id;
+    int start_idx;
+    int count;
+    rtt_result_t *results;
+    int success_count;
+    int timeout_count;
+    pthread_mutex_t mutex;
+} thread_context_t;
+
+typedef struct {
     run_mode_t mode;
     inst_type local_inst_id;
     char local_ip[MES_MAX_IP_LEN];
@@ -98,6 +108,7 @@ typedef struct {
     int timeout_ms;
     int verbose;
     int node_count;
+    int thread_count;
     node_config_t nodes[MAX_NODES];
 } test_config_t;
 
@@ -187,7 +198,7 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
     free(rtt_values);
 }
 
-static void print_statistics(const char *test_name, test_statistics_t *stats)
+static void print_statistics(const char *test_name, test_statistics_t *stats, double total_time_s)
 {
     printf("\n==================================================\n");
     printf("%s\n", test_name);
@@ -201,6 +212,11 @@ static void print_statistics(const char *test_name, test_statistics_t *stats)
     printf("| %-25s | %20.2f |\n", "P95 RTT (μs)", stats->p95_rtt_us);
     printf("| %-25s | %20.2f |\n", "P99 RTT (μs)", stats->p99_rtt_us);
     printf("| %-25s | %20.2f |\n", "Std Dev (μs)", stats->std_dev_us);
+    if (total_time_s > 0) {
+        double throughput = stats->success_count / total_time_s;
+        printf("| %-25s | %20.2f |\n", "Total time (s)", total_time_s);
+        printf("| %-25s | %20.2f |\n", "Throughput (req/s)", throughput);
+    }
     printf("==================================================\n");
 }
 
@@ -252,24 +268,27 @@ static int setup_mes_profile(mes_profile_t *profile)
     profile->inst_cnt = g_config.node_count;
     profile->pipe_type = MES_TYPE_TCP;
     
-    profile->msg_pool_attr.total_size = 1024 * 1024 * 100;
+    int queue_multiplier = (g_config.thread_count > 1) ? g_config.thread_count : 1;
+    int pool_size_multiplier = (g_config.thread_count > 1) ? g_config.thread_count : 1;
+    
+    profile->msg_pool_attr.total_size = 1024 * 1024 * 100 * pool_size_multiplier;
     profile->msg_pool_attr.enable_inst_dimension = 1;
     profile->msg_pool_attr.buf_pool_count = 3;
     
     profile->msg_pool_attr.buf_pool_attr[0].buf_size = 256;
     profile->msg_pool_attr.buf_pool_attr[0].proportion = 0.1;
-    profile->msg_pool_attr.buf_pool_attr[0].priority_pool_attr[0].queue_num = 8;
-    profile->msg_pool_attr.buf_pool_attr[0].shared_pool_attr.queue_num = 8;
+    profile->msg_pool_attr.buf_pool_attr[0].priority_pool_attr[0].queue_num = 8 * queue_multiplier;
+    profile->msg_pool_attr.buf_pool_attr[0].shared_pool_attr.queue_num = 8 * queue_multiplier;
     
     profile->msg_pool_attr.buf_pool_attr[1].buf_size = 512;
     profile->msg_pool_attr.buf_pool_attr[1].proportion = 0.1;
-    profile->msg_pool_attr.buf_pool_attr[1].priority_pool_attr[0].queue_num = 8;
-    profile->msg_pool_attr.buf_pool_attr[1].shared_pool_attr.queue_num = 8;
+    profile->msg_pool_attr.buf_pool_attr[1].priority_pool_attr[0].queue_num = 8 * queue_multiplier;
+    profile->msg_pool_attr.buf_pool_attr[1].shared_pool_attr.queue_num = 8 * queue_multiplier;
     
     profile->msg_pool_attr.buf_pool_attr[2].buf_size = 32768;
     profile->msg_pool_attr.buf_pool_attr[2].proportion = 0.8;
-    profile->msg_pool_attr.buf_pool_attr[2].priority_pool_attr[0].queue_num = 8;
-    profile->msg_pool_attr.buf_pool_attr[2].shared_pool_attr.queue_num = 8;
+    profile->msg_pool_attr.buf_pool_attr[2].priority_pool_attr[0].queue_num = 8 * queue_multiplier;
+    profile->msg_pool_attr.buf_pool_attr[2].shared_pool_attr.queue_num = 8 * queue_multiplier;
     
     profile->msg_pool_attr.max_buf_size[0] = 32768;
     profile->frag_size = 32832;
@@ -293,34 +312,26 @@ static int setup_mes_profile(mes_profile_t *profile)
     return 0;
 }
 
-static int run_client_test(void)
+static void *worker_thread_func(void *arg)
 {
-    rtt_result_t *results = (rtt_result_t *)calloc(g_config.test_count, sizeof(rtt_result_t));
-    if (!results) {
-        fprintf(stderr, "Failed to allocate RTT results array\n");
-        return -1;
-    }
+    thread_context_t *ctx = (thread_context_t *)arg;
     
     char *buffer = (char *)malloc(g_config.message_size);
     if (!buffer) {
-        fprintf(stderr, "Failed to allocate buffer\n");
-        free(results);
-        return -1;
+        fprintf(stderr, "Thread %d: Failed to allocate buffer\n", ctx->thread_id);
+        return NULL;
     }
     
     memset(buffer, 0, g_config.message_size);
     rtt_perf_message_t *rtt_msg = (rtt_perf_message_t *)buffer;
     
-    printf("\nStarting RTT performance test: Client -> Server\n");
-    printf("Test count: %d, Message size: %d bytes\n", g_config.test_count, g_config.message_size);
-    fflush(stdout);
+    int local_success = 0;
+    int local_timeout = 0;
     
-    int success_count = 0;
-    int timeout_count = 0;
-    
-    for (int i = 0; i < g_config.test_count && g_running; i++) {
+    for (int i = 0; i < ctx->count && g_running; i++) {
+        int rtt_idx = ctx->start_idx + i;
         ruid_type ruid;
-        rtt_msg->seq_num = i;
+        rtt_msg->seq_num = rtt_idx;
         rtt_msg->src_inst = g_config.local_inst_id;
         rtt_msg->dst_inst = g_config.target_inst_id;
         rtt_msg->send_timestamp = get_time_us();
@@ -329,8 +340,11 @@ static int run_client_test(void)
         int ret = mes_send_request(g_config.target_inst_id, 0, &ruid, buffer, g_config.message_size);
         
         if (ret != 0) {
-            fprintf(stderr, "Failed to send request %d: %d (errno=%d)\n", i, ret, errno);
-            timeout_count++;
+            if (g_config.verbose) {
+                fprintf(stderr, "Thread %d: Failed to send request %d: %d (errno=%d)\n", 
+                        ctx->thread_id, rtt_idx, ret, errno);
+            }
+            local_timeout++;
             usleep(10000);
             continue;
         }
@@ -340,9 +354,9 @@ static int run_client_test(void)
         
         if (ret != 0) {
             if (g_config.verbose) {
-                fprintf(stderr, "Timeout waiting for response %d\n", i);
+                fprintf(stderr, "Thread %d: Timeout waiting for response %d\n", ctx->thread_id, rtt_idx);
             }
-            timeout_count++;
+            local_timeout++;
             usleep(10000);
             continue;
         }
@@ -350,38 +364,111 @@ static int run_client_test(void)
         if (response.buffer != NULL && response.size >= sizeof(rtt_perf_message_t)) {
             (void)(rtt_perf_message_t *)response.buffer;
             
-            results[success_count].rtt_us = response_time - rtt_msg->send_timestamp;
-            results[success_count].send_timestamp = rtt_msg->send_timestamp;
-            results[success_count].recv_timestamp = response_time;
+            pthread_mutex_lock(&ctx->mutex);
+            ctx->results[local_success].rtt_us = response_time - rtt_msg->send_timestamp;
+            ctx->results[local_success].send_timestamp = rtt_msg->send_timestamp;
+            ctx->results[local_success].recv_timestamp = response_time;
+            local_success++;
+            pthread_mutex_unlock(&ctx->mutex);
             
-            if (g_config.verbose && i % 100 == 0) {
-                printf("Request %d: RTT=%.2f μs\n", i, results[success_count].rtt_us);
+            if (g_config.verbose && rtt_idx % 100 == 0) {
+                printf("Thread %d: Request %d: RTT=%.2f μs\n", 
+                       ctx->thread_id, rtt_idx, ctx->results[local_success - 1].rtt_us);
             }
-            
-            success_count++;
         }
         
         mes_release_msg(&response);
-        
-        if (i % 1000 == 0 && i > 0) {
-            printf("Progress: %d/%d (%.1f%%)\n", i, g_config.test_count, (double)i / g_config.test_count * 100);
-            fflush(stdout);
-        }
-        
-        usleep(1000);
     }
     
+    pthread_mutex_lock(&ctx->mutex);
+    ctx->success_count = local_success;
+    ctx->timeout_count = local_timeout;
+    pthread_mutex_unlock(&ctx->mutex);
+    
     free(buffer);
+    return NULL;
+}
+
+static int run_client_test(void)
+{
+    rtt_result_t *results = (rtt_result_t *)calloc(g_config.test_count, sizeof(rtt_result_t));
+    if (!results) {
+        fprintf(stderr, "Failed to allocate RTT results array\n");
+        return -1;
+    }
+    
+    printf("\nStarting RTT performance test: Client -> Server\n");
+    printf("Test count: %d, Message size: %d bytes, Threads: %d\n", 
+           g_config.test_count, g_config.message_size, g_config.thread_count);
+    fflush(stdout);
+    
+    pthread_t *threads = (pthread_t *)malloc(g_config.thread_count * sizeof(pthread_t));
+    thread_context_t *contexts = (thread_context_t *)calloc(g_config.thread_count, sizeof(thread_context_t));
+    
+    if (!threads || !contexts) {
+        fprintf(stderr, "Failed to allocate threads or contexts\n");
+        free(results);
+        free(threads);
+        free(contexts);
+        return -1;
+    }
+    
+    int base_count = g_config.test_count / g_config.thread_count;
+    int remainder = g_config.test_count % g_config.thread_count;
+    int current_start = 0;
+    
+    uint64_t start_time = get_time_us();
+    
+    for (int i = 0; i < g_config.thread_count; i++) {
+        contexts[i].thread_id = i;
+        contexts[i].start_idx = current_start;
+        contexts[i].count = base_count + (i < remainder ? 1 : 0);
+        contexts[i].results = results + current_start;
+        contexts[i].success_count = 0;
+        contexts[i].timeout_count = 0;
+        pthread_mutex_init(&contexts[i].mutex, NULL);
+        
+        current_start += contexts[i].count;
+        
+        if (pthread_create(&threads[i], NULL, worker_thread_func, &contexts[i]) != 0) {
+            fprintf(stderr, "Failed to create thread %d\n", i);
+            free(results);
+            free(threads);
+            free(contexts);
+            return -1;
+        }
+    }
+    
+    int total_success = 0;
+    int total_timeout = 0;
+    
+    for (int i = 0; i < g_config.thread_count; i++) {
+        pthread_join(threads[i], NULL);
+        total_success += contexts[i].success_count;
+        total_timeout += contexts[i].timeout_count;
+        pthread_mutex_destroy(&contexts[i].mutex);
+        
+        if (g_config.verbose) {
+            printf("Thread %d: Success=%d, Timeout=%d\n", 
+                   i, contexts[i].success_count, contexts[i].timeout_count);
+        }
+    }
+    
+    uint64_t end_time = get_time_us();
+    double total_time_s = (end_time - start_time) / 1000000.0;
+    
+    free(threads);
+    free(contexts);
     
     test_statistics_t stats;
-    calculate_statistics(results, success_count, &stats);
-    stats.success_count = success_count;
-    stats.timeout_count = timeout_count;
+    calculate_statistics(results, total_success, &stats);
+    stats.success_count = total_success;
+    stats.timeout_count = total_timeout;
     
     char test_name[128];
-    snprintf(test_name, sizeof(test_name), "RTT Performance Test: Client %d -> Server %d", 
-             g_config.local_inst_id, g_config.target_inst_id);
-    print_statistics(test_name, &stats);
+    snprintf(test_name, sizeof(test_name), "RTT Performance Test: Client %d -> Server %d (%d threads)", 
+             g_config.local_inst_id, g_config.target_inst_id, g_config.thread_count);
+    print_statistics(test_name, &stats, total_time_s);
     
     free(results);
     return 0;
@@ -462,19 +549,22 @@ static void print_usage(const char *prog_name)
     printf("                           Example: 1:192.168.1.1:12345,2:192.168.1.2:12345\n");
     printf("  -c, --count COUNT        Number of test iterations (default: %d)\n", DEFAULT_TEST_COUNT);
     printf("  -s, --size SIZE          Message size in bytes (default: %d)\n", DEFAULT_MESSAGE_SIZE);
+    printf("  -t, --threads COUNT       Number of concurrent threads (default: 1)\n");
     printf("  -T, --timeout MS         Response timeout in milliseconds (default: 5000)\n");
     printf("  -v, --verbose            Enable verbose output\n");
     printf("  -h, --help               Show this help message\n");
     printf("\nExamples:\n");
     printf("  # Server mode (cross-node)\n");
     printf("  %s -m server -i 1 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345\n", prog_name);
-    printf("\n  # Client mode (cross-node)\n");
+    printf("\n  # Client mode (cross-node, single thread)\n");
     printf("  %s -m client -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000 -s 64\n", prog_name);
+    printf("\n  # Client mode with 4 concurrent threads\n");
+    printf("  %s -m client -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000 -s 64 -t 4\n", prog_name);
     printf("\n  # Same-node test (same IP, different ports)\n");
     printf("  # Terminal 1 - Server:\n");
     printf("  %s -m server -i 1 --nodes 1:127.0.0.1:12345,2:127.0.0.1:12346\n", prog_name);
     printf("  # Terminal 2 - Client:\n");
-    printf("  %s -m client -i 2 --nodes 1:127.0.0.1:12345,2:127.0.0.1:12346 -c 1000 -s 64\n", prog_name);
+    printf("  %s -m client -i 2 --nodes 1:127.0.0.1:12345,2:127.0.0.1:12346 -c 1000 -s 64 -t 8\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -490,6 +580,7 @@ static int parse_arguments(int argc, char *argv[])
         {"nodes", required_argument, 0, 1006},
         {"count", required_argument, 0, 'c'},
         {"size", required_argument, 0, 's'},
+        {"threads", required_argument, 0, 't'},
         {"timeout", required_argument, 0, 'T'},
         {"verbose", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
@@ -498,6 +589,7 @@ static int parse_arguments(int argc, char *argv[])
     
     g_config.test_count = DEFAULT_TEST_COUNT;
     g_config.message_size = DEFAULT_MESSAGE_SIZE;
+    g_config.thread_count = 1;
     g_config.timeout_ms = 5000;
     g_config.verbose = 0;
     g_config.node_count = 0;
@@ -505,7 +597,7 @@ static int parse_arguments(int argc, char *argv[])
     g_config.local_port = DEFAULT_PORT;
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:i:c:s:T:vh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:i:c:s:t:T:vh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 if (strcmp(optarg, "server") == 0) {
@@ -551,6 +643,13 @@ static int parse_arguments(int argc, char *argv[])
                 g_config.message_size = atoi(optarg);
                 if (g_config.message_size <= 0 || g_config.message_size > MAX_MESSAGE_SIZE) {
                     fprintf(stderr, "Invalid message size: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            case 't':
+                g_config.thread_count = atoi(optarg);
+                if (g_config.thread_count <= 0 || g_config.thread_count > 64) {
+                    fprintf(stderr, "Invalid thread count: %s (must be 1-64)\n", optarg);
                     return -1;
                 }
                 break;
@@ -675,6 +774,7 @@ static void print_config(void)
         printf("Target port: %d\n", g_config.target_port);
         printf("Test count: %d\n", g_config.test_count);
         printf("Message size: %d bytes\n", g_config.message_size);
+        printf("Thread count: %d\n", g_config.thread_count);
         printf("Timeout: %d ms\n", g_config.timeout_ms);
     }
     printf("========================================\n");
