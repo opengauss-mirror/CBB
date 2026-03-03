@@ -266,64 +266,6 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
     return 0;
 }
 
-static int run_bidirectional_bandwidth_test(inst_type dest_inst)
-{
-    char *buffer = (char *)malloc(BANDWIDTH_MESSAGE_SIZE);
-    if (!buffer) {
-        fprintf(stderr, "Failed to allocate buffer for bandwidth test\n");
-        return -1;
-    }
-    
-    memset(buffer, 0xAA, BANDWIDTH_MESSAGE_SIZE);
-    uint32_t *seq_num = (uint32_t *)buffer;
-    
-    if (g_shared_state != NULL) {
-        g_shared_state->received_count = 0;
-        g_shared_state->validation_failed = 0;
-    }
-    
-    double start_time = get_time_ms();
-    
-    for (int i = 0; i < BANDWIDTH_TEST_COUNT; i++) {
-        *seq_num = i;
-        
-        int ret = mes_send_data(dest_inst, 0, buffer, BANDWIDTH_MESSAGE_SIZE);
-        if (ret != 0) {
-            fprintf(stderr, "Failed to send message %d: %d (errno=%d)\n", i, ret, errno);
-            free(buffer);
-            return -1;
-        }
-        
-        if (i % 100 == 0) {
-            printf("Sent %d messages...\n", i + 1);
-        }
-    }
-    
-    while (g_shared_state != NULL && g_shared_state->received_count < BANDWIDTH_TEST_COUNT) {
-        usleep(100);
-    }
-    
-    double end_time = get_time_ms();
-    double total_time = end_time - start_time;
-    double total_data = BANDWIDTH_MESSAGE_SIZE * BANDWIDTH_TEST_COUNT / (1024.0 * 1024.0);
-    double bandwidth = total_data / (total_time / 1000.0);
-    
-    printf("\nBidirectional Bandwidth Test Results:\n");
-    printf("  Messages sent: %d\n", BANDWIDTH_TEST_COUNT);
-    printf("  Message size: %d bytes\n", BANDWIDTH_MESSAGE_SIZE);
-    printf("  Total data: %.2f MB\n", total_data);
-    printf("  Total time: %.2f ms\n", total_time);
-    printf("  Bandwidth: %.2f MB/s\n", bandwidth);
-    printf("  Throughput: %.2f msg/s\n", BANDWIDTH_TEST_COUNT / (total_time / 1000.0));
-    
-    if (g_shared_state != NULL && g_shared_state->validation_failed) {
-        printf("  WARNING: Some messages failed validation!\n");
-    }
-    
-    free(buffer);
-    return 0;
-}
-
 static int run_benchmark(mes_pipe_type_t pipe_type)
 {
     printf("[DEBUG] Starting benchmark with pipe type: %d\n", pipe_type);
