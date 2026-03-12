@@ -37,9 +37,16 @@ typedef struct st_mes_msgitem mes_msgitem_t;
 typedef struct st_mes_msgqueue mes_msgqueue_t;
 
 #define MES_IPC_SHM_KEY_BASE 0x88880000
+<<<<<<< HEAD
 #define MES_IPC_MAX_MSG_SIZE (64 * 1024)
 #define MES_IPC_MSG_QUEUE_SIZE 256
 #define MES_IPC_BATCH_SIZE 16
+=======
+#define MES_IPC_MAX_MSG_SIZE (128 * 1024)
+#define MES_IPC_MSG_QUEUE_SIZE 256
+#define MES_IPC_BATCH_SIZE 16
+#define MES_IPC_MAX_INSTANCES 8
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
 #define MES_IPC_SHM_SIZE (sizeof(mes_ipc_shm_t))
 
 #define MES_IPC_CACHE_LINE_SIZE 64
@@ -47,15 +54,27 @@ typedef struct st_mes_msgqueue mes_msgqueue_t;
 
 typedef struct st_mes_ipc_msg {
     mes_message_head_t head;
+<<<<<<< HEAD
+=======
+    uint32_t data_size;
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
     char buffer[MES_IPC_MAX_MSG_SIZE];
 } mes_ipc_msg_t;
 
 typedef struct st_mes_ipc_queue {
+<<<<<<< HEAD
+=======
+    volatile uint32_t lock MES_IPC_CACHE_ALIGNED;
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
     volatile uint32_t head MES_IPC_CACHE_ALIGNED;
     volatile uint32_t tail MES_IPC_CACHE_ALIGNED;
     volatile uint32_t size;
     uint32_t capacity;
+<<<<<<< HEAD
     char _pad[MES_IPC_CACHE_LINE_SIZE - 3 * sizeof(uint32_t)];
+=======
+    char _pad[MES_IPC_CACHE_LINE_SIZE - 4 * sizeof(uint32_t)];
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
     mes_ipc_msg_t messages[MES_IPC_MSG_QUEUE_SIZE];
 } mes_ipc_queue_t;
 
@@ -69,7 +88,11 @@ typedef struct st_mes_ipc_shm {
     uint32_t magic;
     uint32_t version;
     uint32_t inst_count;
+<<<<<<< HEAD
     mes_ipc_inst_queues_t queues[MES_MAX_INSTANCES];
+=======
+    mes_ipc_inst_queues_t queues[MES_IPC_MAX_INSTANCES];
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
     uint32_t sem_global;
 } mes_ipc_shm_t;
 
@@ -83,6 +106,10 @@ typedef struct st_mes_ipc_conn {
 } mes_ipc_conn_t;
 
 int mes_ipc_init_shm(void);
+<<<<<<< HEAD
+=======
+int mes_init_ipc_resource(void);
+>>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
 void mes_ipc_init_channels_param(uintptr_t channelPtr);
 void mes_ipc_try_connect(uintptr_t pipePtr);
 void mes_ipc_heartbeat_channel(uintptr_t channelPtr);

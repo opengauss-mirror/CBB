@@ -745,26 +745,7 @@ static int mes_init_pipe_resource(void)
                MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
         return mes_init_rdma_rpc_resource();
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_IPC) {
-        ret = mes_ipc_init_shm();
-        if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes] IPC init shared memory failed, ret=%d", ret);
-            return ret;
-        }
-        LOG_RUN_INF("[mes] mes_init_pipe_resource: mes_ipc_init_shm success");
-        ret = mes_alloc_channel_msg_queue(CM_TRUE);
-        if (ret != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes] IPC alloc send channel mesqueue failed.");
-            return ret;
-        }
-        
-        ret = mes_alloc_channel_msg_queue(CM_FALSE);
-        if (ret != CM_SUCCESS) {
-            mes_free_channel_msg_queue(CM_TRUE);
-            LOG_RUN_ERR("[mes] IPC alloc recv channel mesqueue failed.");
-            return ret;
-        }
-        
-        return CM_SUCCESS;
+        return mes_init_ipc_resource();
     }
     return CM_ERROR;
 }
