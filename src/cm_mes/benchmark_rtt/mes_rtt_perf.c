@@ -97,6 +97,7 @@ typedef struct {
 
 typedef struct {
     run_mode_t mode;
+    mes_pipe_type_t pipe_type;
     inst_type local_inst_id;
     char local_ip[MES_MAX_IP_LEN];
     unsigned short local_port;
@@ -109,6 +110,11 @@ typedef struct {
     int verbose;
     int node_count;
     int thread_count;
+    int channel_cnt;
+    int recv_thread_cnt;
+    int work_thread_cnt;
+    int priority_cnt;
+    int priority_hash;
     node_config_t nodes[MAX_NODES];
 } test_config_t;
 
@@ -137,6 +143,16 @@ static void mes_log_output(int log_type, int log_level,
     fprintf(stderr, "\n");
     
     va_end(args);
+}
+
+static const char *pipe_type_to_string(mes_pipe_type_t pipe_type)
+{
+    switch (pipe_type) {
+        case MES_TYPE_TCP: return "TCP";
+        case MES_TYPE_RDMA: return "RDMA";
+        case MES_TYPE_IPC: return "IPC";
+        default: return "UNKNOWN";
+    }
 }
 
 static uint64_t get_time_us(void)
@@ -266,7 +282,7 @@ static int setup_mes_profile(mes_profile_t *profile)
     
     profile->inst_id = g_config.local_inst_id;
     profile->inst_cnt = g_config.node_count;
-    profile->pipe_type = MES_TYPE_TCP;
+    profile->pipe_type = g_config.pipe_type;
     
     int queue_multiplier = (g_config.thread_count > 1) ? g_config.thread_count : 1;
     int pool_size_multiplier = (g_config.thread_count > 1) ? g_config.thread_count : 1;
@@ -293,8 +309,13 @@ static int setup_mes_profile(mes_profile_t *profile)
     profile->msg_pool_attr.max_buf_size[0] = 32768;
     profile->frag_size = 32832;
     
-    profile->channel_cnt = 1;
-    profile->priority_cnt = 1;
+    profile->channel_cnt = g_config.channel_cnt;
+    profile->priority_cnt = g_config.priority_cnt;
+    
+    for (unsigned int p = 0; p < g_config.priority_cnt; p++) {
+        profile->recv_task_count[p] = g_config.recv_thread_cnt;
+        profile->work_task_count[p] = g_config.work_thread_cnt;
+    }
     
     profile->conn_created_during_init = 1;
     profile->tpool_attr.enable_threadpool = 0;
@@ -336,8 +357,13 @@ static void *worker_thread_func(void *arg)
         rtt_msg->dst_inst = g_config.target_inst_id;
         rtt_msg->send_timestamp = get_time_us();
         
+        flag_type flag = 0;
+        if (g_config.priority_hash && g_config.priority_cnt > 1) {
+            flag = (flag_type)(rtt_idx % g_config.priority_cnt);
+        }
+        
         mes_msg_t response;
-        int ret = mes_send_request(g_config.target_inst_id, 0, &ruid, buffer, g_config.message_size);
+        int ret = mes_send_request(g_config.target_inst_id, flag, &ruid, buffer, g_config.message_size);
         
         if (ret != 0) {
             if (g_config.verbose) {
@@ -466,7 +492,8 @@ static int run_client_test(void)
     stats.timeout_count = total_timeout;
     
     char test_name[128];
-    snprintf(test_name, sizeof(test_name), "RTT Performance Test: Client %d -> Server %d (%d threads)", 
+    snprintf(test_name, sizeof(test_name), "RTT Performance Test (%s): Client %d -> Server %d (%d threads)", 
+             pipe_type_to_string(g_config.pipe_type),
              g_config.local_inst_id, g_config.target_inst_id, g_config.thread_count);
     print_statistics(test_name, &stats, total_time_s);
     
@@ -542,7 +569,9 @@ static void print_usage(const char *prog_name)
     printf("\nMulti-node RTT performance verification tool using MES\n\n");
     printf("Options:\n");
     printf("  -m, --mode MODE          Run mode: server|client (required)\n");
+    printf("  -p, --pipe-type TYPE     Communication type: tcp|ipc|rdma (default: tcp)\n");
     printf("  -i, --inst-id ID         Local instance ID (required)\n");
+    printf("      --target-id ID       Target instance ID (required for client mode)\n");
     printf("      --local-ip IP        Local IP address (default: 127.0.0.1)\n");
     printf("      --local-port PORT    Local port (default: %d)\n", DEFAULT_PORT);
     printf("      --nodes LIST          Node list format: id1:ip1:port1,id2:ip2:port2,...\n");
@@ -550,27 +579,28 @@ static void print_usage(const char *prog_name)
     printf("  -c, --count COUNT        Number of test iterations (default: %d)\n", DEFAULT_TEST_COUNT);
     printf("  -s, --size SIZE          Message size in bytes (default: %d)\n", DEFAULT_MESSAGE_SIZE);
     printf("  -t, --threads COUNT       Number of concurrent threads (default: 1)\n");
+    printf("      --channel-cnt COUNT   MES channel count (default: 1)\n");
+    printf("      --recv-threads COUNT  MES receive thread count per priority (default: 1)\n");
+    printf("      --work-threads COUNT  MES work thread count per priority (default: 1)\n");
+    printf("      --priority-cnt COUNT  Number of priorities to use (default: 1, max: 8)\n");
+    printf("      --priority-hash       Enable priority hash distribution across queues\n");
     printf("  -T, --timeout MS         Response timeout in milliseconds (default: 5000)\n");
     printf("  -v, --verbose            Enable verbose output\n");
     printf("  -h, --help               Show this help message\n");
     printf("\nExamples:\n");
-    printf("  # Server mode (cross-node)\n");
-    printf("  %s -m server -i 1 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345\n", prog_name);
-    printf("\n  # Client mode (cross-node, single thread)\n");
-    printf("  %s -m client -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000 -s 64\n", prog_name);
-    printf("\n  # Client mode with 4 concurrent threads\n");
-    printf("  %s -m client -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000 -s 64 -t 4\n", prog_name);
-    printf("\n  # Same-node test (same IP, different ports)\n");
-    printf("  # Terminal 1 - Server:\n");
-    printf("  %s -m server -i 1 --nodes 1:127.0.0.1:12345,2:127.0.0.1:12346\n", prog_name);
-    printf("  # Terminal 2 - Client:\n");
-    printf("  %s -m client -i 2 --nodes 1:127.0.0.1:12345,2:127.0.0.1:12346 -c 1000 -s 64 -t 8\n", prog_name);
+    printf("  # IPC mode test (same node, requires server and client in separate terminals)\n");
+    printf("  Terminal 1: %s -m server -p ipc -i 1\n", prog_name);
+    printf("  Terminal 2: %s -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64\n", prog_name);
+    printf("\n  # TCP mode test (cross-node)\n");
+    printf("  %s -m server -p tcp -i 1 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345\n", prog_name);
+    printf("  %s -m client -p tcp -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
 {
     static struct option long_options[] = {
         {"mode", required_argument, 0, 'm'},
+        {"pipe-type", required_argument, 0, 'p'},
         {"inst-id", required_argument, 0, 'i'},
         {"local-ip", required_argument, 0, 1001},
         {"local-port", required_argument, 0, 1002},
@@ -581,6 +611,11 @@ static int parse_arguments(int argc, char *argv[])
         {"count", required_argument, 0, 'c'},
         {"size", required_argument, 0, 's'},
         {"threads", required_argument, 0, 't'},
+        {"channel-cnt", required_argument, 0, 1007},
+        {"recv-threads", required_argument, 0, 1008},
+        {"work-threads", required_argument, 0, 1009},
+        {"priority-cnt", required_argument, 0, 1010},
+        {"priority-hash", no_argument, 0, 1011},
         {"timeout", required_argument, 0, 'T'},
         {"verbose", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
@@ -593,11 +628,17 @@ static int parse_arguments(int argc, char *argv[])
     g_config.timeout_ms = 5000;
     g_config.verbose = 0;
     g_config.node_count = 0;
+    g_config.pipe_type = MES_TYPE_TCP;
+    g_config.channel_cnt = 1;
+    g_config.recv_thread_cnt = 1;
+    g_config.work_thread_cnt = 1;
+    g_config.priority_cnt = 1;
+    g_config.priority_hash = 0;
     snprintf(g_config.local_ip, MES_MAX_IP_LEN, "127.0.0.1");
     g_config.local_port = DEFAULT_PORT;
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:i:c:s:t:T:vh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:p:i:c:s:t:T:vh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 if (strcmp(optarg, "server") == 0) {
@@ -606,6 +647,18 @@ static int parse_arguments(int argc, char *argv[])
                     g_config.mode = MODE_CLIENT;
                 } else {
                     fprintf(stderr, "Invalid mode: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            case 'p':
+                if (strcmp(optarg, "tcp") == 0) {
+                    g_config.pipe_type = MES_TYPE_TCP;
+                } else if (strcmp(optarg, "ipc") == 0) {
+                    g_config.pipe_type = MES_TYPE_IPC;
+                } else if (strcmp(optarg, "rdma") == 0) {
+                    g_config.pipe_type = MES_TYPE_RDMA;
+                } else {
+                    fprintf(stderr, "Invalid pipe type: %s\n", optarg);
                     return -1;
                 }
                 break;
@@ -653,6 +706,37 @@ static int parse_arguments(int argc, char *argv[])
                     return -1;
                 }
                 break;
+            case 1007:
+                g_config.channel_cnt = atoi(optarg);
+                if (g_config.channel_cnt <= 0 || g_config.channel_cnt > 256) {
+                    fprintf(stderr, "Invalid channel count: %s (must be 1-256)\n", optarg);
+                    return -1;
+                }
+                break;
+            case 1008:
+                g_config.recv_thread_cnt = atoi(optarg);
+                if (g_config.recv_thread_cnt <= 0 || g_config.recv_thread_cnt > 128) {
+                    fprintf(stderr, "Invalid recv thread count: %s (must be 1-128)\n", optarg);
+                    return -1;
+                }
+                break;
+            case 1009:
+                g_config.work_thread_cnt = atoi(optarg);
+                if (g_config.work_thread_cnt <= 0 || g_config.work_thread_cnt > 128) {
+                    fprintf(stderr, "Invalid work thread count: %s (must be 1-128)\n", optarg);
+                    return -1;
+                }
+                break;
+            case 1010:
+                g_config.priority_cnt = atoi(optarg);
+                if (g_config.priority_cnt <= 0 || g_config.priority_cnt > 8) {
+                    fprintf(stderr, "Invalid priority count: %s (must be 1-8)\n", optarg);
+                    return -1;
+                }
+                break;
+            case 1011:
+                g_config.priority_hash = 1;
+                break;
             case 'T':
                 g_config.timeout_ms = atoi(optarg);
                 if (g_config.timeout_ms <= 0) {
@@ -685,15 +769,18 @@ static int parse_arguments(int argc, char *argv[])
                 print_usage(argv[0]);
                 return -1;
             }
-            if (strlen(g_config.target_ip) == 0) {
-                fprintf(stderr, "Target IP is required for client mode\n");
-                print_usage(argv[0]);
-                return -1;
-            }
-            if (g_config.target_port == 0) {
-                fprintf(stderr, "Target port is required for client mode\n");
-                print_usage(argv[0]);
-                return -1;
+            
+            if (g_config.pipe_type != MES_TYPE_IPC) {
+                if (strlen(g_config.target_ip) == 0) {
+                    fprintf(stderr, "Target IP is required for client mode (TCP/RDMA)\n");
+                    print_usage(argv[0]);
+                    return -1;
+                }
+                if (g_config.target_port == 0) {
+                    fprintf(stderr, "Target port is required for client mode (TCP/RDMA)\n");
+                    print_usage(argv[0]);
+                    return -1;
+                }
             }
             
             g_config.node_count = 2;
@@ -765,9 +852,15 @@ static void print_config(void)
     printf("MES RTT Performance Test Configuration\n");
     printf("========================================\n");
     printf("Mode: %s\n", g_config.mode == MODE_SERVER ? "Server" : "Client");
+    printf("Pipe Type: %s\n", pipe_type_to_string(g_config.pipe_type));
     printf("Local instance ID: %d\n", g_config.local_inst_id);
     printf("Local IP: %s\n", g_config.local_ip);
     printf("Local port: %d\n", g_config.local_port);
+    printf("MES Channel count: %d\n", g_config.channel_cnt);
+    printf("MES Recv threads: %d\n", g_config.recv_thread_cnt);
+    printf("MES Work threads: %d\n", g_config.work_thread_cnt);
+    printf("MES Priority count: %d\n", g_config.priority_cnt);
+    printf("Priority hash: %s\n", g_config.priority_hash ? "enabled" : "disabled");
     if (g_config.mode == MODE_CLIENT) {
         printf("Target instance ID: %d\n", g_config.target_inst_id);
         printf("Target IP: %s\n", g_config.target_ip);

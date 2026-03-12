@@ -1,5 +1,14 @@
 # mes_rtt_perf 测试指南
 
+## 概述
+
+mes_rtt_perf 是一个多节点RTT性能验证工具，支持多种通信模式：
+
+### 支持的通信类型
+- **TCP**: 网络通信，适用于跨节点测试
+- **IPC**: 共享内存通信，适用于同节点测试（无需配置IP/端口）
+- **RDMA**: 远程直接内存访问（需要硬件支持）
+
 ## 编译步骤
 
 ### 方法1：使用 CMake 构建（推荐）
@@ -8,7 +17,7 @@
 cd /usr1/wyc/source_code/CBB
 
 # 运行构建脚本
-./build/linux/opengauss/build.sh -3rd $BINARYLIBS -m Debug -t cmake
+./build/linux/opengauss/build.sh -3rd $BINARYLIBS
 
 # 编译完成后，可执行文件位于：
 # /usr1/wyc/source_code/CBB/output/bin/mes_rtt_perf
@@ -41,8 +50,108 @@ gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
     -Llibrary/zlib/lib \
     -Llibrary/lz4/lib \
     -Llibrary/huawei_security/lib \
-    -lcbb -lssl -lcrypto -lz -llz4 -lsecurec -lpthread -ldl -lrt
+    -lcbb -lssl -lcrypto -lz -llz4 -lsecurec -lpthread -ldl -lrt -lm
 ```
+
+## IPC 模式测试（同节点）
+
+### 测试场景
+在同一台机器上使用共享内存进行高性能RTT测试，无需配置IP和端口。
+
+### 测试步骤
+
+#### 步骤1：启动服务器（终端1）
+
+```bash
+cd /usr1/wyc/source_code/CBB
+
+# 设置库路径
+export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+
+# 启动IPC服务器
+./output/bin/mes_rtt_perf -m server -p ipc -i 1
+```
+
+**预期输出：**
+```
+========================================
+MES RTT Performance Test Configuration
+========================================
+Mode: Server
+Pipe Type: IPC
+Local instance ID: 1
+Local IP: 127.0.0.1
+Local port: 12345
+========================================
+
+Initializing MES...
+MES initialized successfully
+
+Server mode started. Waiting for client requests...
+Press Ctrl+C to stop.
+```
+
+#### 步骤2：启动客户端（终端2）
+
+```bash
+cd /usr1/wyc/source_code/CBB
+
+# 设置库路径
+export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+
+# 启动IPC客户端
+./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64
+```
+
+**预期输出：**
+```
+========================================
+MES RTT Performance Test Configuration
+========================================
+Mode: Client
+Pipe Type: IPC
+Local instance ID: 2
+...
+========================================
+
+Initializing MES...
+MES initialized successfully
+
+Waiting for connection to server...
+Connected to server 1
+
+Starting RTT performance test...
+Test count: 1000, Message size: 64 bytes, Threads: 1
+
+==================================================
+RTT Performance Test (IPC): Client 2 -> Server 1 (1 threads)
+==================================================
+| Success count            | 1000                 |
+| Timeout count            | 0                     |
+| Average RTT (μs)         | 150.43                |
+| Min RTT (μs)             | 28.00                 |
+| Max RTT (μs)             | 1456.00               |
+| P50 RTT (μs)             | 148.00                |
+| P95 RTT (μs)             | 180.00                |
+| P99 RTT (μs)             | 220.00                |
+| Std Dev (μs)             | 89.12                 |
+| Total time (s)           | 0.15                  |
+| Throughput (req/s)       | 6629.54               |
+==================================================
+
+Cleaning up...
+RTT performance test completed!
+```
+
+### IPC模式注意事项
+
+1. **无需配置IP/端口**: IPC模式使用共享内存通信，不需要网络配置
+2. **清理共享内存**: 如果测试异常退出，需要手动清理：
+   ```bash
+   ipcs -m | grep 0x88880000 | awk '{print $2}' | xargs -r ipcrm -m
+   ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
+   ```
+3. **性能优势**: IPC模式RTT约150μs，比TCP快约25%
 
 ## 同节点 RTT 测试
 
@@ -230,8 +339,10 @@ cd /usr1/wyc/source_code/CBB
 | 参数 | 说明 | 默认值 | 必需 |
 |------|------|---------|------|
 | `-m, --mode` | 运行模式：server 或 client | 无 | 是 |
+| `-p, --pipe-type` | 通信类型：tcp / ipc / rdma | tcp | 否 |
 | `-i, --inst-id` | 本地实例 ID | 无 | 是 |
-| `--nodes` | 节点列表格式：id1:ip1:port1,id2:ip2:port2,... | 无 | 否 |
+| `--target-id` | 目标实例 ID（客户端模式必需） | 无 | 客户端必需 |
+| `--nodes` | 节点列表格式：id1:ip1:port1,id2:ip2:port2,... | 无 | TCP/RDMA模式需要 |
 
 ### 客户端模式参数
 
@@ -241,6 +352,35 @@ cd /usr1/wyc/source_code/CBB
 | `-s, --size` | 消息大小（字节） | 64 | 否 |
 | `-t, --threads` | 并发线程数 | 1 | 否 |
 | `-T, --timeout` | 响应超时（毫秒） | 5000 | 否 |
+
+### MES线程配置参数
+
+| 参数 | 说明 | 默认值 | 范围 |
+|------|------|--------|------|
+| `--channel-cnt` | MES通道数量 | 1 | 1-256 |
+| `--recv-threads` | MES接收线程数（每个优先级） | 1 | 1-128 |
+| `--work-threads` | MES工作线程数（每个优先级） | 1 | 1-128 |
+| `--priority-cnt` | 使用的优先级数量 | 1 | 1-8 |
+| `--priority-hash` | 启用优先级散列分布 | 关闭 | - |
+
+**参数说明：**
+- **channel_cnt**: 控制MES通信通道数量，影响并发发送能力。增加通道数可提高多线程场景下的发送性能。
+- **recv_task_count**: 控制每个优先级的接收线程数量，影响消息接收处理能力。增加接收线程可提高高负载场景下的处理吞吐量。
+- **work_task_count**: 控制每个优先级的工作线程数量，影响消息处理能力。
+- **priority_cnt**: 控制使用的优先级队列数量。MES支持8个优先级（0-7），增加优先级数量可以更好地分散负载。
+- **priority_hash**: 启用后，消息会根据序号散列到不同优先级队列，实现负载均衡。
+
+**优先级散列分布原理：**
+```
+消息序号 % 优先级数量 = 优先级
+例如：priority_cnt=4 时
+  消息0 -> 优先级0
+  消息1 -> 优先级1
+  消息2 -> 优先级2
+  消息3 -> 优先级3
+  消息4 -> 优先级0
+  ...
+```
 
 ### 可选参数
 
@@ -338,6 +478,49 @@ cd /usr1/wyc/source_code/CBB
 
 ## 高级测试场景
 
+### MES线程配置测试
+
+通过配置MES内部线程数来优化高并发场景下的性能：
+
+```bash
+# 使用4通道、4接收线程、2工作线程
+./output/bin/mes_rtt_perf -m server -p ipc -i 1 --channel-cnt 4 --recv-threads 4 --work-threads 2
+
+# 客户端测试
+./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 10000 -t 8 \
+    --channel-cnt 4 --recv-threads 4 --work-threads 2
+```
+
+**配置建议：**
+- 低并发场景（1-4线程）：使用默认配置即可
+- 中等并发（4-16线程）：建议 `--channel-cnt 4 --recv-threads 4`
+- 高并发场景（16+线程）：建议 `--channel-cnt 8 --recv-threads 8 --work-threads 4`
+
+### 优先级散列分布测试
+
+启用优先级散列分布，将消息均匀分布到多个优先级队列：
+
+```bash
+# 服务端：使用4个优先级，每个优先级2个接收线程
+./output/bin/mes_rtt_perf -m server -p ipc -i 1 \
+    --priority-cnt 4 --recv-threads 2 --work-threads 2
+
+# 客户端：启用优先级散列分布
+./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 10000 -t 8 \
+    --priority-cnt 4 --priority-hash \
+    --channel-cnt 4 --recv-threads 2 --work-threads 2
+```
+
+**优先级散列分布的优势：**
+1. **负载均衡**：消息均匀分布到多个队列，避免单队列瓶颈
+2. **减少锁竞争**：不同优先级的消息由不同线程处理
+3. **提高吞吐量**：多队列并行处理，提升整体吞吐量
+
+**配置建议：**
+- `priority_cnt` 建议设置为 2-8 的2的幂次方
+- `recv_threads` 和 `work_threads` 根据 `priority_cnt` 相应调整
+- 高并发场景建议启用 `--priority-hash`
+
 ### 测试不同消息大小
 
 ```bash
@@ -391,6 +574,7 @@ mes_rtt_perf 工具提供了一个简单而强大的方式来测试 CBB MES 通�
 
 **关键特性：**
 - 支持客户端-服务器模式
+- 支持多种通信类型（TCP/IPC/RDMA）
 - 支持跨节点和同节点测试
 - 支持多线程并发压测
 - 使用 CBB MES 通信框架
@@ -398,13 +582,22 @@ mes_rtt_perf 工具提供了一个简单而强大的方式来测试 CBB MES 通�
 - 支持可配置的测试参数
 - 提供吞吐量统计
 
+**通信类型对比：**
+
+| 类型 | 平均RTT | 吞吐量 | 适用场景 | 配置要求 |
+|------|---------|--------|---------|---------|
+| IPC | ~150μs | ~6600 req/s | 同节点进程间通信 | 无需IP/端口 |
+| TCP | ~200μs | ~5000 req/s | 跨节点网络通信 | 需要IP/端口 |
+
 **使用建议：**
-1. 先在同节点测试验证功能
-2. 然后在跨节点测试网络性能
-3. 使用不同消息大小和负载进行压力测试
-4. 使用多线程并发测试评估系统吞吐量
-5. 使用详细日志模式进行故障排除
-6. 对比不同并发级别的性能表现
+1. 同节点测试优先使用IPC模式，性能更优
+2. 跨节点测试使用TCP模式
+3. 先在同节点测试验证功能
+4. 然后在跨节点测试网络性能
+5. 使用不同消息大小和负载进行压力测试
+6. 使用多线程并发测试评估系统吞吐量
+7. 使用详细日志模式进行故障排除
+8. 对比不同并发级别的性能表现
 
 **并发测试最佳实践：**
 1. 从单线程开始，逐步增加并发数
