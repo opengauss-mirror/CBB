@@ -66,6 +66,7 @@ target_link_libraries(mes_benchmark
     pthread
     dl
     rt
+    m
 )
 
 # Compile options
