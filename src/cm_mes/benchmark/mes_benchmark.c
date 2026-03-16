@@ -50,7 +50,8 @@
 #define LATENCY_MESSAGE_SIZE 64
 #define BANDWIDTH_MESSAGE_SIZE (16 * 1024)
 #define LATENCY_TEST_COUNT 1000
-#define MAX_MESSAGE_SIZE (64 * 1024)
+#define MAX_MESSAGE_SIZE (128 * 1024)
+#define MAX_TEST_COUNT 100000
 #define P99_PERCENTILE 99
 #define P95_PERCENTILE 95
 
@@ -63,8 +64,8 @@ typedef struct {
     volatile int received_count;
     volatile int benchmark_done;
     volatile int validation_failed;
-    volatile uint64_t send_timestamps[LATENCY_TEST_COUNT];
-    volatile uint64_t recv_timestamps[LATENCY_TEST_COUNT];
+    volatile uint64_t send_timestamps[MAX_TEST_COUNT];
+    volatile uint64_t recv_timestamps[MAX_TEST_COUNT];
     volatile double total_send_latency;
     volatile double total_recv_latency;
 } shared_state_t;
@@ -76,12 +77,17 @@ typedef struct {
     uint64_t send_timestamp;
     uint64_t recv_timestamp;
     uint64_t reply_timestamp;
+    uint64_t reply_send_timestamp;
 } benchmark_message_t;
 
 typedef struct {
     double rtt_us;
     uint64_t send_timestamp;
     uint64_t recv_timestamp;
+    double send_latency_us;
+    double network_req_us;
+    double server_process_us;
+    double network_resp_us;
 } rtt_result_t;
 
 typedef struct {
@@ -92,6 +98,10 @@ typedef struct {
     double p95_rtt_us;
     double p99_rtt_us;
     double std_dev_us;
+    double avg_send_latency_us;
+    double avg_network_req_us;
+    double avg_server_process_us;
+    double avg_network_resp_us;
     int success_count;
     int timeout_count;
 } test_statistics_t;
@@ -100,6 +110,7 @@ static shared_state_t *g_shared_state = NULL;
 static test_mode_t g_test_mode = TEST_MODE_REQUEST_RESPONSE;
 static mes_pipe_type_t g_pipe_type = MES_TYPE_IPC;
 static int g_verbose = 0;
+static int g_send_directly = 1;
 static int g_test_count = LATENCY_TEST_COUNT;
 static int g_message_size = LATENCY_MESSAGE_SIZE;
 static int g_timeout_ms = 5000;
@@ -166,6 +177,10 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
     
     double sum = 0.0;
     double sum_sq = 0.0;
+    double sum_send_latency = 0.0;
+    double sum_network_req = 0.0;
+    double sum_server_process = 0.0;
+    double sum_network_resp = 0.0;
     stats->min_rtt_us = results[0].rtt_us;
     stats->max_rtt_us = results[0].rtt_us;
     
@@ -173,6 +188,10 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
         rtt_values[i] = results[i].rtt_us;
         sum += results[i].rtt_us;
         sum_sq += results[i].rtt_us * results[i].rtt_us;
+        sum_send_latency += results[i].send_latency_us;
+        sum_network_req += results[i].network_req_us;
+        sum_server_process += results[i].server_process_us;
+        sum_network_resp += results[i].network_resp_us;
         
         if (results[i].rtt_us < stats->min_rtt_us) {
             stats->min_rtt_us = results[i].rtt_us;
@@ -184,6 +203,10 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
     
     stats->avg_rtt_us = sum / count;
     stats->std_dev_us = sqrt((sum_sq / count) - (stats->avg_rtt_us * stats->avg_rtt_us));
+    stats->avg_send_latency_us = sum_send_latency / count;
+    stats->avg_network_req_us = sum_network_req / count;
+    stats->avg_server_process_us = sum_server_process / count;
+    stats->avg_network_resp_us = sum_network_resp / count;
     
     qsort(rtt_values, count, sizeof(double), compare_double);
     
@@ -208,8 +231,18 @@ static void print_statistics(const char *test_name, test_statistics_t *stats, do
     printf("| %-25s | %20.2f |\n", "P95 RTT (μs)", stats->p95_rtt_us);
     printf("| %-25s | %20.2f |\n", "P99 RTT (μs)", stats->p99_rtt_us);
     printf("| %-25s | %20.2f |\n", "Std Dev (μs)", stats->std_dev_us);
+    printf("--------------------------------------------------\n");
+    printf("| %-25s | %20s |\n", "Latency Breakdown", "");
+    printf("| %-25s | %20.2f |\n", "  Send Latency (μs)", stats->avg_send_latency_us);
+    printf("| %-25s | %20.2f |\n", "  Network Req (μs)", stats->avg_network_req_us);
+    printf("| %-25s | %20.2f |\n", "  Server Process (μs)", stats->avg_server_process_us);
+    printf("| %-25s | %20.2f |\n", "  Network Resp (μs)", stats->avg_network_resp_us);
+    printf("| %-25s | %20.2f |\n", "  Sum Check (μs)", 
+           stats->avg_send_latency_us + stats->avg_network_req_us + 
+           stats->avg_server_process_us + stats->avg_network_resp_us);
     if (total_time_s > 0) {
         double throughput = stats->success_count / total_time_s;
+        printf("--------------------------------------------------\n");
         printf("| %-25s | %20.2f |\n", "Total time (s)", total_time_s);
         printf("| %-25s | %20.2f |\n", "Throughput (req/s)", throughput);
     }
@@ -248,6 +281,7 @@ static void benchmark_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t*
         reply.send_timestamp = bench_msg->send_timestamp;
         reply.recv_timestamp = recv_time;
         reply.reply_timestamp = get_time_us();
+        reply.reply_send_timestamp = get_time_us();
         
         mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(benchmark_message_t));
         
@@ -256,8 +290,9 @@ static void benchmark_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t*
         }
     } else {
         if (g_shared_state != NULL) {
-            uint64_t recv_complete_time = get_time_ms();
+            uint64_t recv_complete_time = (uint64_t)(get_time_ms() * 1000);
             g_shared_state->recv_timestamps[bench_msg->seq_num] = recv_complete_time;
+            __sync_synchronize();
             g_shared_state->received_count++;
         }
     }
@@ -280,12 +315,12 @@ static void setup_mes_profile(mes_profile_t *profile, inst_type inst_id, mes_pip
     profile->msg_pool_attr.buf_pool_attr[0].priority_pool_attr[0].queue_num = 8;
     profile->msg_pool_attr.buf_pool_attr[0].shared_pool_attr.queue_num = 8;
     
-    profile->msg_pool_attr.buf_pool_attr[1].buf_size = 64 * 1024;
+    profile->msg_pool_attr.buf_pool_attr[1].buf_size = 128 * 1024;
     profile->msg_pool_attr.buf_pool_attr[1].proportion = 0.5;
     profile->msg_pool_attr.buf_pool_attr[1].priority_pool_attr[0].queue_num = 8;
     profile->msg_pool_attr.buf_pool_attr[1].shared_pool_attr.queue_num = 8;
     
-    profile->msg_pool_attr.max_buf_size[0] = 64 * 1024;
+    profile->msg_pool_attr.max_buf_size[0] = 128 * 1024;
     /*
      * mes_send_* checks head->size against MES_MESSAGE_BUFFER_SIZE(profile),
      * which is derived from profile->frag_size. If frag_size is left as 0,
@@ -297,8 +332,12 @@ static void setup_mes_profile(mes_profile_t *profile, inst_type inst_id, mes_pip
     profile->channel_cnt = 1;
     profile->priority_cnt = 1;
     
+    profile->recv_task_count[0] = 1;
+    profile->work_task_count[0] = 1;
+    
     profile->conn_created_during_init = 1;
     profile->tpool_attr.enable_threadpool = 0;
+    profile->send_directly = 1;
     
     profile->connect_timeout = 30000;
     profile->socket_timeout = 30000;
@@ -350,6 +389,7 @@ static int run_request_response_test(inst_type dest_inst)
         bench_msg->send_timestamp = get_time_us();
         
         int ret = mes_send_request(dest_inst, 0, &ruid, buffer, g_message_size);
+        uint64_t send_complete_time = get_time_us();
         
         if (ret != 0) {
             if (g_verbose) {
@@ -379,10 +419,19 @@ static int run_request_response_test(inst_type dest_inst)
             results[success_count].rtt_us = response_time - bench_msg->send_timestamp;
             results[success_count].send_timestamp = bench_msg->send_timestamp;
             results[success_count].recv_timestamp = response_time;
+            results[success_count].send_latency_us = send_complete_time - bench_msg->send_timestamp;
+            results[success_count].network_req_us = resp_msg->recv_timestamp - send_complete_time;
+            results[success_count].server_process_us = resp_msg->reply_send_timestamp - resp_msg->recv_timestamp;
+            results[success_count].network_resp_us = response_time - resp_msg->reply_send_timestamp;
             success_count++;
             
             if (g_verbose && i % 100 == 0) {
-                printf("Request %d: RTT=%.2f μs\n", i, results[success_count - 1].rtt_us);
+                printf("Request %d: RTT=%.2f μs (send=%.2f, net_req=%.2f, server=%.2f, net_resp=%.2f)\n", 
+                       i, results[success_count - 1].rtt_us,
+                       results[success_count - 1].send_latency_us,
+                       results[success_count - 1].network_req_us,
+                       results[success_count - 1].server_process_us,
+                       results[success_count - 1].network_resp_us);
             }
         }
         
@@ -434,7 +483,8 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
         *seq_num = i;
         
         double send_time = get_time_ms();
-        g_shared_state->send_timestamps[i] = send_time;
+        uint64_t send_ts_us = (uint64_t)(send_time * 1000);
+        g_shared_state->send_timestamps[i] = send_ts_us;
         int gret = mes_send_data(dest_inst, 0, buffer, g_message_size);
         double send_complete_time = get_time_ms();
         
@@ -448,12 +498,18 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
         while (g_shared_state != NULL && g_shared_state->received_count <= i) {
         }
         
+        __sync_synchronize();
+        
         double recv_time = get_time_ms();
         latencies[i] = recv_time - send_time;
         
         if (g_shared_state != NULL) {
+            uint64_t stored_send_ts = g_shared_state->send_timestamps[i];
+            uint64_t recv_ts = g_shared_state->recv_timestamps[i];
+            double latency_ms = (double)(recv_ts - stored_send_ts) / 1000.0;
+            
             g_shared_state->total_send_latency += (send_complete_time - send_time);
-            g_shared_state->total_recv_latency += (g_shared_state->recv_timestamps[i] - g_shared_state->send_timestamps[i]);
+            g_shared_state->total_recv_latency += latency_ms;
         }
         
         if (i % 1000 == 0) {
@@ -699,6 +755,8 @@ static void print_usage(const char *prog_name)
     printf("  -c, --count COUNT        Number of test iterations (default: %d)\n", LATENCY_TEST_COUNT);
     printf("  -s, --size SIZE          Message size in bytes (default: %d)\n", LATENCY_MESSAGE_SIZE);
     printf("  -T, --timeout MS         Response timeout in milliseconds (default: 5000)\n");
+    printf("  -d, --direct              Send directly without queue (default: enabled)\n");
+    printf("  -q, --queue              Send via queue (disable direct send)\n");
     printf("  -v, --verbose            Enable verbose output\n");
     printf("  -h, --help               Show this help message\n");
     printf("\nExamples:\n");
@@ -710,6 +768,8 @@ static void print_usage(const char *prog_name)
     printf("  %s -t rdma -m reqresp -c 10000\n", prog_name);
     printf("\n  # IPC Send-Only test\n");
     printf("  %s -t ipc -m sendonly\n", prog_name);
+    printf("\n  # IPC test with queue-based sending (for accurate RTT)\n");
+    printf("  %s -t ipc -q\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -720,13 +780,15 @@ static int parse_arguments(int argc, char *argv[])
         {"count", required_argument, 0, 'c'},
         {"size", required_argument, 0, 's'},
         {"timeout", required_argument, 0, 'T'},
+        {"direct", no_argument, 0, 'd'},
+        {"queue", no_argument, 0, 'q'},
         {"verbose", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "t:m:c:s:T:vh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "t:m:c:s:T:dqvh", long_options, NULL)) != -1) {
         switch (opt) {
             case 't':
                 if (strcmp(optarg, "tcp") == 0) {
@@ -771,6 +833,12 @@ static int parse_arguments(int argc, char *argv[])
                     return -1;
                 }
                 break;
+            case 'd':
+                g_send_directly = 1;
+                break;
+            case 'q':
+                g_send_directly = 0;
+                break;
             case 'v':
                 g_verbose = 1;
                 break;
@@ -788,6 +856,13 @@ static int parse_arguments(int argc, char *argv[])
                 g_message_size, sizeof(benchmark_message_t));
         fprintf(stderr, "Auto-adjusting message size to %zu bytes\n", sizeof(benchmark_message_t));
         g_message_size = sizeof(benchmark_message_t);
+    }
+    
+    if (g_test_mode == TEST_MODE_SEND_ONLY && g_test_count > MAX_TEST_COUNT) {
+        fprintf(stderr, "Warning: Send-only mode test count %d exceeds maximum %d\n", 
+                g_test_count, MAX_TEST_COUNT);
+        fprintf(stderr, "Auto-adjusting test count to %d\n", MAX_TEST_COUNT);
+        g_test_count = MAX_TEST_COUNT;
     }
     
     return 0;

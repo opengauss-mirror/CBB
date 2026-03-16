@@ -39,7 +39,7 @@
 #define MES_IPC_MAGIC 0x4D455349
 #define MES_IPC_VERSION 1
 
-static mes_ipc_conn_t g_ipc_conns[MES_MAX_INSTANCES] = {0};
+static mes_ipc_conn_t g_ipc_conns[MES_IPC_MAX_INSTANCES] = {0};
 static int g_shm_id = -1;
 static mes_ipc_shm_t *g_shm_ptr = NULL;
 static int g_sem_id = -1;
@@ -48,24 +48,6 @@ static bool8 g_ipc_recv_running = CM_FALSE;
 static thread_t g_ipc_recv_thread;
 static int g_ipc_recv_epfd = -1;
 static int g_ipc_recv_pipe[2] = {-1, -1};
-
-static int mes_ipc_sem_wait(int sem_id)
-{
-    struct sembuf sb;
-    sb.sem_num = 0;
-    sb.sem_op = -1;
-    sb.sem_flg = 0;
-    return semop(sem_id, &sb, 1);
-}
-
-static int mes_ipc_sem_post(int sem_id)
-{
-    struct sembuf sb;
-    sb.sem_num = 0;
-    sb.sem_op = 1;
-    sb.sem_flg = 0;
-    return semop(sem_id, &sb, 1);
-}
 
 static bool8 mes_ipc_queue_is_full(mes_ipc_queue_t *queue)
 {
@@ -88,6 +70,18 @@ static inline void mes_ipc_cpu_pause(void)
 #endif
 }
 
+static inline void mes_ipc_spin_lock(volatile uint32_t *lock)
+{
+    while (__atomic_test_and_set(lock, __ATOMIC_ACQUIRE)) {
+        mes_ipc_cpu_pause();
+    }
+}
+
+static inline void mes_ipc_spin_unlock(volatile uint32_t *lock)
+{
+    __atomic_clear(lock, __ATOMIC_RELEASE);
+}
+
 static int mes_ipc_queue_push(mes_ipc_queue_t *queue, mes_ipc_msg_t *msg)
 {
     if (mes_ipc_queue_is_full(queue)) {
@@ -95,7 +89,12 @@ static int mes_ipc_queue_push(mes_ipc_queue_t *queue, mes_ipc_msg_t *msg)
     }
 
     uint32_t tail = __atomic_load_n(&queue->tail, __ATOMIC_RELAXED);
-    memcpy(&queue->messages[tail], msg, sizeof(mes_ipc_msg_t));
+    mes_ipc_msg_t *slot = &queue->messages[tail];
+    slot->head = msg->head;
+    slot->data_size = msg->data_size;
+    if (msg->data_size > 0) {
+        memcpy(slot->buffer, msg->buffer, msg->data_size);
+    }
     __atomic_store_n(&queue->tail, (tail + 1) % queue->capacity, __ATOMIC_RELEASE);
     __atomic_fetch_add(&queue->size, 1, __ATOMIC_RELEASE);
     return CM_SUCCESS;
@@ -108,7 +107,12 @@ static int mes_ipc_queue_pop(mes_ipc_queue_t *queue, mes_ipc_msg_t *msg)
     }
 
     uint32_t head = __atomic_load_n(&queue->head, __ATOMIC_RELAXED);
-    memcpy(msg, &queue->messages[head], sizeof(mes_ipc_msg_t));
+    mes_ipc_msg_t *slot = &queue->messages[head];
+    msg->head = slot->head;
+    msg->data_size = slot->data_size;
+    if (slot->data_size > 0) {
+        memcpy(msg->buffer, slot->buffer, slot->data_size);
+    }
     __atomic_store_n(&queue->head, (head + 1) % queue->capacity, __ATOMIC_RELEASE);
     __atomic_fetch_sub(&queue->size, 1, __ATOMIC_RELEASE);
     return CM_SUCCESS;
@@ -122,6 +126,10 @@ static int mes_ipc_create_sem(key_t key, int *sem_id)
             *sem_id = semget(key, 1, 0666);
             if (*sem_id < 0) {
                 LOG_RUN_ERR("[mes] semget failed, key=0x%x, errno=%d", key, errno);
+                return CM_ERROR;
+            }
+            if (semctl(*sem_id, 0, SETVAL, 1) < 0) {
+                LOG_RUN_ERR("[mes] semctl SETVAL failed for existing sem, sem_id=%d, errno=%d", *sem_id, errno);
                 return CM_ERROR;
             }
         } else {
@@ -177,9 +185,13 @@ int mes_ipc_init_shm(void)
         g_shm_ptr->inst_count = 0;
     }
     
-    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
+    for (uint32 i = 0; i < MES_IPC_MAX_INSTANCES; i++) {
         if (g_shm_ptr->queues[i].recv_queue.capacity == 0) {
             g_shm_ptr->queues[i].recv_queue.capacity = MES_IPC_MSG_QUEUE_SIZE;
+            g_shm_ptr->queues[i].recv_queue.lock = 0;
+            g_shm_ptr->queues[i].recv_queue.head = 0;
+            g_shm_ptr->queues[i].recv_queue.tail = 0;
+            g_shm_ptr->queues[i].recv_queue.size = 0;
         }
     }
 
@@ -220,7 +232,7 @@ void mes_ipc_try_connect(uintptr_t pipePtr)
     }
 
     inst_type inst_id = MES_INSTANCE_ID(pipe->channel->id);
-    if (inst_id >= MES_MAX_INSTANCES) {
+    if (inst_id >= MES_IPC_MAX_INSTANCES) {
         LOG_RUN_ERR("[mes] mes_ipc_try_connect: invalid inst_id %u", inst_id);
         return;
     }
@@ -258,7 +270,7 @@ void mes_ipc_heartbeat_channel(uintptr_t channelPtr)
     }
 
     inst_type inst_id = MES_INSTANCE_ID(channel->id);
-    if (inst_id >= MES_MAX_INSTANCES) {
+    if (inst_id >= MES_IPC_MAX_INSTANCES) {
         return;
     }
 
@@ -282,7 +294,7 @@ void mes_ipc_heartbeat_channel(uintptr_t channelPtr)
 
 void mes_ipc_disconnect(uint32 inst_id, bool32 wait)
 {
-    if (inst_id >= MES_MAX_INSTANCES) {
+    if (inst_id >= MES_IPC_MAX_INSTANCES) {
         LOG_RUN_ERR("[mes] invalid inst_id %u", inst_id);
         return;
     }
@@ -310,7 +322,7 @@ int mes_ipc_send_data(const void *msg_data)
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
     inst_type dst_inst = head->dst_inst;
 
-    if (dst_inst >= MES_MAX_INSTANCES) {
+    if (dst_inst >= MES_IPC_MAX_INSTANCES) {
         LOG_RUN_ERR("[mes] mes_ipc_send_data: invalid dst_inst %u", dst_inst);
         return CM_ERROR;
     }
@@ -331,18 +343,14 @@ int mes_ipc_send_data(const void *msg_data)
     if (head->size > sizeof(mes_message_head_t)) {
         uint32 data_size = head->size - sizeof(mes_message_head_t);
         memcpy(msg.buffer, (const char *)msg_data + sizeof(mes_message_head_t), data_size);
+        msg.data_size = data_size;
+    } else {
+        msg.data_size = 0;
     }
 
-    if (mes_ipc_sem_wait(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_wait failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-
-    int ret = mes_ipc_queue_push(&conn->shm_ptr->queues[dst_inst].recv_queue, &msg);
-    if (mes_ipc_sem_post(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_post failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
+    mes_ipc_queue_t *recv_queue = &conn->shm_ptr->queues[dst_inst].recv_queue;
+    
+    int ret = mes_ipc_queue_push(recv_queue, &msg);
 
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] queue push failed, queue full");
@@ -362,7 +370,7 @@ int mes_ipc_send_bufflist(mes_bufflist_t *buff_list)
     mes_message_head_t *head = (mes_message_head_t *)buff_list->buffers[0].buf;
     inst_type dst_inst = head->dst_inst;
 
-    if (dst_inst >= MES_MAX_INSTANCES) {
+    if (dst_inst >= MES_IPC_MAX_INSTANCES) {
         LOG_RUN_ERR("[mes] mes_ipc_send_bufflist: invalid dst_inst %u", dst_inst);
         return CM_ERROR;
     }
@@ -396,20 +404,24 @@ int mes_ipc_send_bufflist(mes_bufflist_t *buff_list)
     
     uint32_t offset = 0;
     for (int i = 0; i < buff_list->cnt; i++) {
-        memcpy(msg.buffer + offset, buff_list->buffers[i].buf, buff_list->buffers[i].len);
-        offset += buff_list->buffers[i].len;
+        if (i == 0) {
+            uint32_t data_size = buff_list->buffers[i].len - sizeof(mes_message_head_t);
+            if (data_size > 0) {
+                memcpy(msg.buffer, buff_list->buffers[i].buf + sizeof(mes_message_head_t), data_size);
+                offset = data_size;
+            }
+        } else {
+            memcpy(msg.buffer + offset, buff_list->buffers[i].buf, buff_list->buffers[i].len);
+            offset += buff_list->buffers[i].len;
+        }
     }
+    msg.data_size = offset;
 
-    if (mes_ipc_sem_wait(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_wait failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-
-    int ret = mes_ipc_queue_push(&conn->shm_ptr->queues[dst_inst].recv_queue, &msg);
-    if (mes_ipc_sem_post(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_post failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
+    mes_ipc_queue_t *recv_queue = &conn->shm_ptr->queues[dst_inst].recv_queue;
+    
+    mes_ipc_spin_lock(&recv_queue->lock);
+    int ret = mes_ipc_queue_push(recv_queue, &msg);
+    mes_ipc_spin_unlock(&recv_queue->lock);
 
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] queue push failed, queue full");
@@ -460,12 +472,17 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
     uint32 idle_count = 0;
     const uint32 spin_poll_threshold = 100;
     const uint32 yield_poll_threshold = 1000;
-    mes_ipc_msg_t batch_msgs[MES_IPC_BATCH_SIZE];
+    mes_ipc_msg_t *batch_msgs = (mes_ipc_msg_t *)malloc(MES_IPC_BATCH_SIZE * sizeof(mes_ipc_msg_t));
+    if (batch_msgs == NULL) {
+        LOG_RUN_ERR("[mes] Failed to allocate batch_msgs buffer");
+        return;
+    }
 
     while (!thread->closed && g_ipc_recv_running) {
         uint32 total_processed = 0;
+        uint64_t iter_start = cm_get_time_usec();
 
-        for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; inst_id++) {
+        for (uint32 inst_id = 0; inst_id < MES_IPC_MAX_INSTANCES; inst_id++) {
             mes_ipc_conn_t *conn = &g_ipc_conns[inst_id];
             if (!conn->is_connected || conn->shm_ptr == NULL) {
                 continue;
@@ -516,10 +533,14 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
                     }
 
                     if (head->size > sizeof(mes_message_head_t)) {
+                        uint32_t body_size = head->size - sizeof(mes_message_head_t);
+                        if (ipc_msg->data_size < body_size) {
+                            body_size = ipc_msg->data_size;
+                        }
                         err = memcpy_s(msg.buffer + sizeof(mes_message_head_t),
-                                       head->size - sizeof(mes_message_head_t),
+                                       body_size,
                                        ipc_msg->buffer,
-                                       head->size - sizeof(mes_message_head_t));
+                                       body_size);
                         if (err != EOK) {
                             mes_free_buf_item(buffer);
                             LOG_RUN_ERR("[mes] memcpy_s failed for message body");
@@ -537,6 +558,10 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
             }
         }
 
+        uint64_t iter_time = cm_get_time_usec() - iter_start;
+        if (total_processed > 0 && iter_time > 100) {
+            LOG_RUN_INF("[mes] IPC recv perf: processed=%u, total_time=%lu us", total_processed, iter_time);
+        }
         if (total_processed > 0) {
             idle_count = 0;
         } else {
@@ -559,6 +584,7 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
     if (cb_thread_deinit != NULL) {
         cb_thread_deinit();
     }
+    free(batch_msgs);
 }
 
 int mes_ipc_start_receivers(void)
@@ -651,7 +677,7 @@ int mes_ipc_recv_message(mes_message_t *msg)
         return CM_ERROR;
     }
 
-    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; inst_id++) {
+    for (uint32 inst_id = 0; inst_id < MES_IPC_MAX_INSTANCES; inst_id++) {
         mes_ipc_conn_t *conn = &g_ipc_conns[inst_id];
         if (!conn->is_connected || conn->shm_ptr == NULL) {
             continue;
@@ -694,5 +720,42 @@ int mes_ipc_remove_recv_pipe_from_epoll(mes_priority_t priority, uint32 channel_
 {
     (void)priority;
     (void)channel_id;
+    return CM_SUCCESS;
+}
+int mes_init_ipc_resource(void)
+{
+    int ret;
+
+    ret = mes_alloc_channels();
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] mes_alloc_channels failed.");
+        return ret;
+    }
+
+    ret = mes_ipc_init_shm();
+    if (ret != CM_SUCCESS) {
+        mes_free_channels();
+        LOG_RUN_ERR("[mes] IPC init shared memory failed, ret=%d", ret);
+        return ret;
+    }
+
+    ret = mes_alloc_channel_msg_queue(CM_TRUE);
+    if (ret != CM_SUCCESS) {
+        mes_ipc_cleanup();
+        mes_free_channels();
+        LOG_RUN_ERR("[mes] IPC alloc send channel mesqueue failed.");
+        return CM_ERROR;
+    }
+
+    ret = mes_alloc_channel_msg_queue(CM_FALSE);
+    if (ret != CM_SUCCESS) {
+        mes_free_channel_msg_queue(CM_TRUE);
+        mes_ipc_cleanup();
+        mes_free_channels();
+        LOG_RUN_ERR("[mes] IPC alloc recv channel mesqueue failed.");
+        return CM_ERROR;
+    }
+
+    LOG_RUN_INF("[mes] IPC resource initialized successfully");
     return CM_SUCCESS;
 }
