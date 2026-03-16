@@ -185,11 +185,6 @@ int mes_ipc_init_shm(void)
         g_shm_ptr->inst_count = 0;
     }
     
-<<<<<<< HEAD
-    for (uint32 i = 0; i < MES_MAX_INSTANCES; i++) {
-        if (g_shm_ptr->queues[i].recv_queue.capacity == 0) {
-            g_shm_ptr->queues[i].recv_queue.capacity = MES_IPC_MSG_QUEUE_SIZE;
-=======
     for (uint32 i = 0; i < MES_IPC_MAX_INSTANCES; i++) {
         if (g_shm_ptr->queues[i].recv_queue.capacity == 0) {
             g_shm_ptr->queues[i].recv_queue.capacity = MES_IPC_MSG_QUEUE_SIZE;
@@ -197,7 +192,6 @@ int mes_ipc_init_shm(void)
             g_shm_ptr->queues[i].recv_queue.head = 0;
             g_shm_ptr->queues[i].recv_queue.tail = 0;
             g_shm_ptr->queues[i].recv_queue.size = 0;
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         }
     }
 
@@ -238,11 +232,7 @@ void mes_ipc_try_connect(uintptr_t pipePtr)
     }
 
     inst_type inst_id = MES_INSTANCE_ID(pipe->channel->id);
-<<<<<<< HEAD
-    if (inst_id >= MES_MAX_INSTANCES) {
-=======
     if (inst_id >= MES_IPC_MAX_INSTANCES) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         LOG_RUN_ERR("[mes] mes_ipc_try_connect: invalid inst_id %u", inst_id);
         return;
     }
@@ -280,11 +270,7 @@ void mes_ipc_heartbeat_channel(uintptr_t channelPtr)
     }
 
     inst_type inst_id = MES_INSTANCE_ID(channel->id);
-<<<<<<< HEAD
-    if (inst_id >= MES_MAX_INSTANCES) {
-=======
     if (inst_id >= MES_IPC_MAX_INSTANCES) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         return;
     }
 
@@ -308,11 +294,7 @@ void mes_ipc_heartbeat_channel(uintptr_t channelPtr)
 
 void mes_ipc_disconnect(uint32 inst_id, bool32 wait)
 {
-<<<<<<< HEAD
-    if (inst_id >= MES_MAX_INSTANCES) {
-=======
     if (inst_id >= MES_IPC_MAX_INSTANCES) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         LOG_RUN_ERR("[mes] invalid inst_id %u", inst_id);
         return;
     }
@@ -340,11 +322,7 @@ int mes_ipc_send_data(const void *msg_data)
     mes_message_head_t *head = (mes_message_head_t *)msg_data;
     inst_type dst_inst = head->dst_inst;
 
-<<<<<<< HEAD
-    if (dst_inst >= MES_MAX_INSTANCES) {
-=======
     if (dst_inst >= MES_IPC_MAX_INSTANCES) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         LOG_RUN_ERR("[mes] mes_ipc_send_data: invalid dst_inst %u", dst_inst);
         return CM_ERROR;
     }
@@ -367,22 +345,9 @@ int mes_ipc_send_data(const void *msg_data)
         memcpy(msg.buffer, (const char *)msg_data + sizeof(mes_message_head_t), data_size);
     }
 
-<<<<<<< HEAD
-    if (mes_ipc_sem_wait(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_wait failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-
-    int ret = mes_ipc_queue_push(&conn->shm_ptr->queues[dst_inst].recv_queue, &msg);
-    if (mes_ipc_sem_post(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_post failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-=======
     mes_ipc_queue_t *recv_queue = &conn->shm_ptr->queues[dst_inst].recv_queue;
     
     int ret = mes_ipc_queue_push(recv_queue, &msg);
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
 
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] queue push failed, queue full");
@@ -402,11 +367,7 @@ int mes_ipc_send_bufflist(mes_bufflist_t *buff_list)
     mes_message_head_t *head = (mes_message_head_t *)buff_list->buffers[0].buf;
     inst_type dst_inst = head->dst_inst;
 
-<<<<<<< HEAD
-    if (dst_inst >= MES_MAX_INSTANCES) {
-=======
     if (dst_inst >= MES_IPC_MAX_INSTANCES) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         LOG_RUN_ERR("[mes] mes_ipc_send_bufflist: invalid dst_inst %u", dst_inst);
         return CM_ERROR;
     }
@@ -440,22 +401,6 @@ int mes_ipc_send_bufflist(mes_bufflist_t *buff_list)
     
     uint32_t offset = 0;
     for (int i = 0; i < buff_list->cnt; i++) {
-<<<<<<< HEAD
-        memcpy(msg.buffer + offset, buff_list->buffers[i].buf, buff_list->buffers[i].len);
-        offset += buff_list->buffers[i].len;
-    }
-
-    if (mes_ipc_sem_wait(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_wait failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-
-    int ret = mes_ipc_queue_push(&conn->shm_ptr->queues[dst_inst].recv_queue, &msg);
-    if (mes_ipc_sem_post(conn->sem_send_id) < 0) {
-        LOG_RUN_ERR("[mes] sem_post failed, sem_id=%d, errno=%d", conn->sem_send_id, errno);
-        return CM_ERROR;
-    }
-=======
         if (i == 0) {
             uint32_t data_size = buff_list->buffers[i].len - sizeof(mes_message_head_t);
             if (data_size > 0) {
@@ -474,7 +419,6 @@ int mes_ipc_send_bufflist(mes_bufflist_t *buff_list)
     mes_ipc_spin_lock(&recv_queue->lock);
     int ret = mes_ipc_queue_push(recv_queue, &msg);
     mes_ipc_spin_unlock(&recv_queue->lock);
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
 
     if (ret != CM_SUCCESS) {
         LOG_RUN_ERR("[mes] queue push failed, queue full");
@@ -525,14 +469,6 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
     uint32 idle_count = 0;
     const uint32 spin_poll_threshold = 100;
     const uint32 yield_poll_threshold = 1000;
-<<<<<<< HEAD
-    mes_ipc_msg_t batch_msgs[MES_IPC_BATCH_SIZE];
-
-    while (!thread->closed && g_ipc_recv_running) {
-        uint32 total_processed = 0;
-
-        for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; inst_id++) {
-=======
     mes_ipc_msg_t *batch_msgs = (mes_ipc_msg_t *)malloc(MES_IPC_BATCH_SIZE * sizeof(mes_ipc_msg_t));
     if (batch_msgs == NULL) {
         LOG_RUN_ERR("[mes] Failed to allocate batch_msgs buffer");
@@ -544,7 +480,6 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
         uint64_t iter_start = cm_get_time_usec();
 
         for (uint32 inst_id = 0; inst_id < MES_IPC_MAX_INSTANCES; inst_id++) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
             mes_ipc_conn_t *conn = &g_ipc_conns[inst_id];
             if (!conn->is_connected || conn->shm_ptr == NULL) {
                 continue;
@@ -620,14 +555,10 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
             }
         }
 
-<<<<<<< HEAD
-=======
         uint64_t iter_time = cm_get_time_usec() - iter_start;
         if (total_processed > 0 && iter_time > 100) {
             LOG_RUN_INF("[mes] IPC recv perf: processed=%u, total_time=%lu us", total_processed, iter_time);
         }
-
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         if (total_processed > 0) {
             idle_count = 0;
         } else {
@@ -650,11 +581,7 @@ static void mes_ipc_recv_thread_entry(thread_t *thread)
     if (cb_thread_deinit != NULL) {
         cb_thread_deinit();
     }
-<<<<<<< HEAD
-=======
-    
     free(batch_msgs);
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
 }
 
 int mes_ipc_start_receivers(void)
@@ -747,11 +674,7 @@ int mes_ipc_recv_message(mes_message_t *msg)
         return CM_ERROR;
     }
 
-<<<<<<< HEAD
-    for (uint32 inst_id = 0; inst_id < MES_MAX_INSTANCES; inst_id++) {
-=======
     for (uint32 inst_id = 0; inst_id < MES_IPC_MAX_INSTANCES; inst_id++) {
->>>>>>> 304b054... 优化IPC接收性能，采用自适应轮询策略
         mes_ipc_conn_t *conn = &g_ipc_conns[inst_id];
         if (!conn->is_connected || conn->shm_ptr == NULL) {
             continue;
@@ -796,7 +719,6 @@ int mes_ipc_remove_recv_pipe_from_epoll(mes_priority_t priority, uint32 channel_
     (void)channel_id;
     return CM_SUCCESS;
 }
-<<<<<<< HEAD
 int mes_init_ipc_resource(void)
 {
     int ret;
