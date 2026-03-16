@@ -343,6 +343,9 @@ int mes_ipc_send_data(const void *msg_data)
     if (head->size > sizeof(mes_message_head_t)) {
         uint32 data_size = head->size - sizeof(mes_message_head_t);
         memcpy(msg.buffer, (const char *)msg_data + sizeof(mes_message_head_t), data_size);
+        msg.data_size = data_size;
+    } else {
+        msg.data_size = 0;
     }
 
     mes_ipc_queue_t *recv_queue = &conn->shm_ptr->queues[dst_inst].recv_queue;
