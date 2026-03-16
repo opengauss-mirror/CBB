@@ -115,6 +115,7 @@ typedef struct {
     int work_thread_cnt;
     int priority_cnt;
     int priority_hash;
+    int send_directly;
     node_config_t nodes[MAX_NODES];
 } test_config_t;
 
@@ -322,6 +323,7 @@ static int setup_mes_profile(mes_profile_t *profile)
     
     profile->connect_timeout = 30000;
     profile->socket_timeout = 30000;
+    profile->send_directly = g_config.send_directly;
     
     for (int i = 0; i < g_config.node_count; i++) {
         profile->inst_net_addr[i].inst_id = g_config.nodes[i].inst_id;
@@ -424,8 +426,9 @@ static int run_client_test(void)
     }
     
     printf("\nStarting RTT performance test: Client -> Server\n");
-    printf("Test count: %d, Message size: %d bytes, Threads: %d\n", 
-           g_config.test_count, g_config.message_size, g_config.thread_count);
+    printf("Test count: %d, Message size: %d bytes, Threads: %d, Direct send: %s\n", 
+           g_config.test_count, g_config.message_size, g_config.thread_count, 
+           g_config.send_directly ? "enabled" : "disabled");
     fflush(stdout);
     
     pthread_t *threads = (pthread_t *)malloc(g_config.thread_count * sizeof(pthread_t));
@@ -579,6 +582,7 @@ static void print_usage(const char *prog_name)
     printf("  -c, --count COUNT        Number of test iterations (default: %d)\n", DEFAULT_TEST_COUNT);
     printf("  -s, --size SIZE          Message size in bytes (default: %d)\n", DEFAULT_MESSAGE_SIZE);
     printf("  -t, --threads COUNT       Number of concurrent threads (default: 1)\n");
+    printf("  -d, --direct-send        Enable direct send mode (default: disabled)\n");
     printf("      --channel-cnt COUNT   MES channel count (default: 1)\n");
     printf("      --recv-threads COUNT  MES receive thread count per priority (default: 1)\n");
     printf("      --work-threads COUNT  MES work thread count per priority (default: 1)\n");
@@ -594,6 +598,8 @@ static void print_usage(const char *prog_name)
     printf("\n  # TCP mode test (cross-node)\n");
     printf("  %s -m server -p tcp -i 1 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345\n", prog_name);
     printf("  %s -m client -p tcp -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000\n", prog_name);
+    printf("\n  # Direct send mode test\n");
+    printf("  %s -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64 -d\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -611,6 +617,7 @@ static int parse_arguments(int argc, char *argv[])
         {"count", required_argument, 0, 'c'},
         {"size", required_argument, 0, 's'},
         {"threads", required_argument, 0, 't'},
+        {"direct-send", no_argument, 0, 'd'},
         {"channel-cnt", required_argument, 0, 1007},
         {"recv-threads", required_argument, 0, 1008},
         {"work-threads", required_argument, 0, 1009},
@@ -634,11 +641,12 @@ static int parse_arguments(int argc, char *argv[])
     g_config.work_thread_cnt = 1;
     g_config.priority_cnt = 1;
     g_config.priority_hash = 0;
+    g_config.send_directly = 0;
     snprintf(g_config.local_ip, MES_MAX_IP_LEN, "127.0.0.1");
     g_config.local_port = DEFAULT_PORT;
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:p:i:c:s:t:T:vh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:p:i:c:s:t:dT:vh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 if (strcmp(optarg, "server") == 0) {
@@ -649,6 +657,9 @@ static int parse_arguments(int argc, char *argv[])
                     fprintf(stderr, "Invalid mode: %s\n", optarg);
                     return -1;
                 }
+                break;
+            case 'd':
+                g_config.send_directly = 1;
                 break;
             case 'p':
                 if (strcmp(optarg, "tcp") == 0) {
