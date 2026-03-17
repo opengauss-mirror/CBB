@@ -238,28 +238,27 @@ void mes_ipc_try_connect(uintptr_t pipePtr)
     }
 
     mes_ipc_conn_t *conn = &g_ipc_conns[inst_id];
-    if (conn->is_connected) {
-        return;
+    if (!conn->is_connected) {
+        if (g_shm_ptr == NULL) {
+            LOG_RUN_ERR("[mes] IPC shared memory not initialized");
+            return;
+        }
+
+        conn->shm_id = g_shm_id;
+        conn->shm_ptr = g_shm_ptr;
+        conn->sem_send_id = g_sem_id;
+        conn->sem_recv_id = g_sem_id;
+        conn->inst_id = inst_id;
+        conn->is_connected = CM_TRUE;
+
+        g_shm_ptr->queues[inst_id].connected = 1;
+
+        LOG_RUN_INF("[mes] IPC connect to instance %u success", inst_id);
     }
 
-    if (g_shm_ptr == NULL) {
-        LOG_RUN_ERR("[mes] IPC shared memory not initialized");
-        return;
-    }
-
-    conn->shm_id = g_shm_id;
-    conn->shm_ptr = g_shm_ptr;
-    conn->sem_send_id = g_sem_id;
-    conn->sem_recv_id = g_sem_id;
-    conn->inst_id = inst_id;
-    conn->is_connected = CM_TRUE;
-
-    g_shm_ptr->queues[inst_id].connected = 1;
-
+    // Always set pipe active flags regardless of connection status
     pipe->send_pipe_active = CM_TRUE;
     pipe->recv_pipe_active = CM_TRUE;
-
-    LOG_RUN_INF("[mes] IPC connect to instance %u success", inst_id);
 }
 
 void mes_ipc_heartbeat_channel(uintptr_t channelPtr)
