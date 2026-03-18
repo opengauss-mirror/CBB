@@ -69,6 +69,10 @@ typedef struct {
 
 typedef struct {
     double rtt_us;
+    double send_latency_us;
+    double network_req_us;
+    double server_process_us;
+    double network_resp_us;
     uint64_t send_timestamp;
     uint64_t recv_timestamp;
 } rtt_result_t;
@@ -81,6 +85,10 @@ typedef struct {
     double p95_rtt_us;
     double p99_rtt_us;
     double std_dev_us;
+    double avg_send_latency_us;
+    double avg_network_req_us;
+    double avg_server_process_us;
+    double avg_network_resp_us;
     int success_count;
     int timeout_count;
 } test_statistics_t;
@@ -187,6 +195,10 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
     
     double sum = 0.0;
     double sum_sq = 0.0;
+    double sum_send_latency = 0.0;
+    double sum_network_req = 0.0;
+    double sum_server_process = 0.0;
+    double sum_network_resp = 0.0;
     stats->min_rtt_us = results[0].rtt_us;
     stats->max_rtt_us = results[0].rtt_us;
     
@@ -194,6 +206,11 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
         rtt_values[i] = results[i].rtt_us;
         sum += results[i].rtt_us;
         sum_sq += results[i].rtt_us * results[i].rtt_us;
+        
+        sum_send_latency += results[i].send_latency_us;
+        sum_network_req += results[i].network_req_us;
+        sum_server_process += results[i].server_process_us;
+        sum_network_resp += results[i].network_resp_us;
         
         if (results[i].rtt_us < stats->min_rtt_us) {
             stats->min_rtt_us = results[i].rtt_us;
@@ -205,6 +222,11 @@ static void calculate_statistics(rtt_result_t *results, int count, test_statisti
     
     stats->avg_rtt_us = sum / count;
     stats->std_dev_us = sqrt((sum_sq / count) - (stats->avg_rtt_us * stats->avg_rtt_us));
+    
+    stats->avg_send_latency_us = sum_send_latency / count;
+    stats->avg_network_req_us = sum_network_req / count;
+    stats->avg_server_process_us = sum_server_process / count;
+    stats->avg_network_resp_us = sum_network_resp / count;
     
     qsort(rtt_values, count, sizeof(double), compare_double);
     
@@ -229,8 +251,15 @@ static void print_statistics(const char *test_name, test_statistics_t *stats, do
     printf("| %-25s | %20.2f |\n", "P95 RTT (μs)", stats->p95_rtt_us);
     printf("| %-25s | %20.2f |\n", "P99 RTT (μs)", stats->p99_rtt_us);
     printf("| %-25s | %20.2f |\n", "Std Dev (μs)", stats->std_dev_us);
+    printf("--------------------------------------------------\n");
+    printf("| %-25s | %20s |\n", "Latency Breakdown", "");
+    printf("| %-25s | %20.2f |\n", "Send Latency (μs)", stats->avg_send_latency_us);
+    printf("| %-25s | %20.2f |\n", "Network Req (μs)", stats->avg_network_req_us);
+    printf("| %-25s | %20.2f |\n", "Server Process (μs)", stats->avg_server_process_us);
+    printf("| %-25s | %20.2f |\n", "Network Resp (μs)", stats->avg_network_resp_us);
     if (total_time_s > 0) {
         double throughput = stats->success_count / total_time_s;
+        printf("--------------------------------------------------\n");
         printf("| %-25s | %20.2f |\n", "Total time (s)", total_time_s);
         printf("| %-25s | %20.2f |\n", "Throughput (req/s)", throughput);
     }
@@ -366,6 +395,7 @@ static void *worker_thread_func(void *arg)
         
         mes_msg_t response;
         int ret = mes_send_request(g_config.target_inst_id, flag, &ruid, buffer, g_config.message_size);
+        uint64_t send_complete_time = get_time_us();
         
         if (ret != 0) {
             if (g_config.verbose) {
@@ -390,12 +420,22 @@ static void *worker_thread_func(void *arg)
         }
         
         if (response.buffer != NULL && response.size >= sizeof(rtt_perf_message_t)) {
-            (void)(rtt_perf_message_t *)response.buffer;
+            rtt_perf_message_t *resp_msg = (rtt_perf_message_t *)response.buffer;
             
             pthread_mutex_lock(&ctx->mutex);
             ctx->results[local_success].rtt_us = response_time - rtt_msg->send_timestamp;
             ctx->results[local_success].send_timestamp = rtt_msg->send_timestamp;
             ctx->results[local_success].recv_timestamp = response_time;
+            
+            double send_latency = send_complete_time - rtt_msg->send_timestamp;
+            double server_process = resp_msg->reply_timestamp - resp_msg->recv_timestamp;
+            double network_latency = ctx->results[local_success].rtt_us - send_latency - server_process;
+            
+            ctx->results[local_success].send_latency_us = send_latency;
+            ctx->results[local_success].network_req_us = network_latency / 2.0;
+            ctx->results[local_success].server_process_us = server_process;
+            ctx->results[local_success].network_resp_us = network_latency / 2.0;
+            
             local_success++;
             pthread_mutex_unlock(&ctx->mutex);
             
@@ -859,6 +899,18 @@ static int parse_arguments(int argc, char *argv[])
 
 static void print_config(void)
 {
+    unsigned short local_port = g_config.local_port;
+    unsigned short target_port = g_config.target_port;
+    
+    for (int i = 0; i < g_config.node_count; i++) {
+        if (g_config.nodes[i].inst_id == g_config.local_inst_id) {
+            local_port = g_config.nodes[i].port;
+        }
+        if (g_config.nodes[i].inst_id == g_config.target_inst_id) {
+            target_port = g_config.nodes[i].port;
+        }
+    }
+    
     printf("\n========================================\n");
     printf("MES RTT Performance Test Configuration\n");
     printf("========================================\n");
@@ -866,7 +918,7 @@ static void print_config(void)
     printf("Pipe Type: %s\n", pipe_type_to_string(g_config.pipe_type));
     printf("Local instance ID: %d\n", g_config.local_inst_id);
     printf("Local IP: %s\n", g_config.local_ip);
-    printf("Local port: %d\n", g_config.local_port);
+    printf("Local port: %d\n", local_port);
     printf("MES Channel count: %d\n", g_config.channel_cnt);
     printf("MES Recv threads: %d\n", g_config.recv_thread_cnt);
     printf("MES Work threads: %d\n", g_config.work_thread_cnt);
@@ -875,7 +927,7 @@ static void print_config(void)
     if (g_config.mode == MODE_CLIENT) {
         printf("Target instance ID: %d\n", g_config.target_inst_id);
         printf("Target IP: %s\n", g_config.target_ip);
-        printf("Target port: %d\n", g_config.target_port);
+        printf("Target port: %d\n", target_port);
         printf("Test count: %d\n", g_config.test_count);
         printf("Message size: %d bytes\n", g_config.message_size);
         printf("Thread count: %d\n", g_config.thread_count);
