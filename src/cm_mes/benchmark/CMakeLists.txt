@@ -24,6 +24,7 @@ cmake_minimum_required(VERSION 3.14.1)
 
 set(benchmark_SRCS
     mes_benchmark.c
+    benchmark_common.c
 )
 
 add_executable(mes_benchmark ${benchmark_SRCS})

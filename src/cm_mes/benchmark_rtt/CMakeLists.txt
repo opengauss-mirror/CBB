@@ -1,7 +1,10 @@
 # CMakeLists.txt for CBB MES RTT performance verification tool
 
 # Add mes_rtt_perf executable
-add_executable(mes_rtt_perf mes_rtt_perf.c)
+add_executable(mes_rtt_perf 
+    mes_rtt_perf.c
+    ../benchmark/benchmark_common.c
+)
 target_include_directories(mes_rtt_perf PRIVATE
     ${CMAKE_SOURCE_DIR}/..
     ${CMAKE_SOURCE_DIR}/../..
@@ -13,6 +16,7 @@ target_include_directories(mes_rtt_perf PRIVATE
     ${CMAKE_SOURCE_DIR}/../../cm_utils
     ${CMAKE_SOURCE_DIR}/../../cm_security
     ${CMAKE_SOURCE_DIR}/../../cm_protocol
+    ${CMAKE_SOURCE_DIR}/../benchmark
     ${CMAKE_SOURCE_DIR}/../../../library/huawei_security/include
     ${CMAKE_SOURCE_DIR}/../../../library/openssl/include
     ${CMAKE_SOURCE_DIR}/../../../library/zlib/include
