@@ -71,8 +71,13 @@ extract_value() {
     echo "$output" | grep "$pattern" | sed 's/.*|\s*\([0-9]*\)\s*|.*/\1/' | tr -d ' '
 }
 
-# Set LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/openGauss-server/dest/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/buildtools/gcc10.3/gcc/lib64:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/buildtools/gcc10.3/isl/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/buildtools/gcc10.3/mpc/lib/:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/buildtools/gcc10.3/mpfr/lib/:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/buildtools/gcc10.3/gmp/lib/:/usr1/wyc/source_code/CBB/output/lib/:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:/usr1/wyc/source_code/CBB/output/lib
+# Set LD_LIBRARY_PATH if not already set
+if [ -z "$LD_LIBRARY_PATH" ]; then
+    # Try to set from CBB_ROOT
+    if [ -d "$CBB_ROOT/output/lib" ]; then
+        export LD_LIBRARY_PATH="$CBB_ROOT/output/lib:$LD_LIBRARY_PATH"
+    fi
+fi
 
 echo "========================================"
 echo "MES Benchmark Test Suite"
@@ -290,7 +295,7 @@ fi
 echo ""
 
 # Cleanup
-rm -f /tmp/rtt_server.log
+#rm -f /tmp/rtt_server.log
 
 # Summary
 echo "========================================"

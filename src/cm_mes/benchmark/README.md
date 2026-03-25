@@ -26,7 +26,7 @@
 ## 编译
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 cmake -DUSE_GM_TLS=OFF .
 make -sj
 ```
@@ -40,7 +40,7 @@ make -sj
 **必须将output/lib放在LD_LIBRARY_PATH的最前面**，否则会加载系统中的旧版本库：
 
 ```bash
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_LIB_PATH>:$LD_LIBRARY_PATH
 ```
 
 ### 清理旧的共享内存（可选）
@@ -300,7 +300,7 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 
 # 确认库路径
 ldd ./output/bin/mes_benchmark | grep cbb
-# 应该显示: libcbb.so => /usr1/wyc/source_code/CBB/output/lib/libcbb.so
+# 应该显示: libcbb.so => <CBB_PATH>/output/lib/libcbb.so
 ```
 
 ### 问题3: 测试卡死不退出
