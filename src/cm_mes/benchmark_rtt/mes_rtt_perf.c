@@ -46,6 +46,7 @@
 #define P99_PERCENTILE 99
 #define P95_PERCENTILE 95
 #define MAX_NODES 16
+#define RTT_MAGIC_PATTERN 0xAB
 
 typedef enum {
     MODE_SERVER,
@@ -91,6 +92,7 @@ typedef struct {
     double avg_network_resp_us;
     int success_count;
     int timeout_count;
+    int checksum_failed;
 } test_statistics_t;
 
 typedef struct {
@@ -100,6 +102,7 @@ typedef struct {
     rtt_result_t *results;
     int success_count;
     int timeout_count;
+    int checksum_failed;
     pthread_mutex_t mutex;
 } thread_context_t;
 
@@ -116,6 +119,8 @@ typedef struct {
     int message_size;
     int timeout_ms;
     int verbose;
+    int verify_mode;
+    int inject_error;
     int node_count;
     int thread_count;
     int channel_cnt;
@@ -178,6 +183,59 @@ static int compare_double(const void *a, const void *b)
     if (da < db) return -1;
     if (da > db) return 1;
     return 0;
+}
+
+static void fill_verify_pattern(char *buffer, int size, uint32_t seq_num)
+{
+    if (size <= (int)sizeof(rtt_perf_message_t)) {
+        return;
+    }
+    
+    char *payload = buffer + sizeof(rtt_perf_message_t);
+    int payload_size = size - sizeof(rtt_perf_message_t);
+    
+    for (int i = 0; i < payload_size; i++) {
+        payload[i] = (char)((seq_num + i) ^ RTT_MAGIC_PATTERN);
+    }
+}
+
+static int verify_payload_pattern(const char *buffer, int size, uint32_t seq_num)
+{
+    if (size <= (int)sizeof(rtt_perf_message_t)) {
+        return 1;
+    }
+    
+    const char *payload = buffer + sizeof(rtt_perf_message_t);
+    int payload_size = size - sizeof(rtt_perf_message_t);
+    
+    for (int i = 0; i < payload_size; i++) {
+        char expected = (char)((seq_num + i) ^ RTT_MAGIC_PATTERN);
+        if (payload[i] != expected) {
+            if (g_config.verbose) {
+                fprintf(stderr, "[VERIFY] Payload mismatch at offset %d: expected 0x%02X, got 0x%02X (seq=%u)\n",
+                        i, (unsigned char)expected, (unsigned char)payload[i], seq_num);
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void inject_noise_error(char *buffer, int size, uint32_t seq_num)
+{
+    if (!g_config.inject_error) {
+        return;
+    }
+    
+    if (seq_num % 100 == 0 && size > sizeof(rtt_perf_message_t)) {
+        int payload_size = size - sizeof(rtt_perf_message_t);
+        int error_offset = seq_num % payload_size;
+        char *payload = buffer + sizeof(rtt_perf_message_t);
+        payload[error_offset] ^= 0xFF;
+        if (g_config.verbose) {
+            printf("[NOISE] Injected error at offset %d for seq=%u\n", error_offset, seq_num);
+        }
+    }
 }
 
 static void calculate_statistics(rtt_result_t *results, int count, test_statistics_t *stats)
@@ -244,6 +302,19 @@ static void print_statistics(const char *test_name, test_statistics_t *stats, do
     printf("==================================================\n");
     printf("| %-25s | %20.2f |\n", "Success count", (double)stats->success_count);
     printf("| %-25s | %20.2f |\n", "Timeout count", (double)stats->timeout_count);
+    if (g_config.verify_mode) {
+        printf("--------------------------------------------------\n");
+        printf("| %-25s | %20s |\n", "Data Integrity Check", "");
+        int verified_count = stats->success_count - stats->checksum_failed;
+        printf("| %-25s | %20d |\n", "  Verified OK", verified_count);
+        printf("| %-25s | %20d |\n", "  Checksum Failed", stats->checksum_failed);
+        if (stats->checksum_failed == 0 && stats->success_count > 0) {
+            printf("| %-25s | %20s |\n", "  Result", "ALL PASSED");
+        } else if (stats->checksum_failed > 0) {
+            printf("| %-25s | %20s |\n", "  Result", "FAILED");
+        }
+    }
+    printf("--------------------------------------------------\n");
     printf("| %-25s | %20.2f |\n", "Average RTT (μs)", stats->avg_rtt_us);
     printf("| %-25s | %20.2f |\n", "Min RTT (μs)", stats->min_rtt_us);
     printf("| %-25s | %20.2f |\n", "Max RTT (μs)", stats->max_rtt_us);
@@ -288,21 +359,49 @@ static void rtt_perf_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t* 
         printf("Received request: seq=%u, src_inst=%u, dst_inst=%u\n", 
                rtt_msg->seq_num, rtt_msg->src_inst, rtt_msg->dst_inst);
     }
+
+    if (g_config.verify_mode) {
+        if (!verify_payload_pattern(msg->buffer, msg->size, rtt_msg->seq_num)) {
+            fprintf(stderr, "[VERIFY] Server: Payload verification failed for seq=%u\n", rtt_msg->seq_num);
+        }
+    }
     
     uint64_t recv_time = get_time_us();
     
-    rtt_perf_message_t reply;
-    reply.seq_num = rtt_msg->seq_num;
-    reply.src_inst = rtt_msg->src_inst;
-    reply.dst_inst = rtt_msg->dst_inst;
-    reply.send_timestamp = rtt_msg->send_timestamp;
-    reply.recv_timestamp = recv_time;
-    reply.reply_timestamp = get_time_us();
-    
-    mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+    if (g_config.verify_mode && msg->size > (int)sizeof(rtt_perf_message_t)) {
+        char *response_buf = (char *)malloc(msg->size);
+        if (response_buf) {
+            memcpy(response_buf, msg->buffer, msg->size);
+            rtt_perf_message_t *reply = (rtt_perf_message_t *)response_buf;
+            reply->recv_timestamp = recv_time;
+            reply->reply_timestamp = get_time_us();
+            
+            mes_send_response(msg->src_inst, 0, ruid, response_buf, msg->size);
+            free(response_buf);
+        } else {
+            rtt_perf_message_t reply;
+            reply.seq_num = rtt_msg->seq_num;
+            reply.src_inst = rtt_msg->src_inst;
+            reply.dst_inst = rtt_msg->dst_inst;
+            reply.send_timestamp = rtt_msg->send_timestamp;
+            reply.recv_timestamp = recv_time;
+            reply.reply_timestamp = get_time_us();
+            mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+        }
+    } else {
+        rtt_perf_message_t reply;
+        reply.seq_num = rtt_msg->seq_num;
+        reply.src_inst = rtt_msg->src_inst;
+        reply.dst_inst = rtt_msg->dst_inst;
+        reply.send_timestamp = rtt_msg->send_timestamp;
+        reply.recv_timestamp = recv_time;
+        reply.reply_timestamp = get_time_us();
+        
+        mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+    }
     
     if (g_config.verbose) {
-        printf("Sent response: seq=%u\n", reply.seq_num);
+        printf("Sent response: seq=%u\n", rtt_msg->seq_num);
     }
 }
 
@@ -379,6 +478,7 @@ static void *worker_thread_func(void *arg)
     
     int local_success = 0;
     int local_timeout = 0;
+    int local_checksum_failed = 0;
     
     for (int i = 0; i < ctx->count && g_running; i++) {
         int rtt_idx = ctx->start_idx + i;
@@ -387,6 +487,14 @@ static void *worker_thread_func(void *arg)
         rtt_msg->src_inst = g_config.local_inst_id;
         rtt_msg->dst_inst = g_config.target_inst_id;
         rtt_msg->send_timestamp = get_time_us();
+        
+        if (g_config.verify_mode) {
+            fill_verify_pattern(buffer, g_config.message_size, rtt_idx);
+        }
+        
+        if (g_config.inject_error) {
+            inject_noise_error(buffer, g_config.message_size, rtt_idx);
+        }
         
         flag_type flag = 0;
         if (g_config.priority_hash && g_config.priority_cnt > 1) {
@@ -422,6 +530,13 @@ static void *worker_thread_func(void *arg)
         if (response.buffer != NULL && response.size >= sizeof(rtt_perf_message_t)) {
             rtt_perf_message_t *resp_msg = (rtt_perf_message_t *)response.buffer;
             
+            if (g_config.verify_mode) {
+                if (!verify_payload_pattern(response.buffer, response.size, resp_msg->seq_num)) {
+                    fprintf(stderr, "[VERIFY] Client: Response payload verification failed for seq=%u\n", resp_msg->seq_num);
+                    local_checksum_failed++;
+                }
+            }
+            
             pthread_mutex_lock(&ctx->mutex);
             ctx->results[local_success].rtt_us = response_time - rtt_msg->send_timestamp;
             ctx->results[local_success].send_timestamp = rtt_msg->send_timestamp;
@@ -451,6 +566,7 @@ static void *worker_thread_func(void *arg)
     pthread_mutex_lock(&ctx->mutex);
     ctx->success_count = local_success;
     ctx->timeout_count = local_timeout;
+    ctx->checksum_failed = local_checksum_failed;
     pthread_mutex_unlock(&ctx->mutex);
     
     free(buffer);
@@ -518,8 +634,8 @@ static int run_client_test(void)
         pthread_mutex_destroy(&contexts[i].mutex);
         
         if (g_config.verbose) {
-            printf("Thread %d: Success=%d, Timeout=%d\n", 
-                   i, contexts[i].success_count, contexts[i].timeout_count);
+            printf("Thread %d: Success=%d, Timeout=%d, ChecksumFailed=%d\n", 
+                   i, contexts[i].success_count, contexts[i].timeout_count, contexts[i].checksum_failed);
         }
     }
     
@@ -529,10 +645,16 @@ static int run_client_test(void)
     free(threads);
     free(contexts);
     
+    int total_checksum_failed = 0;
+    for (int i = 0; i < g_config.thread_count; i++) {
+        total_checksum_failed += contexts[i].checksum_failed;
+    }
+    
     test_statistics_t stats;
     calculate_statistics(results, total_success, &stats);
     stats.success_count = total_success;
     stats.timeout_count = total_timeout;
+    stats.checksum_failed = total_checksum_failed;
     
     char test_name[128];
     snprintf(test_name, sizeof(test_name), "RTT Performance Test (%s): Client %d -> Server %d (%d threads)", 
@@ -629,6 +751,8 @@ static void print_usage(const char *prog_name)
     printf("      --priority-cnt COUNT  Number of priorities to use (default: 1, max: 8)\n");
     printf("      --priority-hash       Enable priority hash distribution across queues\n");
     printf("  -T, --timeout MS         Response timeout in milliseconds (default: 5000)\n");
+    printf("  -V, --verify             Enable payload verification (checksum)\n");
+    printf("  -E, --inject-error       Inject noise errors for testing verification (every 100 msgs)\n");
     printf("  -v, --verbose            Enable verbose output\n");
     printf("  -h, --help               Show this help message\n");
     printf("\nExamples:\n");
@@ -640,6 +764,10 @@ static void print_usage(const char *prog_name)
     printf("  %s -m client -p tcp -i 2 --nodes 1:192.168.1.1:12345,2:192.168.1.2:12345 -c 1000\n", prog_name);
     printf("\n  # Direct send mode test\n");
     printf("  %s -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64 -d\n", prog_name);
+    printf("\n  # Test with payload verification\n");
+    printf("  %s -m client -p ipc -i 2 --target-id 1 -c 1000 -s 8192 -V\n", prog_name);
+    printf("\n  # Test with payload verification and error injection\n");
+    printf("  %s -m client -p ipc -i 2 --target-id 1 -c 1000 -s 8192 -V -E\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -664,6 +792,8 @@ static int parse_arguments(int argc, char *argv[])
         {"priority-cnt", required_argument, 0, 1010},
         {"priority-hash", no_argument, 0, 1011},
         {"timeout", required_argument, 0, 'T'},
+        {"verify", no_argument, 0, 'V'},
+        {"inject-error", no_argument, 0, 'E'},
         {"verbose", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -674,6 +804,8 @@ static int parse_arguments(int argc, char *argv[])
     g_config.thread_count = 1;
     g_config.timeout_ms = 5000;
     g_config.verbose = 0;
+    g_config.verify_mode = 0;
+    g_config.inject_error = 0;
     g_config.node_count = 0;
     g_config.pipe_type = MES_TYPE_TCP;
     g_config.channel_cnt = 1;
@@ -686,7 +818,7 @@ static int parse_arguments(int argc, char *argv[])
     g_config.local_port = DEFAULT_PORT;
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "m:p:i:c:s:t:dT:vh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "m:p:i:c:s:t:dT:VEvh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 if (strcmp(optarg, "server") == 0) {
@@ -794,6 +926,12 @@ static int parse_arguments(int argc, char *argv[])
                     fprintf(stderr, "Invalid timeout: %s\n", optarg);
                     return -1;
                 }
+                break;
+            case 'V':
+                g_config.verify_mode = 1;
+                break;
+            case 'E':
+                g_config.inject_error = 1;
                 break;
             case 'v':
                 g_config.verbose = 1;
@@ -924,6 +1062,8 @@ static void print_config(void)
     printf("MES Work threads: %d\n", g_config.work_thread_cnt);
     printf("MES Priority count: %d\n", g_config.priority_cnt);
     printf("Priority hash: %s\n", g_config.priority_hash ? "enabled" : "disabled");
+    printf("Verify mode: %s\n", g_config.verify_mode ? "enabled" : "disabled");
+    printf("Inject error: %s\n", g_config.inject_error ? "enabled" : "disabled");
     if (g_config.mode == MODE_CLIENT) {
         printf("Target instance ID: %d\n", g_config.target_inst_id);
         printf("Target IP: %s\n", g_config.target_ip);

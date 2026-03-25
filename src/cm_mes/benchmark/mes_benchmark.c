@@ -54,6 +54,7 @@
 #define MAX_TEST_COUNT 100000
 #define P99_PERCENTILE 99
 #define P95_PERCENTILE 95
+#define BENCHMARK_MAGIC_PATTERN 0xAB
 
 typedef enum {
     TEST_MODE_SEND_ONLY,
@@ -64,6 +65,7 @@ typedef struct {
     volatile int received_count;
     volatile int benchmark_done;
     volatile int validation_failed;
+    volatile int checksum_failed;
     volatile uint64_t send_timestamps[MAX_TEST_COUNT];
     volatile uint64_t recv_timestamps[MAX_TEST_COUNT];
     volatile double total_send_latency;
@@ -104,6 +106,7 @@ typedef struct {
     double avg_network_resp_us;
     int success_count;
     int timeout_count;
+    int checksum_failed;
 } test_statistics_t;
 
 static shared_state_t *g_shared_state = NULL;
@@ -114,6 +117,8 @@ static int g_send_directly = 1;
 static int g_test_count = LATENCY_TEST_COUNT;
 static int g_message_size = LATENCY_MESSAGE_SIZE;
 static int g_timeout_ms = 5000;
+static int g_verify_mode = 0;
+static int g_inject_error = 0;
 
 static void mes_log_output(int log_type, int log_level,
     const char *code_file_name, unsigned int code_line_num,
@@ -160,6 +165,68 @@ static int compare_double(const void *a, const void *b)
     if (da < db) return -1;
     if (da > db) return 1;
     return 0;
+}
+
+static uint8_t calculate_checksum(const char *data, int size)
+{
+    uint8_t checksum = 0;
+    for (int i = 0; i < size; i++) {
+        checksum ^= (uint8_t)data[i];
+    }
+    return checksum;
+}
+
+static void inject_noise_error(char *buffer, int size, uint32_t seq_num)
+{
+    if (!g_inject_error) {
+        return;
+    }
+    
+    if (seq_num % 100 == 0 && size > sizeof(benchmark_message_t)) {
+        int payload_size = size - sizeof(benchmark_message_t);
+        int error_offset = seq_num % payload_size;
+        char *payload = buffer + sizeof(benchmark_message_t);
+        payload[error_offset] ^= 0xFF;
+        if (g_verbose) {
+            printf("[NOISE] Injected error at offset %d for seq=%u\n", error_offset, seq_num);
+        }
+    }
+}
+
+static void fill_verify_pattern(char *buffer, int size, uint32_t seq_num)
+{
+    if (size <= (int)sizeof(benchmark_message_t)) {
+        return;
+    }
+    
+    char *payload = buffer + sizeof(benchmark_message_t);
+    int payload_size = size - sizeof(benchmark_message_t);
+    
+    for (int i = 0; i < payload_size; i++) {
+        payload[i] = (char)((seq_num + i) ^ BENCHMARK_MAGIC_PATTERN);
+    }
+}
+
+static int verify_payload_pattern(const char *buffer, int size, uint32_t seq_num)
+{
+    if (size <= (int)sizeof(benchmark_message_t)) {
+        return 1;
+    }
+    
+    const char *payload = buffer + sizeof(benchmark_message_t);
+    int payload_size = size - sizeof(benchmark_message_t);
+    
+    for (int i = 0; i < payload_size; i++) {
+        char expected = (char)((seq_num + i) ^ BENCHMARK_MAGIC_PATTERN);
+        if (payload[i] != expected) {
+            if (g_verbose) {
+                fprintf(stderr, "[VERIFY] Payload mismatch at offset %d: expected 0x%02X, got 0x%02X (seq=%u)\n",
+                        i, (unsigned char)expected, (unsigned char)payload[i], seq_num);
+            }
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static void calculate_statistics(rtt_result_t *results, int count, test_statistics_t *stats)
@@ -224,6 +291,19 @@ static void print_statistics(const char *test_name, test_statistics_t *stats, do
     printf("==================================================\n");
     printf("| %-25s | %20d |\n", "Success count", stats->success_count);
     printf("| %-25s | %20d |\n", "Timeout count", stats->timeout_count);
+    if (g_verify_mode) {
+        printf("--------------------------------------------------\n");
+        printf("| %-25s | %20s |\n", "Data Integrity Check", "");
+        int verified_count = stats->success_count - stats->checksum_failed;
+        printf("| %-25s | %20d |\n", "  Verified OK", verified_count);
+        printf("| %-25s | %20d |\n", "  Checksum Failed", stats->checksum_failed);
+        if (stats->checksum_failed == 0 && stats->success_count > 0) {
+            printf("| %-25s | %20s |\n", "  Result", "ALL PASSED ✓");
+        } else if (stats->checksum_failed > 0) {
+            printf("| %-25s | %20s |\n", "  Result", "FAILED ✗");
+        }
+    }
+    printf("--------------------------------------------------\n");
     printf("| %-25s | %20.2f |\n", "Average RTT (μs)", stats->avg_rtt_us);
     printf("| %-25s | %20.2f |\n", "Min RTT (μs)", stats->min_rtt_us);
     printf("| %-25s | %20.2f |\n", "Max RTT (μs)", stats->max_rtt_us);
@@ -271,22 +351,55 @@ static void benchmark_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t*
                bench_msg->seq_num, bench_msg->src_inst, bench_msg->dst_inst);
     }
 
+    if (g_verify_mode) {
+        if (!verify_payload_pattern(msg->buffer, msg->size, bench_msg->seq_num)) {
+            fprintf(stderr, "[VERIFY] Server: Payload verification failed for seq=%u\n", bench_msg->seq_num);
+            if (g_shared_state != NULL) {
+                __sync_fetch_and_add(&g_shared_state->checksum_failed, 1);
+            }
+        }
+    }
+
     if (g_test_mode == TEST_MODE_REQUEST_RESPONSE) {
         uint64_t recv_time = get_time_us();
         
-        benchmark_message_t reply;
-        reply.seq_num = bench_msg->seq_num;
-        reply.src_inst = bench_msg->src_inst;
-        reply.dst_inst = bench_msg->dst_inst;
-        reply.send_timestamp = bench_msg->send_timestamp;
-        reply.recv_timestamp = recv_time;
-        reply.reply_timestamp = get_time_us();
-        reply.reply_send_timestamp = get_time_us();
-        
-        mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(benchmark_message_t));
+        if (g_verify_mode && msg->size > (int)sizeof(benchmark_message_t)) {
+            char *response_buf = (char *)malloc(msg->size);
+            if (response_buf) {
+                memcpy(response_buf, msg->buffer, msg->size);
+                benchmark_message_t *reply = (benchmark_message_t *)response_buf;
+                reply->recv_timestamp = recv_time;
+                reply->reply_timestamp = get_time_us();
+                reply->reply_send_timestamp = get_time_us();
+                
+                mes_send_response(msg->src_inst, 0, ruid, response_buf, msg->size);
+                free(response_buf);
+            } else {
+                benchmark_message_t reply;
+                reply.seq_num = bench_msg->seq_num;
+                reply.src_inst = bench_msg->src_inst;
+                reply.dst_inst = bench_msg->dst_inst;
+                reply.send_timestamp = bench_msg->send_timestamp;
+                reply.recv_timestamp = recv_time;
+                reply.reply_timestamp = get_time_us();
+                reply.reply_send_timestamp = get_time_us();
+                mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(benchmark_message_t));
+            }
+        } else {
+            benchmark_message_t reply;
+            reply.seq_num = bench_msg->seq_num;
+            reply.src_inst = bench_msg->src_inst;
+            reply.dst_inst = bench_msg->dst_inst;
+            reply.send_timestamp = bench_msg->send_timestamp;
+            reply.recv_timestamp = recv_time;
+            reply.reply_timestamp = get_time_us();
+            reply.reply_send_timestamp = get_time_us();
+            
+            mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(benchmark_message_t));
+        }
         
         if (g_verbose) {
-            printf("Sent response: seq=%u\n", reply.seq_num);
+            printf("Sent response: seq=%u\n", bench_msg->seq_num);
         }
     } else {
         if (g_shared_state != NULL) {
@@ -373,11 +486,15 @@ static int run_request_response_test(inst_type dest_inst)
     
     int success_count = 0;
     int timeout_count = 0;
+    int checksum_failed = 0;
     
     printf("\nStarting Request-Response Test: Instance %d -> Instance %d\n", 
            BENCHMARK_INST_ID_1, dest_inst);
     printf("Test count: %d, Message size: %d bytes, Timeout: %d ms\n", 
            g_test_count, g_message_size, g_timeout_ms);
+    if (g_verify_mode) {
+        printf("Verify mode: ENABLED (payload checksum verification)\n");
+    }
     
     uint64_t start_time = get_time_us();
     
@@ -387,6 +504,14 @@ static int run_request_response_test(inst_type dest_inst)
         bench_msg->src_inst = BENCHMARK_INST_ID_1;
         bench_msg->dst_inst = dest_inst;
         bench_msg->send_timestamp = get_time_us();
+        
+        if (g_verify_mode) {
+            fill_verify_pattern(buffer, g_message_size, i);
+        }
+        
+        if (g_inject_error) {
+            inject_noise_error(buffer, g_message_size, i);
+        }
         
         int ret = mes_send_request(dest_inst, 0, &ruid, buffer, g_message_size);
         uint64_t send_complete_time = get_time_us();
@@ -415,6 +540,13 @@ static int run_request_response_test(inst_type dest_inst)
         
         if (response.buffer != NULL && response.size >= sizeof(benchmark_message_t)) {
             benchmark_message_t *resp_msg = (benchmark_message_t *)response.buffer;
+            
+            if (g_verify_mode) {
+                if (!verify_payload_pattern(response.buffer, response.size, resp_msg->seq_num)) {
+                    fprintf(stderr, "[VERIFY] Client: Response payload verification failed for seq=%u\n", resp_msg->seq_num);
+                    checksum_failed++;
+                }
+            }
             
             results[success_count].rtt_us = response_time - bench_msg->send_timestamp;
             results[success_count].send_timestamp = bench_msg->send_timestamp;
@@ -445,6 +577,7 @@ static int run_request_response_test(inst_type dest_inst)
     calculate_statistics(results, success_count, &stats);
     stats.success_count = success_count;
     stats.timeout_count = timeout_count;
+    stats.checksum_failed = checksum_failed;
     
     char test_name[128];
     snprintf(test_name, sizeof(test_name), "Request-Response Test (Pipe Type: %d)", g_pipe_type);
@@ -464,11 +597,19 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
     }
     
     memset(buffer, 0, g_message_size);
-    uint32_t *seq_num = (uint32_t *)buffer;
+    benchmark_message_t *bench_msg = (benchmark_message_t *)buffer;
     
     if (g_shared_state != NULL) {
         g_shared_state->received_count = 0;
         g_shared_state->validation_failed = 0;
+        g_shared_state->checksum_failed = 0;
+    }
+    
+    printf("\nStarting Bidirectional Latency Test: Instance %d -> Instance %d\n", 
+           BENCHMARK_INST_ID_1, dest_inst);
+    printf("Test count: %d, Message size: %d bytes\n", g_test_count, g_message_size);
+    if (g_verify_mode) {
+        printf("Verify mode: ENABLED (payload checksum verification)\n");
     }
     
     double start_time = get_time_ms();
@@ -480,7 +621,13 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
     }
     
     for (int i = 0; i < g_test_count; i++) {
-        *seq_num = i;
+        bench_msg->seq_num = i;
+        bench_msg->src_inst = BENCHMARK_INST_ID_1;
+        bench_msg->dst_inst = dest_inst;
+        
+        if (g_verify_mode) {
+            fill_verify_pattern(buffer, g_message_size, i);
+        }
         
         double send_time = get_time_ms();
         uint64_t send_ts_us = (uint64_t)(send_time * 1000);
@@ -553,6 +700,19 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
         printf("| %-25s | %-20.2f |\n", "Avg recv latency (μs)", avg_recv_latency * 1000);
     }
     
+    if (g_verify_mode && g_shared_state != NULL) {
+        printf("-------------------------------------------\n");
+        printf("| %-25s | %-20s |\n", "Data Integrity Check", "");
+        int verified_count = g_test_count - g_shared_state->checksum_failed;
+        printf("| %-25s | %-20d |\n", "  Verified OK", verified_count);
+        printf("| %-25s | %-20d |\n", "  Checksum Failed", g_shared_state->checksum_failed);
+        if (g_shared_state->checksum_failed == 0) {
+            printf("| %-25s | %-20s |\n", "  Result", "ALL PASSED");
+        } else {
+            printf("| %-25s | %-20s |\n", "  Result", "FAILED");
+        }
+    }
+    
     if (g_shared_state != NULL && g_shared_state->validation_failed) {
         printf("-------------------------------------------\n");
         printf("| %-25s | %-20s |\n", "WARNING", "Some messages failed validation!");
@@ -611,6 +771,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         g_shared_state->received_count = 0;
         g_shared_state->benchmark_done = 0;
         g_shared_state->validation_failed = 0;
+        g_shared_state->checksum_failed = 0;
         g_shared_state->total_send_latency = 0.0;
         g_shared_state->total_recv_latency = 0.0;
         
@@ -660,6 +821,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         g_shared_state->received_count = 0;
         g_shared_state->benchmark_done = 0;
         g_shared_state->validation_failed = 0;
+        g_shared_state->checksum_failed = 0;
         g_shared_state->total_send_latency = 0.0;
         g_shared_state->total_recv_latency = 0.0;
         
@@ -757,6 +919,8 @@ static void print_usage(const char *prog_name)
     printf("  -T, --timeout MS         Response timeout in milliseconds (default: 5000)\n");
     printf("  -d, --direct              Send directly without queue (default: enabled)\n");
     printf("  -q, --queue              Send via queue (disable direct send)\n");
+    printf("  -V, --verify             Enable payload verification (checksum)\n");
+    printf("  -E, --inject-error       Inject noise errors for testing verification (every 100 msgs)\n");
     printf("  -v, --verbose            Enable verbose output\n");
     printf("  -h, --help               Show this help message\n");
     printf("\nExamples:\n");
@@ -770,6 +934,10 @@ static void print_usage(const char *prog_name)
     printf("  %s -t ipc -m sendonly\n", prog_name);
     printf("\n  # IPC test with queue-based sending (for accurate RTT)\n");
     printf("  %s -t ipc -q\n", prog_name);
+    printf("\n  # IPC test with payload verification\n");
+    printf("  %s -t ipc -V\n", prog_name);
+    printf("\n  # IPC test with payload verification and error injection\n");
+    printf("  %s -t ipc -V -E\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -782,13 +950,15 @@ static int parse_arguments(int argc, char *argv[])
         {"timeout", required_argument, 0, 'T'},
         {"direct", no_argument, 0, 'd'},
         {"queue", no_argument, 0, 'q'},
+        {"verify", no_argument, 0, 'V'},
+        {"inject-error", no_argument, 0, 'E'},
         {"verbose", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "t:m:c:s:T:dqvh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "t:m:c:s:T:dqVEvh", long_options, NULL)) != -1) {
         switch (opt) {
             case 't':
                 if (strcmp(optarg, "tcp") == 0) {
@@ -839,6 +1009,12 @@ static int parse_arguments(int argc, char *argv[])
             case 'q':
                 g_send_directly = 0;
                 break;
+            case 'V':
+                g_verify_mode = 1;
+                break;
+            case 'E':
+                g_inject_error = 1;
+                break;
             case 'v':
                 g_verbose = 1;
                 break;
@@ -883,6 +1059,8 @@ int main(int argc, char *argv[])
     if (g_test_mode == TEST_MODE_REQUEST_RESPONSE) {
         printf("Timeout: %d ms\n", g_timeout_ms);
     }
+    printf("Verify Mode: %s\n", g_verify_mode ? "Enabled" : "Disabled");
+    printf("Inject Error: %s\n", g_inject_error ? "Enabled" : "Disabled");
     printf("\n");
     
     if (g_verbose) {
