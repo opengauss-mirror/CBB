@@ -26,7 +26,7 @@
 ## 编译
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 cmake -DUSE_GM_TLS=OFF .
 make -sj
 ```
@@ -40,7 +40,7 @@ make -sj
 **必须将output/lib放在LD_LIBRARY_PATH的最前面**，否则会加载系统中的旧版本库：
 
 ```bash
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_LIB_PATH>:$LD_LIBRARY_PATH
 ```
 
 ### 清理旧的共享内存（可选）
@@ -71,6 +71,8 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 | --timeout | -T | 响应超时时间（毫秒），仅reqresp模式有效 | 5000 | `-T 10000` |
 | --direct | -d | 直接发送模式：不经过发送队列，直接调用发送接口（推荐） | 启用 | `-d` |
 | --queue | -q | 队列发送模式：消息先入队列，由后台线程发送 | 禁用 | `-q` |
+| --verify | -V | 启用消息校验：验证payload数据完整性 | 关闭 | `-V` |
+| --inject-error | -E | 注入噪声错误：每100条消息注入一次错误，用于测试校验功能 | 关闭 | `-E` |
 | --verbose | -v | 启用详细输出，显示每条消息的日志 | 关闭 | `-v` |
 | --help | -h | 显示帮助信息 | - | `-h` |
 
@@ -84,6 +86,8 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 | 大消息测试 | `-t ipc -m reqresp -c 100 -s 4096` |
 | 吞吐量测试 | `-t ipc -m sendonly -c 10000` |
 | 调试模式 | `-t ipc -m reqresp -c 10 -v` |
+| 数据校验测试 | `-t ipc -m reqresp -c 500 -V` |
+| 校验功能验证 | `-t ipc -m reqresp -c 500 -V -E` |
 
 ## 测试示例
 
@@ -172,6 +176,61 @@ Request-Response Test (Pipe Type: 2)
 ./output/bin/mes_benchmark -t ipc -m reqresp -c 100 -s 1024
 ```
 
+### 6. 数据校验测试
+
+启用消息校验功能，验证数据传输的完整性：
+
+```bash
+./output/bin/mes_benchmark -t ipc -m reqresp -c 500 -s 1024 -V
+```
+
+输出示例：
+```
+==================================================
+Request-Response Test (Pipe Type: 2)
+==================================================
+| Success count             |                  500 |
+| Timeout count             |                    0 |
+--------------------------------------------------
+| Data Integrity Check      |                      |
+|   Verified OK             |                  500 |
+|   Checksum Failed         |                    0 |
+|   Result                  |       ALL PASSED ✓ |
+--------------------------------------------------
+| Average RTT (μs)         |                30.36 |
+...
+```
+
+### 7. 校验功能验证测试
+
+启用噪声注入功能，验证校验功能是否正常工作（每100条消息注入一次错误）：
+
+```bash
+./output/bin/mes_benchmark -t ipc -m reqresp -c 500 -s 1024 -V -E
+```
+
+输出示例：
+```
+[VERIFY] Server: Payload verification failed for seq=0
+[VERIFY] Client: Response payload verification failed for seq=0
+[VERIFY] Server: Payload verification failed for seq=100
+[VERIFY] Client: Response payload verification failed for seq=100
+...
+
+==================================================
+Request-Response Test (Pipe Type: 2)
+==================================================
+| Success count             |                  500 |
+| Timeout count             |                    0 |
+--------------------------------------------------
+| Data Integrity Check      |                      |
+|   Verified OK             |                  495 |
+|   Checksum Failed         |                    5 |
+|   Result                  |           FAILED ✗ |
+--------------------------------------------------
+...
+```
+
 ## 性能指标说明
 
 ### Send-Only 模式指标
@@ -193,6 +252,12 @@ Request-Response Test (Pipe Type: 2)
 - **Min/Max RTT**: 最小/最大往返时间（微秒）
 - **P50/P95/P99 RTT**: 第50/95/99百分位往返时间（微秒）
 - **Std Dev**: 标准差（微秒）
+
+#### 数据完整性校验指标（启用 -V 时显示）
+
+- **Verified OK**: 校验通过的消息数量
+- **Checksum Failed**: 校验失败的消息数量
+- **Result**: 校验结果（ALL PASSED ✓ 或 FAILED ✗）
 
 #### 时延分解（Latency Breakdown）
 
@@ -235,7 +300,7 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 
 # 确认库路径
 ldd ./output/bin/mes_benchmark | grep cbb
-# 应该显示: libcbb.so => /usr1/wyc/source_code/CBB/output/lib/libcbb.so
+# 应该显示: libcbb.so => <CBB_PATH>/output/lib/libcbb.so
 ```
 
 ### 问题3: 测试卡死不退出

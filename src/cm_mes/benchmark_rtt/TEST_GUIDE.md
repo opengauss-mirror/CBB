@@ -14,19 +14,19 @@ mes_rtt_perf 是一个多节点RTT性能验证工具，支持多种通信模式�
 ### 方法1：使用 CMake 构建（推荐）
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 # 运行构建脚本
 ./build/linux/opengauss/build.sh -3rd $BINARYLIBS
 
 # 编译完成后，可执行文件位于：
-# /usr1/wyc/source_code/CBB/output/bin/mes_rtt_perf
+# <CBB_PATH>/output/bin/mes_rtt_perf
 ```
 
 ### 方法2：手动编译（如果已有 CBB 库）
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
     -Isrc \
@@ -63,10 +63,10 @@ gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
 #### 步骤1：启动服务器（终端1）
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 # 设置库路径
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_LIB_PATH>:$LD_LIBRARY_PATH
 
 # 启动IPC服务器
 ./output/bin/mes_rtt_perf -m server -p ipc -i 1
@@ -94,10 +94,10 @@ Press Ctrl+C to stop.
 #### 步骤2：启动客户端（终端2）
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 # 设置库路径
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_LIB_PATH>:$LD_LIBRARY_PATH
 
 # 启动IPC客户端
 ./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64
@@ -163,7 +163,7 @@ RTT performance test completed!
 #### 步骤1：启动服务器（终端1）
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 ./output/bin/mes_rtt_perf -m server -i 1 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT>
 ```
@@ -189,7 +189,7 @@ Press Ctrl+C to stop.
 #### 步骤2：启动客户端（终端2）- 单线程测试
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 ./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64
 ```
@@ -244,7 +244,7 @@ RTT performance test completed!
 #### 步骤3：启动客户端（终端3）- 多线程并发测试
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 # 使用 4 个并发线程进行测试
 ./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64 -t 4
@@ -308,7 +308,7 @@ RTT performance test completed!
 
 ```bash
 # 在节点1 (<SERVER_IP>) 上运行
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 ./output/bin/mes_rtt_perf -m server -i 1 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT>
 ```
@@ -317,7 +317,7 @@ cd /usr1/wyc/source_code/CBB
 
 ```bash
 # 在节点2 (<CLIENT_IP>) 上运行
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 ./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 1000 -s 64
 ```
@@ -327,7 +327,7 @@ cd /usr1/wyc/source_code/CBB
 ```bash
 # 在节点2 (<CLIENT_IP>) 上运行
 # 使用 8 个并发线程进行高负载测试
-cd /usr1/wyc/source_code/CBB
+cd CBB
 
 ./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 10000 -s 64 -t 8
 ```
@@ -352,6 +352,8 @@ cd /usr1/wyc/source_code/CBB
 | `-s, --size` | 消息大小（字节） | 64 | 否 |
 | `-t, --threads` | 并发线程数 | 1 | 否 |
 | `-T, --timeout` | 响应超时（毫秒） | 5000 | 否 |
+| `-V, --verify` | 启用消息校验：验证payload数据完整性 | 关闭 | 否 |
+| `-E, --inject-error` | 注入噪声错误：每100条消息注入一次错误，用于测试校验功能 | 关闭 | 否 |
 
 ### MES线程配置参数
 
@@ -386,6 +388,8 @@ cd /usr1/wyc/source_code/CBB
 
 | 参数 | 说明 |
 |------|------|
+| `-V, --verify` | 启用消息校验：验证payload数据完整性 |
+| `-E, --inject-error` | 注入噪声错误：每100条消息注入一次错误，用于测试校验功能 |
 | `-v, --verbose` | 启用详细输出 |
 | `-h, --help` | 显示帮助信息 |
 
@@ -404,6 +408,14 @@ cd /usr1/wyc/source_code/CBB
 | Std Dev (μs) | 标准差（微秒） |
 | Total time (s) | 总测试时间（秒） |
 | Throughput (req/s) | 吞吐量（每秒请求数） |
+
+### 数据完整性校验指标（启用 -V 时显示）
+
+| 指标 | 说明 |
+|------|------|
+| Verified OK | 校验通过的消息数量 |
+| Checksum Failed | 校验失败的消息数量 |
+| Result | 校验结果（ALL PASSED 或 FAILED） |
 
 ## 并发测试场景
 
@@ -552,6 +564,69 @@ cd /usr1/wyc/source_code/CBB
 ```bash
 # 启用详细日志查看 MES 内部操作
 ./output/bin/mes_rtt_perf -m client -i 2 --nodes 1:<SERVER_IP>:<SERVER_PORT>,2:<CLIENT_IP>:<CLIENT_PORT> -c 100 -s 64 -t 4 -v
+```
+
+### 数据校验测试
+
+启用消息校验功能，验证数据传输的完整性：
+
+```bash
+# 服务端（终端1）
+./output/bin/mes_rtt_perf -m server -p ipc -i 1
+
+# 客户端（终端2）- 启用校验
+./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 1000 -s 1024 -V
+```
+
+输出示例：
+```
+==================================================
+RTT Performance Test (IPC): Client 2 -> Server 1 (1 threads)
+==================================================
+| Success count            | 1000                 |
+| Timeout count            | 0                     |
+--------------------------------------------------
+| Data Integrity Check     |                       |
+|   Verified OK            | 1000                  |
+|   Checksum Failed        | 0                     |
+|   Result                 | ALL PASSED            |
+--------------------------------------------------
+| Average RTT (μs)         | 150.43                |
+...
+```
+
+### 校验功能验证测试
+
+启用噪声注入功能，验证校验功能是否正常工作（每100条消息注入一次错误）：
+
+```bash
+# 服务端（终端1）
+./output/bin/mes_rtt_perf -m server -p ipc -i 1
+
+# 客户端（终端2）- 启用校验和噪声注入
+./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 1000 -s 1024 -V -E
+```
+
+输出示例：
+```
+[VERIFY] Server: Payload verification failed for seq=0
+[VERIFY] Client: Response payload verification failed for seq=0
+[VERIFY] Server: Payload verification failed for seq=100
+[VERIFY] Client: Response payload verification failed for seq=100
+...
+
+==================================================
+RTT Performance Test (IPC): Client 2 -> Server 1 (1 threads)
+==================================================
+| Success count            | 1000                 |
+| Timeout count            | 0                     |
+--------------------------------------------------
+| Data Integrity Check     |                       |
+|   Verified OK            | 990                   |
+|   Checksum Failed        | 10                    |
+|   Result                 | FAILED                |
+--------------------------------------------------
+...
 ```
 
 ### 性能对比测试
