@@ -30,7 +30,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <errno.h>
 #include <stdint.h>
 #include <pthread.h>
@@ -69,31 +68,13 @@ typedef struct {
 } rtt_perf_message_t;
 
 typedef struct {
-    double rtt_us;
-    uint64_t send_timestamp;
-    uint64_t recv_timestamp;
-} rtt_result_t;
-
-typedef struct {
-    double avg_rtt_us;
-    double min_rtt_us;
-    double max_rtt_us;
-    double p50_rtt_us;
-    double p95_rtt_us;
-    double p99_rtt_us;
-    double std_dev_us;
-    int success_count;
-    int timeout_count;
-    int checksum_failed;
-} test_statistics_t;
-
-typedef struct {
     int thread_id;
     int start_idx;
     int count;
-    rtt_result_t *results;
+    benchmark_rtt_result_t *results;
     int success_count;
     int timeout_count;
+    int checksum_failed;
     pthread_mutex_t mutex;
 } thread_context_t;
 
@@ -126,121 +107,6 @@ typedef struct {
 static test_config_t g_config = {0};
 static volatile int g_running = 1;
 
-static void mes_log_output(int log_type, int log_level,
-    const char *code_file_name, unsigned int code_line_num,
-    const char *module_name, const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    
-    const char *level_str = "UNKNOWN";
-    switch (log_level) {
-        case 0: level_str = "DEBUG"; break;
-        case 1: level_str = "INFO"; break;
-        case 2: level_str = "WARNING"; break;
-        case 3: level_str = "ERROR"; break;
-        case 4: level_str = "FATAL"; break;
-        default: level_str = "UNKNOWN"; break;
-    }
-    
-    fprintf(stderr, "[MES_LOG][%s][%s:%u] ", level_str, code_file_name, code_line_num);
-    vfprintf(stderr, format, args);
-    fprintf(stderr, "\n");
-    
-    va_end(args);
-}
-
-static const char *pipe_type_to_string(mes_pipe_type_t pipe_type)
-{
-    switch (pipe_type) {
-        case MES_TYPE_TCP: return "TCP";
-        case MES_TYPE_RDMA: return "RDMA";
-        case MES_TYPE_IPC: return "IPC";
-        default: return "UNKNOWN";
-    }
-}
-
-static uint64_t get_time_us(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000000ULL + tv.tv_usec;
-}
-
-static int compare_double(const void *a, const void *b)
-{
-    double da = *(const double *)a;
-    double db = *(const double *)b;
-    if (da < db) return -1;
-    if (da > db) return 1;
-    return 0;
-}
-
-static void calculate_statistics(rtt_result_t *results, int count, test_statistics_t *stats)
-{
-    if (count == 0) {
-        memset(stats, 0, sizeof(test_statistics_t));
-        return;
-    }
-    
-    double *rtt_values = (double *)malloc(count * sizeof(double));
-    if (!rtt_values) {
-        memset(stats, 0, sizeof(test_statistics_t));
-        return;
-    }
-    
-    double sum = 0.0;
-    double sum_sq = 0.0;
-    stats->min_rtt_us = results[0].rtt_us;
-    stats->max_rtt_us = results[0].rtt_us;
-    
-    for (int i = 0; i < count; i++) {
-        rtt_values[i] = results[i].rtt_us;
-        sum += results[i].rtt_us;
-        sum_sq += results[i].rtt_us * results[i].rtt_us;
-        
-        if (results[i].rtt_us < stats->min_rtt_us) {
-            stats->min_rtt_us = results[i].rtt_us;
-        }
-        if (results[i].rtt_us > stats->max_rtt_us) {
-            stats->max_rtt_us = results[i].rtt_us;
-        }
-    }
-    
-    stats->avg_rtt_us = sum / count;
-    stats->std_dev_us = sqrt((sum_sq / count) - (stats->avg_rtt_us * stats->avg_rtt_us));
-    
-    qsort(rtt_values, count, sizeof(double), compare_double);
-    
-    stats->p50_rtt_us = rtt_values[count / 2];
-    stats->p95_rtt_us = rtt_values[count * P95_PERCENTILE / 100];
-    stats->p99_rtt_us = rtt_values[count * P99_PERCENTILE / 100];
-    
-    free(rtt_values);
-}
-
-static void print_statistics(const char *test_name, test_statistics_t *stats, double total_time_s)
-{
-    printf("\n==================================================\n");
-    printf("%s\n", test_name);
-    printf("==================================================\n");
-    printf("| %-25s | %20.2f |\n", "Success count", (double)stats->success_count);
-    printf("| %-25s | %20.2f |\n", "Timeout count", (double)stats->timeout_count);
-    printf("| %-25s | %20.2f |\n", "Average RTT (μs)", stats->avg_rtt_us);
-    printf("| %-25s | %20.2f |\n", "Min RTT (μs)", stats->min_rtt_us);
-    printf("| %-25s | %20.2f |\n", "Max RTT (μs)", stats->max_rtt_us);
-    printf("| %-25s | %20.2f |\n", "P50 RTT (μs)", stats->p50_rtt_us);
-    printf("| %-25s | %20.2f |\n", "P95 RTT (μs)", stats->p95_rtt_us);
-    printf("| %-25s | %20.2f |\n", "P99 RTT (μs)", stats->p99_rtt_us);
-    printf("| %-25s | %20.2f |\n", "Std Dev (μs)", stats->std_dev_us);
-    if (total_time_s > 0) {
-        double throughput = stats->success_count / total_time_s;
-        printf("| %-25s | %20.2f |\n", "Total time (s)", total_time_s);
-        printf("| %-25s | %20.2f |\n", "Throughput (req/s)", throughput);
-    }
-    printf("==================================================\n");
-}
-
 static void rtt_perf_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t* msg)
 {
     if (msg == NULL || msg->buffer == NULL) {
@@ -263,21 +129,48 @@ static void rtt_perf_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t* 
         printf("Received request: seq=%u, src_inst=%u, dst_inst=%u\n", 
                rtt_msg->seq_num, rtt_msg->src_inst, rtt_msg->dst_inst);
     }
+
+    if (!benchmark_verify_payload_pattern(msg->buffer, msg->size, rtt_msg->seq_num,
+        sizeof(rtt_perf_message_t), &g_config.verify_config)) {
+        fprintf(stderr, "[VERIFY] Server: Payload verification failed for seq=%u\n", rtt_msg->seq_num);
+    }
     
-    uint64_t recv_time = get_time_us();
+    uint64_t recv_time = benchmark_get_time_us();
     
-    rtt_perf_message_t reply;
-    reply.seq_num = rtt_msg->seq_num;
-    reply.src_inst = rtt_msg->src_inst;
-    reply.dst_inst = rtt_msg->dst_inst;
-    reply.send_timestamp = rtt_msg->send_timestamp;
-    reply.recv_timestamp = recv_time;
-    reply.reply_timestamp = get_time_us();
-    
-    mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+    if (g_config.verify_config.verify_mode && msg->size > (int)sizeof(rtt_perf_message_t)) {
+        char *response_buf = (char *)malloc(msg->size);
+        if (response_buf) {
+            memcpy(response_buf, msg->buffer, msg->size);
+            rtt_perf_message_t *reply = (rtt_perf_message_t *)response_buf;
+            reply->recv_timestamp = recv_time;
+            reply->reply_timestamp = benchmark_get_time_us();
+            
+            mes_send_response(msg->src_inst, 0, ruid, response_buf, msg->size);
+            free(response_buf);
+        } else {
+            rtt_perf_message_t reply;
+            reply.seq_num = rtt_msg->seq_num;
+            reply.src_inst = rtt_msg->src_inst;
+            reply.dst_inst = rtt_msg->dst_inst;
+            reply.send_timestamp = rtt_msg->send_timestamp;
+            reply.recv_timestamp = recv_time;
+            reply.reply_timestamp = benchmark_get_time_us();
+            mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+        }
+    } else {
+        rtt_perf_message_t reply;
+        reply.seq_num = rtt_msg->seq_num;
+        reply.src_inst = rtt_msg->src_inst;
+        reply.dst_inst = rtt_msg->dst_inst;
+        reply.send_timestamp = rtt_msg->send_timestamp;
+        reply.recv_timestamp = recv_time;
+        reply.reply_timestamp = benchmark_get_time_us();
+        
+        mes_send_response(msg->src_inst, 0, ruid, (char *)&reply, sizeof(rtt_perf_message_t));
+    }
     
     if (g_config.verbose) {
-        printf("Sent response: seq=%u\n", reply.seq_num);
+        printf("Sent response: seq=%u\n", rtt_msg->seq_num);
     }
 }
 
@@ -354,6 +247,7 @@ static void *worker_thread_func(void *arg)
     
     int local_success = 0;
     int local_timeout = 0;
+    int local_checksum_failed = 0;
     
     for (int i = 0; i < ctx->count && g_running; i++) {
         int rtt_idx = ctx->start_idx + i;
@@ -361,7 +255,13 @@ static void *worker_thread_func(void *arg)
         rtt_msg->seq_num = rtt_idx;
         rtt_msg->src_inst = g_config.local_inst_id;
         rtt_msg->dst_inst = g_config.target_inst_id;
-        rtt_msg->send_timestamp = get_time_us();
+        rtt_msg->send_timestamp = benchmark_get_time_us();
+        
+        benchmark_fill_verify_pattern(buffer, g_config.message_size, rtt_idx, 
+            sizeof(rtt_perf_message_t), &g_config.verify_config);
+        
+        benchmark_inject_noise_error(buffer, g_config.message_size, rtt_idx, 
+            sizeof(rtt_perf_message_t), &g_config.verify_config);
         
         flag_type flag = 0;
         if (g_config.priority_hash && g_config.priority_cnt > 1) {
@@ -382,7 +282,7 @@ static void *worker_thread_func(void *arg)
         }
         
         ret = mes_get_response(ruid, &response, g_config.timeout_ms);
-        uint64_t response_time = get_time_us();
+        uint64_t response_time = benchmark_get_time_us();
         
         if (ret != 0) {
             if (g_config.verbose) {
@@ -394,7 +294,13 @@ static void *worker_thread_func(void *arg)
         }
         
         if (response.buffer != NULL && response.size >= sizeof(rtt_perf_message_t)) {
-            (void)(rtt_perf_message_t *)response.buffer;
+            rtt_perf_message_t *resp_msg = (rtt_perf_message_t *)response.buffer;
+            
+            if (!benchmark_verify_payload_pattern(response.buffer, response.size, resp_msg->seq_num,
+                sizeof(rtt_perf_message_t), &g_config.verify_config)) {
+                fprintf(stderr, "[VERIFY] Client: Response payload verification failed for seq=%u\n", resp_msg->seq_num);
+                local_checksum_failed++;
+            }
             
             pthread_mutex_lock(&ctx->mutex);
             ctx->results[local_success].rtt_us = response_time - rtt_msg->send_timestamp;
@@ -404,7 +310,7 @@ static void *worker_thread_func(void *arg)
             pthread_mutex_unlock(&ctx->mutex);
             
             if (g_config.verbose && rtt_idx % 100 == 0) {
-                printf("Thread %d: Request %d: RTT=%.2f μs\n", 
+                printf("Thread %d: Request %d: RTT=%.2f us\n", 
                        ctx->thread_id, rtt_idx, ctx->results[local_success - 1].rtt_us);
             }
         }
@@ -417,13 +323,15 @@ static void *worker_thread_func(void *arg)
     ctx->timeout_count = local_timeout;
     pthread_mutex_unlock(&ctx->mutex);
     
+    __sync_fetch_and_add(&g_config.checksum_failed, local_checksum_failed);
+    
     free(buffer);
     return NULL;
 }
 
 static int run_client_test(void)
 {
-    rtt_result_t *results = (rtt_result_t *)calloc(g_config.test_count, sizeof(rtt_result_t));
+    benchmark_rtt_result_t *results = (benchmark_rtt_result_t *)calloc(g_config.test_count, sizeof(benchmark_rtt_result_t));
     if (!results) {
         fprintf(stderr, "Failed to allocate RTT results array\n");
         return -1;
@@ -450,7 +358,7 @@ static int run_client_test(void)
     int remainder = g_config.test_count % g_config.thread_count;
     int current_start = 0;
     
-    uint64_t start_time = get_time_us();
+    uint64_t start_time = benchmark_get_time_us();
     
     for (int i = 0; i < g_config.thread_count; i++) {
         contexts[i].thread_id = i;
@@ -487,22 +395,23 @@ static int run_client_test(void)
         }
     }
     
-    uint64_t end_time = get_time_us();
+    uint64_t end_time = benchmark_get_time_us();
     double total_time_s = (end_time - start_time) / 1000000.0;
     
     free(threads);
     free(contexts);
     
-    test_statistics_t stats;
-    calculate_statistics(results, total_success, &stats);
+    benchmark_statistics_t stats;
+    benchmark_calculate_statistics(results, total_success, &stats);
     stats.success_count = total_success;
     stats.timeout_count = total_timeout;
+    stats.checksum_failed = g_config.checksum_failed;
     
     char test_name[128];
     snprintf(test_name, sizeof(test_name), "RTT Performance Test (%s): Client %d -> Server %d (%d threads)", 
-             pipe_type_to_string(g_config.pipe_type),
+             benchmark_pipe_type_to_string(g_config.pipe_type),
              g_config.local_inst_id, g_config.target_inst_id, g_config.thread_count);
-    print_statistics(test_name, &stats, total_time_s);
+    benchmark_print_statistics(test_name, &stats, total_time_s, g_config.verify_config.verify_mode);
     
     free(results);
     return 0;
@@ -678,6 +587,8 @@ static int parse_arguments(int argc, char *argv[])
                     g_config.pipe_type = MES_TYPE_IPC;
                 } else if (strcmp(optarg, "rdma") == 0) {
                     g_config.pipe_type = MES_TYPE_RDMA;
+                } else if (strcmp(optarg, "shm") == 0) {
+                    g_config.pipe_type = MES_TYPE_SHM;
                 } else {
                     fprintf(stderr, "Invalid pipe type: %s\n", optarg);
                     return -1;
@@ -797,7 +708,7 @@ static int parse_arguments(int argc, char *argv[])
                 return -1;
             }
             
-            if (g_config.pipe_type != MES_TYPE_IPC) {
+            if (g_config.pipe_type != MES_TYPE_IPC && g_config.pipe_type != MES_TYPE_SHM) {
                 if (strlen(g_config.target_ip) == 0) {
                     fprintf(stderr, "Target IP is required for client mode (TCP/RDMA)\n");
                     print_usage(argv[0]);
@@ -819,10 +730,22 @@ static int parse_arguments(int argc, char *argv[])
             snprintf(g_config.nodes[1].ip, MES_MAX_IP_LEN, "%s", g_config.target_ip);
             g_config.nodes[1].port = g_config.target_port;
         } else {
-            g_config.node_count = 1;
-            g_config.nodes[0].inst_id = g_config.local_inst_id;
-            snprintf(g_config.nodes[0].ip, MES_MAX_IP_LEN, "%s", g_config.local_ip);
-            g_config.nodes[0].port = g_config.local_port;
+            if (g_config.pipe_type == MES_TYPE_IPC || g_config.pipe_type == MES_TYPE_SHM) {
+                g_config.node_count = 2;
+                g_config.nodes[0].inst_id = g_config.local_inst_id;
+                snprintf(g_config.nodes[0].ip, MES_MAX_IP_LEN, "%s", g_config.local_ip);
+                g_config.nodes[0].port = g_config.local_port;
+                
+                int other_inst_id = (g_config.local_inst_id == 1) ? 2 : 1;
+                g_config.nodes[1].inst_id = other_inst_id;
+                snprintf(g_config.nodes[1].ip, MES_MAX_IP_LEN, "127.0.0.1");
+                g_config.nodes[1].port = g_config.local_port;
+            } else {
+                g_config.node_count = 1;
+                g_config.nodes[0].inst_id = g_config.local_inst_id;
+                snprintf(g_config.nodes[0].ip, MES_MAX_IP_LEN, "%s", g_config.local_ip);
+                g_config.nodes[0].port = g_config.local_port;
+            }
         }
     } else {
         if (g_config.mode == MODE_CLIENT && g_config.target_inst_id == 0) {
@@ -879,7 +802,7 @@ static void print_config(void)
     printf("MES RTT Performance Test Configuration\n");
     printf("========================================\n");
     printf("Mode: %s\n", g_config.mode == MODE_SERVER ? "Server" : "Client");
-    printf("Pipe Type: %s\n", pipe_type_to_string(g_config.pipe_type));
+    printf("Pipe Type: %s\n", benchmark_pipe_type_to_string(g_config.pipe_type));
     printf("Local instance ID: %d\n", g_config.local_inst_id);
     printf("Local IP: %s\n", g_config.local_ip);
     printf("Local port: %d\n", g_config.local_port);
@@ -930,7 +853,7 @@ int main(int argc, char *argv[])
     
     if (g_config.verbose) {
         mes_init_log();
-        mes_register_log_output(mes_log_output);
+        mes_register_log_output(benchmark_mes_log_output);
     }
     
     if (g_config.mode == MODE_CLIENT) {

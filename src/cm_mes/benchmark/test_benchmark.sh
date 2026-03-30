@@ -79,6 +79,8 @@ if [ -z "$LD_LIBRARY_PATH" ]; then
     fi
 fi
 
+export UBS_MEM_LIB_PATH="$CBB_ROOT/output/lib"
+
 echo "========================================"
 echo "MES Benchmark Test Suite"
 echo "========================================"
@@ -95,11 +97,44 @@ check_result "mes_benchmark --help shows -E option" "-E, --inject-error" "$HELP_
 
 echo ""
 
-# Test 2: mes_benchmark IPC request-response test
+# Test 2: mes_benchmark SHM request-response test
+log_test "Testing mes_benchmark SHM request-response mode"
+SHM_OUTPUT=$("$BIN_DIR/mes_benchmark" -t shm -m reqresp -c 100 -s 64 2>&1)
+check_result "mes_benchmark SHM test completes" "Success count" "$SHM_OUTPUT"
+
+# Extract success count
+SHM_SUCCESS_COUNT=$(extract_value "$SHM_OUTPUT" "Success count")
+check_numeric_result "mes_benchmark SHM success count >= 90" 90 "$SHM_SUCCESS_COUNT"
+
+echo ""
+
+# Test 2.1: mes_benchmark SHM with verification (no error injection)
+log_test "Testing mes_benchmark SHM with verification (no errors)"
+SHM_VERIFY_OUTPUT=$("$BIN_DIR/mes_benchmark" -t shm -V -c 100 -s 256 2>&1)
+check_result "mes_benchmark SHM verification shows ALL PASSED" "ALL PASSED" "$SHM_VERIFY_OUTPUT"
+
+# Extract verified count
+SHM_VERIFIED_OK=$(extract_value "$SHM_VERIFY_OUTPUT" "Verified OK")
+check_numeric_result "mes_benchmark SHM verified OK count >= 90" 90 "$SHM_VERIFIED_OK"
+
+echo ""
+
+# Test 2.2: mes_benchmark SHM with verification and error injection
+log_test "Testing mes_benchmark SHM with verification and error injection"
+SHM_ERROR_OUTPUT=$("$BIN_DIR/mes_benchmark" -t shm -V -E -c 200 -s 512 2>&1)
+check_result "mes_benchmark SHM error injection shows FAILED" "FAILED" "$SHM_ERROR_OUTPUT"
+check_result "mes_benchmark SHM error injection shows checksum failures" "Checksum Failed" "$SHM_ERROR_OUTPUT"
+
+# Verify error count
+SHM_CHECKSUM_FAILED=$(extract_value "$SHM_ERROR_OUTPUT" "Checksum Failed")
+check_numeric_result "mes_benchmark SHM checksum failed count >= 1" 1 "$SHM_CHECKSUM_FAILED"
+
+echo ""
+
+# Test 3: mes_benchmark IPC request-response test
 log_test "Testing mes_benchmark IPC request-response mode"
 IPC_OUTPUT=$("$BIN_DIR/mes_benchmark" -t ipc -m reqresp -c 100 -s 64 2>&1)
-check_result "mes_benchmark IPC test completes" "Benchmark completed successfully" "$IPC_OUTPUT"
-check_result "mes_benchmark IPC test shows success count" "Success count" "$IPC_OUTPUT"
+check_result "mes_benchmark IPC test completes" "Success count" "$IPC_OUTPUT"
 
 # Extract success count
 SUCCESS_COUNT=$(extract_value "$IPC_OUTPUT" "Success count")
@@ -133,7 +168,7 @@ echo ""
 # Test 5: mes_benchmark with different message sizes
 log_test "Testing mes_benchmark with different message sizes"
 SIZE_OUTPUT=$("$BIN_DIR/mes_benchmark" -t ipc -c 50 -s 4096 2>&1)
-check_result "mes_benchmark large message test completes" "Benchmark completed successfully" "$SIZE_OUTPUT"
+check_result "mes_benchmark large message test completes" "Success count" "$SIZE_OUTPUT"
 
 echo ""
 
@@ -182,11 +217,86 @@ check_numeric_result "mes_rtt_perf IPC success count >= 90" 90 "$RTT_SUCCESS"
 
 echo ""
 
+# Test 8.1: mes_rtt_perf SHM mode (server + client)
+log_test "Testing mes_rtt_perf SHM mode"
+
+# Start server in background
+"$BIN_DIR/mes_rtt_perf" -m server -p shm -i 1 > /tmp/rtt_server_shm.log 2>&1 &
+SERVER_PID=$!
+log_info "Started SHM server (PID: $SERVER_PID)"
+
+# Wait for server to initialize
+sleep 2
+
+# Run client with timeout
+RTT_SHM_OUTPUT=$(timeout 30 "$BIN_DIR/mes_rtt_perf" -m client -p shm -i 2 --target-id 1 -c 100 -s 64 2>&1)
+RTT_SHM_EXIT_CODE=$?
+
+# Stop server
+kill $SERVER_PID 2>/dev/null || true
+wait $SERVER_PID 2>/dev/null || true
+
+if [[ $RTT_SHM_EXIT_CODE -eq 124 ]]; then
+    log_error "FAILED: mes_rtt_perf SHM client timeout"
+    ((TESTS_FAILED+=3))
+else
+    check_result "mes_rtt_perf SHM client completes" "RTT Performance Test" "$RTT_SHM_OUTPUT"
+    check_result "mes_rtt_perf SHM shows success count" "Success count" "$RTT_SHM_OUTPUT"
+
+    # Extract success count
+    RTT_SHM_SUCCESS=$(extract_value "$RTT_SHM_OUTPUT" "Success count")
+    check_numeric_result "mes_rtt_perf SHM success count >= 90" 90 "$RTT_SHM_SUCCESS"
+fi
+
+echo ""
+
+# Test 8.2: mes_rtt_perf SHM with verification (no error injection)
+log_test "Testing mes_rtt_perf SHM with verification (no errors)"
+
+# Start server in background
+"$BIN_DIR/mes_rtt_perf" -m server -p shm -i 1 > /tmp/rtt_server_shm.log 2>&1 &
+SERVER_PID=$!
+sleep 2
+
+# Run client with verification and timeout
+RTT_SHM_VERIFY=$(timeout 30 "$BIN_DIR/mes_rtt_perf" -m client -p shm -i 2 --target-id 1 -c 100 -s 256 -V 2>&1)
+
+# Stop server
+kill $SERVER_PID 2>/dev/null || true
+wait $SERVER_PID 2>/dev/null || true
+
+check_result "mes_rtt_perf SHM verification shows ALL PASSED" "ALL PASSED" "$RTT_SHM_VERIFY"
+
+echo ""
+
+# Test 8.3: mes_rtt_perf SHM with verification and error injection
+log_test "Testing mes_rtt_perf SHM with verification and error injection"
+
+# Start server in background
+"$BIN_DIR/mes_rtt_perf" -m server -p shm -i 1 -V -E > /tmp/rtt_server_shm.log 2>&1 &
+SERVER_PID=$!
+sleep 2
+
+# Run client with verification and error injection and timeout
+RTT_SHM_ERROR=$(timeout 30 "$BIN_DIR/mes_rtt_perf" -m client -p shm -i 2 --target-id 1 -c 200 -s 512 -V -E 2>&1)
+
+# Stop server
+kill $SERVER_PID 2>/dev/null || true
+wait $SERVER_PID 2>/dev/null || true
+
+check_result "mes_rtt_perf SHM error injection shows FAILED" "FAILED" "$RTT_SHM_ERROR"
+
+# Verify error count
+RTT_SHM_CHECKSUM_FAILED=$(extract_value "$RTT_SHM_ERROR" "Checksum Failed")
+check_numeric_result "mes_rtt_perf SHM checksum failed count >= 1" 1 "$RTT_SHM_CHECKSUM_FAILED"
+
+echo ""
+
 # Test 9: mes_rtt_perf with verification (no error injection)
 log_test "Testing mes_rtt_perf with verification (no errors)"
 
 # Start server in background
-"$BIN_DIR/mes_rtt_perf" -m server -p ipc -i 1 > /tmp/rtt_server.log 2>&1 &
+"$BIN_DIR/mes_rtt_perf" -m server -p ipc -i 1 -V > /tmp/rtt_server.log 2>&1 &
 SERVER_PID=$!
 sleep 2
 
@@ -205,7 +315,7 @@ echo ""
 log_test "Testing mes_rtt_perf with verification and error injection"
 
 # Start server in background
-"$BIN_DIR/mes_rtt_perf" -m server -p ipc -i 1 > /tmp/rtt_server.log 2>&1 &
+"$BIN_DIR/mes_rtt_perf" -m server -p ipc -i 1 -V -E > /tmp/rtt_server.log 2>&1 &
 SERVER_PID=$!
 sleep 2
 

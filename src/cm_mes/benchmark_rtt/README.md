@@ -66,13 +66,13 @@ gcc -std=c99 -D_POSIX_C_SOURCE=199309L -Wall -Wno-error -g -ggdb -O0 \
 
 ## 环境变量（运行前）
 
-**建议将 `output/lib` 放在 `LD_LIBRARY_PATH` 最前面**，避免加载系统中的旧版本库。请将示例中的三方库路径替换为本机 openGauss/third_party 实际布局：
+**建议将 `output/lib` 放在 `LD_LIBRARY_PATH` 最前面**，避免加载系统中的旧版本库。请将占位符替换为本机 openGauss/third_party 中 cbb、openssl 等依赖库的实际路径：
 
 ```bash
 export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_OPENSSL_LIB>:$LD_LIBRARY_PATH
 ```
 
-下文 IPC 示例中给出了具体路径写法，可按环境改写。
+例如 `<THIRD_PARTY_CBB_LIB>` 常类似 `.../kernel/component/cbb/lib`，`<THIRD_PARTY_OPENSSL_LIB>` 常类似 `.../kernel/dependency/openssl/comm/lib`（以实际解压目录为准）。下文 IPC 示例中复用同一 `export` 行。
 
 ## IPC 模式测试（同节点）
 
@@ -87,7 +87,7 @@ export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_
 ```bash
 cd <CBB_PATH>
 
-export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_OPENSSL_LIB>:$LD_LIBRARY_PATH
 
 ./output/bin/mes_rtt_perf -m server -p ipc -i 1
 ```
@@ -117,7 +117,7 @@ Press Ctrl+C to stop.
 ```bash
 cd <CBB_PATH>
 
-export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_OPENSSL_LIB>:$LD_LIBRARY_PATH
 
 ./output/bin/mes_rtt_perf -m client -p ipc -i 2 --target-id 1 -c 1000 -s 64
 ```
@@ -224,6 +224,7 @@ cd <CBB_PATH>
 | `-c, --count` | 测试迭代次数 | 1000 | 否 |
 | `-s, --size` | 消息大小（字节） | 64 | 否 |
 | `-t, --threads` | 并发线程数 | 1 | 否 |
+| `-d, --direct-send` | 直接发送模式（不经发送队列） | 关闭 | 否 |
 | `-T, --timeout` | 响应超时（毫秒） | 5000 | 否 |
 
 ### MES 线程配置参数
@@ -250,6 +251,13 @@ cd <CBB_PATH>
 消息序号 % 优先级数量 = 优先级
 例如 priority_cnt=4 时：消息 0→优先级 0，消息 1→优先级 1，…
 ```
+
+### 负载校验（与 `mes_benchmark` / `benchmark_common` 一致）
+
+| 参数 | 说明 |
+|------|------|
+| `-V, --verify` | 开启负载校验：对消息体（含序号）做校验和验证 |
+| `-E, --inject-error` | 注入噪声错误（约每 100 条消息一次），用于验证 `-V` 校验路径是否按预期报错；调试校验逻辑时使用 |
 
 ### 可选参数
 

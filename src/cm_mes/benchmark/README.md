@@ -39,11 +39,13 @@ make -sj
 
 ### 重要：设置正确的库路径
 
-**必须将output/lib放在LD_LIBRARY_PATH的最前面**，否则会加载系统中的旧版本库：
+**必须将 `output/lib` 放在 `LD_LIBRARY_PATH` 最前面**，否则会加载系统中的旧版本库。请将下面占位符替换为本机 openGauss/third_party 中 cbb、openssl 等依赖库的实际路径：
 
 ```bash
-export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_OPENSSL_LIB>:$LD_LIBRARY_PATH
 ```
+
+例如 `<THIRD_PARTY_CBB_LIB>` 常类似 `.../kernel/component/cbb/lib`，`<THIRD_PARTY_OPENSSL_LIB>` 常类似 `.../kernel/dependency/openssl/comm/lib`（以实际解压目录为准）。
 
 ### 清理旧的共享内存（可选）
 
@@ -73,6 +75,8 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 | --timeout | -T | 响应超时时间（毫秒），仅reqresp模式有效 | 5000 | `-T 10000` |
 | --direct | -d | 直接发送模式：不经过发送队列，直接调用发送接口（推荐） | 启用 | `-d` |
 | --queue | -q | 队列发送模式：消息先入队列，由后台线程发送 | 禁用 | `-q` |
+| --verify | -V | 开启负载校验：对消息体（含序号）做校验和验证，与 `benchmark_common` 中 `benchmark_verify_*` 一致 | 关闭 | `-V` |
+| --inject-error | -E | 注入噪声错误（约每 100 条消息一次），用于验证 `-V` 校验路径是否生效；调试校验逻辑时使用 | 关闭 | `-E` |
 | --verbose | -v | 启用详细输出，显示每条消息的日志 | 关闭 | `-v` |
 | --help | -h | 显示帮助信息 | - | `-h` |
 
