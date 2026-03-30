@@ -1,5 +1,7 @@
 # MES Benchmark 测试指南
 
+文档与命令中的 **`<CBB_PATH>`** 表示本仓库 CBB 根目录的绝对路径，请替换为实际路径（例如 `/home/user/CBB`）。
+
 ## 概述
 
 本工具用于测试MES (Message Exchange System) 的性能，支持多种通信模式和测试模式：
@@ -26,7 +28,7 @@
 ## 编译
 
 ```bash
-cd /usr1/wyc/source_code/CBB
+cd <CBB_PATH>
 cmake -DUSE_GM_TLS=OFF .
 make -sj
 ```
@@ -40,7 +42,7 @@ make -sj
 **必须将output/lib放在LD_LIBRARY_PATH的最前面**，否则会加载系统中的旧版本库：
 
 ```bash
-export LD_LIBRARY_PATH=/usr1/wyc/source_code/CBB/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/component/cbb/lib:/usr1/wyc/openGauss-third_party_binarylibs_openEuler_arm/kernel/dependency/openssl/comm/lib:$LD_LIBRARY_PATH
 ```
 
 ### 清理旧的共享内存（可选）
@@ -235,7 +237,7 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 
 # 确认库路径
 ldd ./output/bin/mes_benchmark | grep cbb
-# 应该显示: libcbb.so => /usr1/wyc/source_code/CBB/output/lib/libcbb.so
+# 应该显示: libcbb.so => <CBB_PATH>/output/lib/libcbb.so
 ```
 
 ### 问题3: 测试卡死不退出
@@ -285,9 +287,17 @@ IPC接收线程采用自适应轮询策略，根据空闲程度动态调整：
 4. **性能测试**: 大批量测试建议使用100或1000条消息
 5. **日志模式**: 调试时使用-v参数，正常测试可省略
 
+## 公共代码（与 mes_rtt_perf 共享）
+
+- `src/cm_mes/benchmark/benchmark_common.c` / `benchmark_common.h`：时间戳、RTT 统计与打印、校验负载、管道类型字符串、**MES 日志回调 `benchmark_mes_log_output`**
+- `mes_rtt_perf` 通过 CMake 链接同一套 `benchmark_common.c`，避免两套工具重复实现
+
 ## 相关文件
 
-- 源代码: `src/cm_mes/benchmark/mes_benchmark.c`
+- 主程序: `src/cm_mes/benchmark/mes_benchmark.c`
+- 公共库: `src/cm_mes/benchmark/benchmark_common.c`, `benchmark_common.h`
 - IPC实现: `src/cm_mes/mes_ipc.c`, `src/cm_mes/mes_ipc.h`
-- 编译输出: `output/bin/mes_benchmark`
-- 动态库: `output/lib/libcbb.so`
+- 编译输出: `<CBB_PATH>/output/bin/mes_benchmark`
+- 动态库: `<CBB_PATH>/output/lib/libcbb.so`
+
+同目录 **RTT 多节点压测** 说明见 `src/cm_mes/benchmark_rtt/README.md`。
