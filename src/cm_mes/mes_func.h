@@ -41,7 +41,7 @@
 #include "mes_interface.h"
 #include "mes_type.h"
 #include "mes_stat.h"
-#include "mes_task_threadpool_interface.h"
+#include "mes_task/mes_task_threadpool_interface.h"
 #include "cm_system.h"
 #include "mes_ipc.h"
 #include "ubs_mem_def.h"

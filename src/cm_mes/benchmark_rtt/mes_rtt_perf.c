@@ -38,6 +38,7 @@
 #include <math.h>
 
 #include "../mes_interface.h"
+#include "../benchmark/benchmark_common.h"
 
 #define DEFAULT_PORT 12345
 #define DEFAULT_TEST_COUNT 1000
@@ -83,6 +84,7 @@ typedef struct {
     double std_dev_us;
     int success_count;
     int timeout_count;
+    int checksum_failed;
 } test_statistics_t;
 
 typedef struct {
@@ -116,8 +118,8 @@ typedef struct {
     int priority_cnt;
     int priority_hash;
     int send_directly;
-    int verify_mode;
-    int inject_error;
+    benchmark_verify_config_t verify_config;
+    int checksum_failed;
     node_config_t nodes[MAX_NODES];
 } test_config_t;
 
@@ -648,8 +650,8 @@ static int parse_arguments(int argc, char *argv[])
     g_config.priority_cnt = 1;
     g_config.priority_hash = 0;
     g_config.send_directly = 0;
-    g_config.verify_mode = 0;
-    g_config.inject_error = 0;
+    g_config.verify_config.verify_mode = 0;
+    g_config.verify_config.inject_error = 0;
     snprintf(g_config.local_ip, MES_MAX_IP_LEN, "127.0.0.1");
     g_config.local_port = DEFAULT_PORT;
     
@@ -764,10 +766,10 @@ static int parse_arguments(int argc, char *argv[])
                 }
                 break;
             case 'V':
-                g_config.verify_mode = 1;
+                g_config.verify_config.verify_mode = 1;
                 break;
             case 'E':
-                g_config.inject_error = 1;
+                g_config.verify_config.inject_error = 1;
                 break;
             case 'v':
                 g_config.verbose = 1;
