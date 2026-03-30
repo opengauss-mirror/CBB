@@ -1,5 +1,7 @@
 # MES Benchmark 测试指南
 
+文档与命令中的 **`<CBB_PATH>`** 表示本仓库 CBB 根目录的绝对路径，请替换为实际路径（例如 `/home/user/CBB`）。
+
 ## 概述
 
 本工具用于测试MES (Message Exchange System) 的性能，支持多种通信模式和测试模式：
@@ -26,7 +28,7 @@
 ## 编译
 
 ```bash
-cd CBB
+cd <CBB_PATH>
 cmake -DUSE_GM_TLS=OFF .
 make -sj
 ```
@@ -37,11 +39,13 @@ make -sj
 
 ### 重要：设置正确的库路径
 
-**必须将output/lib放在LD_LIBRARY_PATH的最前面**，否则会加载系统中的旧版本库：
+**必须将 `output/lib` 放在 `LD_LIBRARY_PATH` 最前面**，否则会加载系统中的旧版本库。请将下面占位符替换为本机 openGauss/third_party 中 cbb、openssl 等依赖库的实际路径：
 
 ```bash
-export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_LIB_PATH>:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=<CBB_PATH>/output/lib:<THIRD_PARTY_CBB_LIB>:<THIRD_PARTY_OPENSSL_LIB>:$LD_LIBRARY_PATH
 ```
+
+例如 `<THIRD_PARTY_CBB_LIB>` 常类似 `.../kernel/component/cbb/lib`，`<THIRD_PARTY_OPENSSL_LIB>` 常类似 `.../kernel/dependency/openssl/comm/lib`（以实际解压目录为准）。
 
 ### 清理旧的共享内存（可选）
 
@@ -71,8 +75,8 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 | --timeout | -T | 响应超时时间（毫秒），仅reqresp模式有效 | 5000 | `-T 10000` |
 | --direct | -d | 直接发送模式：不经过发送队列，直接调用发送接口（推荐） | 启用 | `-d` |
 | --queue | -q | 队列发送模式：消息先入队列，由后台线程发送 | 禁用 | `-q` |
-| --verify | -V | 启用消息校验：验证payload数据完整性 | 关闭 | `-V` |
-| --inject-error | -E | 注入噪声错误：每100条消息注入一次错误，用于测试校验功能 | 关闭 | `-E` |
+| --verify | -V | 开启负载校验：对消息体（含序号）做校验和验证，与 `benchmark_common` 中 `benchmark_verify_*` 一致 | 关闭 | `-V` |
+| --inject-error | -E | 注入噪声错误（约每 100 条消息一次），用于验证 `-V` 校验路径是否生效；调试校验逻辑时使用 | 关闭 | `-E` |
 | --verbose | -v | 启用详细输出，显示每条消息的日志 | 关闭 | `-v` |
 | --help | -h | 显示帮助信息 | - | `-h` |
 
@@ -86,8 +90,6 @@ ipcs -s | grep 0x88880001 | awk '{print $2}' | xargs -r ipcrm -s
 | 大消息测试 | `-t ipc -m reqresp -c 100 -s 4096` |
 | 吞吐量测试 | `-t ipc -m sendonly -c 10000` |
 | 调试模式 | `-t ipc -m reqresp -c 10 -v` |
-| 数据校验测试 | `-t ipc -m reqresp -c 500 -V` |
-| 校验功能验证 | `-t ipc -m reqresp -c 500 -V -E` |
 
 ## 测试示例
 
@@ -176,61 +178,6 @@ Request-Response Test (Pipe Type: 2)
 ./output/bin/mes_benchmark -t ipc -m reqresp -c 100 -s 1024
 ```
 
-### 6. 数据校验测试
-
-启用消息校验功能，验证数据传输的完整性：
-
-```bash
-./output/bin/mes_benchmark -t ipc -m reqresp -c 500 -s 1024 -V
-```
-
-输出示例：
-```
-==================================================
-Request-Response Test (Pipe Type: 2)
-==================================================
-| Success count             |                  500 |
-| Timeout count             |                    0 |
---------------------------------------------------
-| Data Integrity Check      |                      |
-|   Verified OK             |                  500 |
-|   Checksum Failed         |                    0 |
-|   Result                  |       ALL PASSED ✓ |
---------------------------------------------------
-| Average RTT (μs)         |                30.36 |
-...
-```
-
-### 7. 校验功能验证测试
-
-启用噪声注入功能，验证校验功能是否正常工作（每100条消息注入一次错误）：
-
-```bash
-./output/bin/mes_benchmark -t ipc -m reqresp -c 500 -s 1024 -V -E
-```
-
-输出示例：
-```
-[VERIFY] Server: Payload verification failed for seq=0
-[VERIFY] Client: Response payload verification failed for seq=0
-[VERIFY] Server: Payload verification failed for seq=100
-[VERIFY] Client: Response payload verification failed for seq=100
-...
-
-==================================================
-Request-Response Test (Pipe Type: 2)
-==================================================
-| Success count             |                  500 |
-| Timeout count             |                    0 |
---------------------------------------------------
-| Data Integrity Check      |                      |
-|   Verified OK             |                  495 |
-|   Checksum Failed         |                    5 |
-|   Result                  |           FAILED ✗ |
---------------------------------------------------
-...
-```
-
 ## 性能指标说明
 
 ### Send-Only 模式指标
@@ -252,12 +199,6 @@ Request-Response Test (Pipe Type: 2)
 - **Min/Max RTT**: 最小/最大往返时间（微秒）
 - **P50/P95/P99 RTT**: 第50/95/99百分位往返时间（微秒）
 - **Std Dev**: 标准差（微秒）
-
-#### 数据完整性校验指标（启用 -V 时显示）
-
-- **Verified OK**: 校验通过的消息数量
-- **Checksum Failed**: 校验失败的消息数量
-- **Result**: 校验结果（ALL PASSED ✓ 或 FAILED ✗）
 
 #### 时延分解（Latency Breakdown）
 
@@ -350,9 +291,17 @@ IPC接收线程采用自适应轮询策略，根据空闲程度动态调整：
 4. **性能测试**: 大批量测试建议使用100或1000条消息
 5. **日志模式**: 调试时使用-v参数，正常测试可省略
 
+## 公共代码（与 mes_rtt_perf 共享）
+
+- `src/cm_mes/benchmark/benchmark_common.c` / `benchmark_common.h`：时间戳、RTT 统计与打印、校验负载、管道类型字符串、**MES 日志回调 `benchmark_mes_log_output`**
+- `mes_rtt_perf` 通过 CMake 链接同一套 `benchmark_common.c`，避免两套工具重复实现
+
 ## 相关文件
 
-- 源代码: `src/cm_mes/benchmark/mes_benchmark.c`
+- 主程序: `src/cm_mes/benchmark/mes_benchmark.c`
+- 公共库: `src/cm_mes/benchmark/benchmark_common.c`, `benchmark_common.h`
 - IPC实现: `src/cm_mes/mes_ipc.c`, `src/cm_mes/mes_ipc.h`
-- 编译输出: `output/bin/mes_benchmark`
-- 动态库: `output/lib/libcbb.so`
+- 编译输出: `<CBB_PATH>/output/bin/mes_benchmark`
+- 动态库: `<CBB_PATH>/output/lib/libcbb.so`
+
+同目录 **RTT 多节点压测** 说明见 `src/cm_mes/benchmark_rtt/README.md`。

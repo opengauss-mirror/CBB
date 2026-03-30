@@ -14,7 +14,7 @@
  * -------------------------------------------------------------------------
  *
  * mes_benchmark.c
- * MES communication benchmark tool
+ *
  *
  * IDENTIFICATION
  *    src/cm_mes/benchmark/mes_benchmark.c
@@ -31,13 +31,14 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <signal.h>
-#include <stdarg.h>
+#include <sys/syscall.h>
 #include <errno.h>
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <math.h>
 
 #include "../mes_interface.h"
 #include "../mes_type.h"
@@ -47,9 +48,12 @@
 #define BENCHMARK_INST_ID_2 2
 #define BENCHMARK_PORT 12345
 #define LATENCY_MESSAGE_SIZE 64
+#define BANDWIDTH_MESSAGE_SIZE (16 * 1024)
 #define LATENCY_TEST_COUNT 1000
 #define MAX_MESSAGE_SIZE (128 * 1024)
 #define MAX_TEST_COUNT 100000
+#define P99_PERCENTILE 99
+#define P95_PERCENTILE 95
 
 typedef enum {
     TEST_MODE_SEND_ONLY,
@@ -68,16 +72,6 @@ typedef struct {
 } shared_state_t;
 
 typedef struct {
-    uint32_t seq_num;
-    inst_type src_inst;
-    inst_type dst_inst;
-    uint64_t send_timestamp;
-    uint64_t recv_timestamp;
-    uint64_t reply_timestamp;
-    uint64_t reply_send_timestamp;
-} benchmark_message_t;
-
-typedef struct {
     test_mode_t test_mode;
     mes_pipe_type_t pipe_type;
     int verbose;
@@ -87,6 +81,16 @@ typedef struct {
     int timeout_ms;
     benchmark_verify_config_t verify_config;
 } benchmark_config_t;
+
+typedef struct {
+    uint32_t seq_num;
+    inst_type src_inst;
+    inst_type dst_inst;
+    uint64_t send_timestamp;
+    uint64_t recv_timestamp;
+    uint64_t reply_timestamp;
+    uint64_t reply_send_timestamp;
+} benchmark_message_t;
 
 static shared_state_t *g_shared_state = NULL;
 static benchmark_config_t g_config = {
@@ -99,30 +103,6 @@ static benchmark_config_t g_config = {
     .timeout_ms = 5000,
     .verify_config = {0, 0, 0}
 };
-
-static void mes_log_output(int log_type, int log_level,
-    const char *code_file_name, unsigned int code_line_num,
-    const char *module_name, const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    
-    const char *level_str = "UNKNOWN";
-    switch (log_level) {
-        case 0: level_str = "DEBUG"; break;
-        case 1: level_str = "INFO"; break;
-        case 2: level_str = "WARNING"; break;
-        case 3: level_str = "ERROR"; break;
-        case 4: level_str = "FATAL"; break;
-        default: level_str = "UNKNOWN"; break;
-    }
-    
-    fprintf(stderr, "[MES_LOG][%s][%s:%u] ", level_str, code_file_name, code_line_num);
-    vfprintf(stderr, format, args);
-    fprintf(stderr, "\n");
-    
-    va_end(args);
-}
 
 static void benchmark_msg_proc(unsigned int work_idx, ruid_type ruid, mes_msg_t* msg)
 {
@@ -228,6 +208,12 @@ static void setup_mes_profile(mes_profile_t *profile, inst_type inst_id, mes_pip
     profile->msg_pool_attr.buf_pool_attr[1].shared_pool_attr.queue_num = 8;
     
     profile->msg_pool_attr.max_buf_size[0] = 128 * 1024;
+    /*
+     * mes_send_* checks head->size against MES_MESSAGE_BUFFER_SIZE(profile),
+     * which is derived from profile->frag_size. If frag_size is left as 0,
+     * any payload larger than MES_MESSAGE_TINY_SIZE will be rejected with
+     * ERR_MES_MSG_TOO_LARGE.
+     */
     profile->frag_size = profile->msg_pool_attr.max_buf_size[0] + (unsigned int)sizeof(mes_message_head_t);
     
     profile->channel_cnt = 1;
@@ -238,7 +224,7 @@ static void setup_mes_profile(mes_profile_t *profile, inst_type inst_id, mes_pip
     
     profile->conn_created_during_init = 1;
     profile->tpool_attr.enable_threadpool = 0;
-    profile->send_directly = 1;
+    profile->send_directly = g_config.send_directly;
     
     profile->connect_timeout = 30000;
     profile->socket_timeout = 30000;
@@ -274,7 +260,6 @@ static int run_request_response_test(inst_type dest_inst)
     
     int success_count = 0;
     int timeout_count = 0;
-    int checksum_failed = 0;
     
     printf("\nStarting Request-Response Test: Instance %d -> Instance %d\n", 
            BENCHMARK_INST_ID_1, dest_inst);
@@ -285,6 +270,8 @@ static int run_request_response_test(inst_type dest_inst)
     }
     
     uint64_t start_time = benchmark_get_time_us();
+    
+    int checksum_failed = 0;
     
     for (int i = 0; i < g_config.test_count; i++) {
         ruid_type ruid;
@@ -333,17 +320,17 @@ static int run_request_response_test(inst_type dest_inst)
                 checksum_failed++;
             }
             
-            results[success_count].rtt_us = (double)(response_time - bench_msg->send_timestamp);
+            results[success_count].rtt_us = response_time - bench_msg->send_timestamp;
             results[success_count].send_timestamp = bench_msg->send_timestamp;
             results[success_count].recv_timestamp = response_time;
-            results[success_count].send_latency_us = (double)(send_complete_time - bench_msg->send_timestamp);
-            results[success_count].network_req_us = (double)(resp_msg->recv_timestamp - send_complete_time);
-            results[success_count].server_process_us = (double)(resp_msg->reply_send_timestamp - resp_msg->recv_timestamp);
-            results[success_count].network_resp_us = (double)(response_time - resp_msg->reply_send_timestamp);
+            results[success_count].send_latency_us = send_complete_time - bench_msg->send_timestamp;
+            results[success_count].network_req_us = resp_msg->recv_timestamp - send_complete_time;
+            results[success_count].server_process_us = resp_msg->reply_send_timestamp - resp_msg->recv_timestamp;
+            results[success_count].network_resp_us = response_time - resp_msg->reply_send_timestamp;
             success_count++;
             
             if (g_config.verbose && i % 100 == 0) {
-                printf("Request %d: RTT=%.2f us (send=%.2f, net_req=%.2f, server=%.2f, net_resp=%.2f)\n", 
+                printf("Request %d: RTT=%.2f μs (send=%.2f, net_req=%.2f, server=%.2f, net_resp=%.2f)\n", 
                        i, results[success_count - 1].rtt_us,
                        results[success_count - 1].send_latency_us,
                        results[success_count - 1].network_req_us,
@@ -409,13 +396,14 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
         bench_msg->seq_num = i;
         bench_msg->src_inst = BENCHMARK_INST_ID_1;
         bench_msg->dst_inst = dest_inst;
-        
+        bench_msg->send_timestamp = benchmark_get_time_us();
+
         benchmark_fill_verify_pattern(buffer, g_config.message_size, i, 
             sizeof(benchmark_message_t), &g_config.verify_config);
         
         benchmark_inject_noise_error(buffer, g_config.message_size, i, 
             sizeof(benchmark_message_t), &g_config.verify_config);
-        
+
         double send_time = benchmark_get_time_ms();
         uint64_t send_ts_us = (uint64_t)(send_time * 1000);
         g_shared_state->send_timestamps[i] = send_ts_us;
@@ -474,35 +462,35 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
     printf("| %-25s | %-20d |\n", "Messages sent", g_config.test_count);
     printf("| %-25s | %-20d |\n", "Message size (bytes)", g_config.message_size);
     printf("| %-25s | %-20.2f |\n", "Total time (ms)", total_time);
-    printf("| %-25s | %-20.2f |\n", "Average latency (us)", avg_latency * 1000);
-    printf("| %-25s | %-20.2f |\n", "Min latency (us)", min_latency * 1000);
-    printf("| %-25s | %-20.2f |\n", "Max latency (us)", max_latency * 1000);
+    printf("| %-25s | %-20.2f |\n", "Average latency (μs)", avg_latency * 1000);
+    printf("| %-25s | %-20.2f |\n", "Min latency (μs)", min_latency * 1000);
+    printf("| %-25s | %-20.2f |\n", "Max latency (μs)", max_latency * 1000);
     printf("| %-25s | %-20.2f |\n", "Throughput (msg/s)", g_config.test_count / (total_time / 1000.0));
     
     if (g_shared_state != NULL) {
         double avg_send_latency = g_shared_state->total_send_latency / g_config.test_count;
         double avg_recv_latency = g_shared_state->total_recv_latency / g_config.test_count;
         printf("-------------------------------------------\n");
-        printf("| %-25s | %-20.2f |\n", "Avg send latency (us)", avg_send_latency * 1000);
-        printf("| %-25s | %-20.2f |\n", "Avg recv latency (us)", avg_recv_latency * 1000);
-    }
-    
-    if (g_config.verify_config.verify_mode && g_shared_state != NULL) {
-        printf("-------------------------------------------\n");
-        printf("| %-25s | %-20s |\n", "Data Integrity Check", "");
-        int verified_count = g_config.test_count - g_shared_state->checksum_failed;
-        printf("| %-25s | %-20d |\n", "  Verified OK", verified_count);
-        printf("| %-25s | %-20d |\n", "  Checksum Failed", g_shared_state->checksum_failed);
-        if (g_shared_state->checksum_failed == 0) {
-            printf("| %-25s | %-20s |\n", "  Result", "ALL PASSED");
-        } else {
-            printf("| %-25s | %-20s |\n", "  Result", "FAILED");
-        }
+        printf("| %-25s | %-20.2f |\n", "Avg send latency (μs)", avg_send_latency * 1000);
+        printf("| %-25s | %-20.2f |\n", "Avg recv latency (μs)", avg_recv_latency * 1000);
     }
     
     if (g_shared_state != NULL && g_shared_state->validation_failed) {
         printf("-------------------------------------------\n");
         printf("| %-25s | %-20s |\n", "WARNING", "Some messages failed validation!");
+    }
+    
+    if (g_shared_state != NULL && g_config.verify_config.verify_mode) {
+        int verified_ok = g_config.test_count - g_shared_state->checksum_failed;
+        printf("-------------------------------------------\n");
+        printf("| %-25s | %-20s |\n", "Data Integrity Check", "");
+        printf("| %-25s | %-20d |\n", "  Verified OK", verified_ok);
+        printf("| %-25s | %-20d |\n", "  Checksum Failed", g_shared_state->checksum_failed);
+        if (g_shared_state->checksum_failed == 0) {
+            printf("| %-25s | %-20s |\n", "  Result", "PASSED ✓");
+        } else {
+            printf("| %-25s | %-20s |\n", "  Result", "FAILED ✗");
+        }
     }
     printf("========================================\n");
     
@@ -511,10 +499,20 @@ static int run_bidirectional_latency_test(inst_type dest_inst)
     return 0;
 }
 
+static const char *pipe_type_to_string(mes_pipe_type_t pipe_type)
+{
+    switch (pipe_type) {
+        case MES_TYPE_TCP: return "TCP";
+        case MES_TYPE_RDMA: return "RDMA";
+        case MES_TYPE_IPC: return "IPC";
+        default: return "UNKNOWN";
+    }
+}
+
 static int run_benchmark(mes_pipe_type_t pipe_type)
 {
     printf("[DEBUG] Starting benchmark with pipe type: %s (%d)\n", 
-           benchmark_pipe_type_to_string(pipe_type), pipe_type);
+           pipe_type_to_string(pipe_type), pipe_type);
     
     int shm_fd = shm_open("/mes_benchmark_shm", O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
@@ -570,6 +568,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         }
         
         printf("[DEBUG] Child process: MES initialized successfully\n");
+        
         printf("[DEBUG] Child process: waiting for parent to finish\n");
         
         while (!g_shared_state->benchmark_done) {
@@ -581,6 +580,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         munmap(g_shared_state, sizeof(shared_state_t));
         exit(0);
     } else {
+        // 延后初始化，使两个进程日志错开
         sleep(1);
         g_shared_state = (shared_state_t *)mmap(NULL, sizeof(shared_state_t), 
                                              PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
@@ -603,6 +603,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         close(shm_fd);
         
         printf("[DEBUG] Parent process: waiting for child to initialize\n");
+        
         printf("[DEBUG] Parent process (Instance %d) starting\n", BENCHMARK_INST_ID_1);
         mes_profile_t profile;
         setup_mes_profile(&profile, BENCHMARK_INST_ID_1, pipe_type);
@@ -622,8 +623,8 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         }
         
         printf("[DEBUG] Parent process: MES initialized successfully\n");
-        printf("[DEBUG] Parent process: waiting for connection to be ready\n");
         
+        printf("[DEBUG] Parent process: waiting for connection to be ready\n");
         int wait_count = 0;
         while (!mes_connection_ready(BENCHMARK_INST_ID_2)) {
             usleep(100000);
@@ -643,7 +644,7 @@ static int run_benchmark(mes_pipe_type_t pipe_type)
         
         printf("\n========================================\n");
         printf("Instance 1 -> Instance 2 (A -> B)\n");
-        printf("Pipe Type: %s\n", benchmark_pipe_type_to_string(pipe_type));
+        printf("Pipe Type: %s\n", pipe_type_to_string(pipe_type));
         printf("Test Mode: %s\n", g_config.test_mode == TEST_MODE_REQUEST_RESPONSE ? "Request-Response" : "Send-Only");
         printf("========================================\n");
         
@@ -686,7 +687,7 @@ static void print_usage(const char *prog_name)
     printf("Usage: %s [OPTIONS]\n", prog_name);
     printf("\nMES Communication Benchmark Tool\n\n");
     printf("Options:\n");
-    printf("  -t, --type TYPE          Communication type: tcp|rdma|ipc (default: ipc)\n");
+    printf("  -t, --type TYPE          Communication type: tcp|rdma|ipc|shm (default: ipc)\n");
     printf("  -m, --mode MODE          Test mode: reqresp|sendonly (default: reqresp)\n");
     printf("  -c, --count COUNT        Number of test iterations (default: %d)\n", LATENCY_TEST_COUNT);
     printf("  -s, --size SIZE          Message size in bytes (default: %d)\n", LATENCY_MESSAGE_SIZE);
@@ -704,14 +705,12 @@ static void print_usage(const char *prog_name)
     printf("  %s -t tcp -m reqresp\n", prog_name);
     printf("\n  # RDMA Request-Response test with 10000 iterations\n");
     printf("  %s -t rdma -m reqresp -c 10000\n", prog_name);
+    printf("\n  # SHM (Shared Memory) Request-Response test\n");
+    printf("  %s -t shm -m reqresp\n", prog_name);
     printf("\n  # IPC Send-Only test\n");
     printf("  %s -t ipc -m sendonly\n", prog_name);
     printf("\n  # IPC test with queue-based sending (for accurate RTT)\n");
     printf("  %s -t ipc -q\n", prog_name);
-    printf("\n  # IPC test with payload verification\n");
-    printf("  %s -t ipc -V\n", prog_name);
-    printf("\n  # IPC test with payload verification and error injection\n");
-    printf("  %s -t ipc -V -E\n", prog_name);
 }
 
 static int parse_arguments(int argc, char *argv[])
@@ -741,6 +740,8 @@ static int parse_arguments(int argc, char *argv[])
                     g_config.pipe_type = MES_TYPE_RDMA;
                 } else if (strcmp(optarg, "ipc") == 0) {
                     g_config.pipe_type = MES_TYPE_IPC;
+                } else if (strcmp(optarg, "shm") == 0) {
+                    g_config.pipe_type = MES_TYPE_SHM;  
                 } else {
                     fprintf(stderr, "Invalid pipe type: %s\n", optarg);
                     return -1;
@@ -791,7 +792,6 @@ static int parse_arguments(int argc, char *argv[])
                 break;
             case 'v':
                 g_config.verbose = 1;
-                g_config.verify_config.verbose = 1;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -827,20 +827,18 @@ int main(int argc, char *argv[])
     
     printf("MES Communication Benchmark\n");
     printf("==========================\n");
-    printf("Pipe Type: %s\n", benchmark_pipe_type_to_string(g_config.pipe_type));
+    printf("Pipe Type: %s\n", pipe_type_to_string(g_config.pipe_type));
     printf("Test Mode: %s\n", g_config.test_mode == TEST_MODE_REQUEST_RESPONSE ? "Request-Response" : "Send-Only");
     printf("Test Count: %d\n", g_config.test_count);
     printf("Message Size: %d bytes\n", g_config.message_size);
     if (g_config.test_mode == TEST_MODE_REQUEST_RESPONSE) {
         printf("Timeout: %d ms\n", g_config.timeout_ms);
     }
-    printf("Verify Mode: %s\n", g_config.verify_config.verify_mode ? "Enabled" : "Disabled");
-    printf("Inject Error: %s\n", g_config.verify_config.inject_error ? "Enabled" : "Disabled");
     printf("\n");
     
     if (g_config.verbose) {
         mes_init_log();
-        mes_register_log_output(mes_log_output);
+        mes_register_log_output(benchmark_mes_log_output);
     }
     
     if (run_benchmark(g_config.pipe_type) != 0) {

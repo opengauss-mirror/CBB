@@ -41,9 +41,10 @@
 #include "mes_interface.h"
 #include "mes_type.h"
 #include "mes_stat.h"
-#include "mes_task_threadpool_interface.h"
+#include "mes_task/mes_task_threadpool_interface.h"
 #include "cm_system.h"
 #include "mes_ipc.h"
+#include "ubs_mem_def.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -157,9 +158,20 @@ typedef struct rdma_rpc_lsnr_t {
     rwlock_t server_lock;
 } rdma_rpc_lsnr_t;
 
+/*
+ * SHM ring buffer pointers.
+ * - peer_ring[priority][inst_id]: ring buffer of instance inst_id for given priority
+ * - peer_ring[priority][self_id]: self's ring buffer (for receiving, others write to it)
+ * - peer_ring[priority][other_id]: peer's ring buffer (for sending, we write to it)
+ */
+typedef struct shm_rpc_lsnr_t {
+    void *peer_ring[MES_PRIORITY_CEIL][MAX_HOST_NUM];
+} shm_rpc_lsnr_t;
+
 typedef struct st_mes_lsnr {
     tcp_lsnr_t tcp;
     rdma_rpc_lsnr_t rdma;
+    shm_rpc_lsnr_t shm;
 } mes_lsnr_t;
 
 typedef struct st_mes_pipe {

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/time.h>
 #include <math.h>
 #include "benchmark_common.h"
@@ -32,6 +33,34 @@
 #define BENCHMARK_MAGIC_PATTERN 0xAB
 #define P99_PERCENTILE 99
 #define P95_PERCENTILE 95
+
+void benchmark_mes_log_output(int log_type, int log_level,
+    const char *code_file_name, unsigned int code_line_num,
+    const char *module_name, const char *format, ...)
+{
+    va_list args;
+    const char *level_str = "UNKNOWN";
+
+    (void)log_type;
+    (void)module_name;
+
+    va_start(args, format);
+
+    switch (log_level) {
+        case 0: level_str = "DEBUG"; break;
+        case 1: level_str = "INFO"; break;
+        case 2: level_str = "WARNING"; break;
+        case 3: level_str = "ERROR"; break;
+        case 4: level_str = "FATAL"; break;
+        default: level_str = "UNKNOWN"; break;
+    }
+
+    fprintf(stderr, "[MES_LOG][%s][%s:%u] ", level_str, code_file_name, code_line_num);
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+
+    va_end(args);
+}
 
 uint64_t benchmark_get_time_us(void)
 {
@@ -224,6 +253,7 @@ const char *benchmark_pipe_type_to_string(mes_pipe_type_t pipe_type)
         case MES_TYPE_TCP: return "TCP";
         case MES_TYPE_RDMA: return "RDMA";
         case MES_TYPE_IPC: return "IPC";
+        case MES_TYPE_SHM: return "SHM";
         default: return "UNKNOWN";
     }
 }

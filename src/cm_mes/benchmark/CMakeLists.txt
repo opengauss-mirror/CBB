@@ -29,7 +29,6 @@ set(benchmark_SRCS
 
 add_executable(mes_benchmark ${benchmark_SRCS})
 
-# Include directories
 target_include_directories(mes_benchmark PRIVATE
     ${CMAKE_SOURCE_DIR}/..
     ${CMAKE_SOURCE_DIR}/../..
@@ -47,7 +46,6 @@ target_include_directories(mes_benchmark PRIVATE
     ${CMAKE_SOURCE_DIR}/../../../library/lz4/include
 )
 
-# Library directories
 target_link_directories(mes_benchmark PRIVATE
     ${CMAKE_SOURCE_DIR}/../../../output/lib
     ${CMAKE_SOURCE_DIR}/../../../library/openssl/lib
@@ -56,7 +54,6 @@ target_link_directories(mes_benchmark PRIVATE
     ${CMAKE_SOURCE_DIR}/../../../library/huawei_security/lib
 )
 
-# Link against the CBB library and its dependencies
 target_link_libraries(mes_benchmark
     cbb
     ssl
@@ -70,7 +67,6 @@ target_link_libraries(mes_benchmark
     m
 )
 
-# Compile options
 target_compile_options(mes_benchmark PRIVATE
     -std=c99
     -D_POSIX_C_SOURCE=199309L

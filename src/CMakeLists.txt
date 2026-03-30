@@ -104,3 +104,6 @@ add_subdirectory(cm_mes/benchmark)
 
 # Add benchmark_rtt
 add_subdirectory(cm_mes/benchmark_rtt)
+
+# Add mock library for testing
+add_subdirectory(cm_mes/mock)

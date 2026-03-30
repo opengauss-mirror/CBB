@@ -27,9 +27,6 @@
 #include "cm_log.h"
 #include "cm_iofence.h"
 
-#define CM_OUT_SCSI_RK(reg) ((reg)->rk + 1)
-#define CM_OUT_SCSI_SARK(reg) ((reg)->rk_kick + 1)
-
 static int32 cm_iof_exec_cmd(const char *cmd)
 {
 #ifdef WIN32

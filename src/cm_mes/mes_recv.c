@@ -28,6 +28,7 @@
 #include "mes_recv.h"
 #include "mes_interface.h"
 #include "mes_func.h"
+#include "mes_shm.h"
 #include "cm_system.h"
 
 typedef union un_ev_data {
@@ -41,14 +42,10 @@ typedef union un_ev_data {
     };
 } ev_data_t;
 
-#define MES_MAX_RECV_THREAD_PER_PRIO 32
-
 receiver_t g_receiver[MES_PRIORITY_CEIL][MES_MAX_RECV_THREAD_PER_PRIO] = {0};
-
+void mes_recv_proc(thread_t *thread);
 uint32 g_priority_count = 0;
 uint32 g_receiver_count[MES_PRIORITY_CEIL] = {0};
-
-static void mes_recv_proc(thread_t *thread);
 
 void mes_init_receivers(mes_event_proc_t proc)
 {
@@ -61,6 +58,77 @@ void mes_init_receivers(mes_event_proc_t proc)
     }
 }
 
+// Public API: Start one shared memory receiver thread
+int mes_shm_start_one_receiver(receiver_t *receiver)
+{
+    if (receiver == NULL) {
+        LOG_RUN_ERR("[mes_shm] receiver is NULL");
+        return CM_ERROR;
+    }
+    uint32 prio = receiver->priority;
+    uint32 id = receiver->id;
+
+    if (prio >= MES_PRIORITY_CEIL || id >= MES_MAX_RECV_THREAD_PER_PRIO) {
+        LOG_RUN_ERR("[mes_shm] invalid receiver priority/id %u/%u", prio, id);
+        return CM_ERROR;
+    }
+
+    receiver->epfd = -1;
+    receiver->proc = NULL;
+
+    cm_close_thread(&receiver->thread);
+    if (cm_create_thread(mes_shm_recv_proc, 0, (void *)receiver, &receiver->thread) != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes_shm] create shm recv thread failed priority=%u id=%u", prio, id);
+        return CM_ERROR;
+    }
+    LOG_RUN_INF("[mes_shm] started worker for priority=%u id=%u", prio, id);
+    return CM_SUCCESS;
+}
+
+// Public API: Stop all shared memory receiver threads
+void mes_stop_shm_receivers(void)
+{
+    for (uint32 p = 0; p < g_priority_count; p++) {
+        for (uint32 j = 0; j < g_receiver_count[p]; j++) {
+            receiver_t *receiver = &g_receiver[p][j];
+            cm_close_thread(&receiver->thread);
+            if (receiver->epfd > 0) {
+                (void)epoll_close(receiver->epfd);
+                receiver->epfd = -1;
+            }
+        }
+        g_receiver_count[p] = 0;
+    }
+    LOG_RUN_INF("[mes_shm] stop_shm_receivers finish");
+}
+
+int mes_tcp_start_one_receiver(receiver_t *receiver)
+{
+    int epfd = epoll_create(1);
+    if (epfd < 0) {
+        LOG_RUN_ERR("[mes] epoll_create failed: errno=%d", errno);
+        return CM_ERROR;
+    }
+    if (receiver->epfd > 0) {
+        (void)epoll_close(receiver->epfd);
+        LOG_RUN_INF("[mes] mes_tcp_start_one_receiver: close epfd: %d", receiver->epfd);
+    }
+    receiver->epfd = epfd;
+    LOG_RUN_INF("[mes] mes_tcp_start_one_receiver create epfd: %d", receiver->epfd);
+
+    if (receiver->thread.id == 0) {
+        if (cm_create_thread(mes_recv_proc, 0, (void *)receiver, &receiver->thread) != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] create receive thread:priority=%u , id=%u failed.", receiver->priority, receiver->id);
+            (void)epoll_close(receiver->epfd);
+            receiver->epfd = -1;
+            return CM_ERROR;
+        }
+        LOG_RUN_INF("[mes] mes_tcp_start_one_receiver start receiver:priority=%u , id=%u.", receiver->priority, receiver->id);
+    }
+
+    return CM_SUCCESS;
+}
+
 receiver_t *mes_get_receiver(uint32 priority, uint32 id)
 {
     cm_panic(priority < MES_PRIORITY_CEIL && id < MES_MAX_RECV_THREAD_PER_PRIO);
@@ -69,31 +137,12 @@ receiver_t *mes_get_receiver(uint32 priority, uint32 id)
 
 int start_one_receiver(receiver_t *receiver)
 {
-    int epfd = epoll_create(1);
-    if (epfd < 0) {
-        LOG_RUN_ERR("[mes] epoll_create failed: errno=%d", errno);
-        return CM_ERROR;
-    } 
-    if (receiver->epfd > 0) {
-        (void)epoll_close(receiver->epfd);
-        LOG_RUN_INF("[mes] start_one_receiver: close epfd: %d", receiver->epfd);
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        return mes_tcp_start_one_receiver(receiver);
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        return mes_shm_start_one_receiver(receiver);
     }
-    receiver->epfd = epfd;
-    LOG_RUN_INF("[mes] start_one_receiver create epfd: %d", receiver->epfd);
-    
-    // start thread
-    if (receiver->thread.id == 0) {
-        if (cm_create_thread(mes_recv_proc, 0, (void *)receiver, &receiver->thread) != CM_SUCCESS) {
-            LOG_RUN_ERR("[mes] create receive thread:priority=%u , id=%u failed.", receiver->priority, receiver->id);
-            (void)epoll_close(receiver->epfd);
-            receiver->epfd = -1;
-            return CM_ERROR;
-        }
-
-        LOG_RUN_INF("[mes] start_one_receiver start receiver:priority=%u , id=%u.", receiver->priority, receiver->id);
-    }
-
-    return CM_SUCCESS;
+    return CM_ERROR;
 }
 
 int start_receiver_prio(uint32 priority, unsigned int count)
@@ -123,16 +172,18 @@ int mes_start_receivers(uint32 priority_count, unsigned int *recv_task_count, me
             return CM_ERROR;
         }
 
-        if (recv_task_count[i] == 0) {
+        // Handle SHM mode first - MPSCRingBuffer is single-consumer
+        if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
             g_receiver_count[i] = 1;
-        } else if (recv_task_count[i] > MES_MAX_RECV_THREAD_PER_PRIO) {
-            LOG_RUN_WAR("[mes] recv_task_count[%u]=%u is greater than %d,reset to %d",
-                i,
-                recv_task_count[i],
-                MES_MAX_RECV_THREAD_PER_PRIO,
-                MES_MAX_RECV_THREAD_PER_PRIO);
-            g_receiver_count[i] = MES_MAX_RECV_THREAD_PER_PRIO;
-        } else {
+            LOG_RUN_INF("[mes] SHM mode: using 1 receiver thread for priority %u", i);
+        } 
+        // Handle zero thread count case
+        else if (recv_task_count[i] == 0) {
+            g_receiver_count[i] = 1;
+            LOG_RUN_INF("[mes] recv_task_count[%u] is 0, using default 1 receiver thread", i);
+        } 
+        // Normal case - use specified thread count (already validated not exceeding max)
+        else {
             g_receiver_count[i] = recv_task_count[i];
         }
 
@@ -158,6 +209,11 @@ static void mes_stop_one_receiver(receiver_t *receiver)
 
 void mes_stop_receivers()
 {
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        /* SHM uses its own polling receivers */
+        mes_stop_shm_receivers();
+        return;
+    }
     for (uint32 priority = 0; priority < g_priority_count; priority++) {
         for (uint32 i = 0; i < g_receiver_count[priority]; i++) {
             mes_stop_one_receiver(&g_receiver[priority][i]);
@@ -228,7 +284,7 @@ int mes_remove_recv_pipe_from_epoll(mes_priority_t priority, uint32 channel_id, 
     return CM_SUCCESS;
 }
 
-static void mes_recv_proc(thread_t *thread)
+void mes_recv_proc(thread_t *thread)
 {
     receiver_t *receiver = (receiver_t *)thread->argument;
     struct epoll_event events[CM_MES_MAX_CHANNEL_NUM];
@@ -237,7 +293,7 @@ static void mes_recv_proc(thread_t *thread)
     cm_block_sighup_signal();
 
     PRTS_RETVOID_IFERR(
-        sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_recv_%u_%u", receiver->priority, receiver->id));
+        sprintf_s(thread_name, CM_MAX_THREAD_NAME_LEN, "mes_tcp_recv_%u_%u", receiver->priority, receiver->id));
     cm_set_thread_name(thread_name);
 
     mes_thread_init_t cb_thread_init = mes_get_worker_init_cb();
@@ -272,23 +328,46 @@ static void mes_recv_proc(thread_t *thread)
 
 int mes_start_sender_monitor()
 {
+    int32 ret = CM_SUCCESS;   
     receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
     receiver->priority = MES_PRIORITY_CEIL;
     receiver->id = 0;
     receiver->epfd = -1;
     receiver->thread.id = 0;
-    receiver->proc = mes_send_pipe_event_proc;
 
-    int32 ret = start_one_receiver(receiver);
-    LOG_RUN_INF("[mes] start sender monitor finish");
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        receiver->proc = mes_send_pipe_event_proc;
+        ret = start_one_receiver(receiver);
+        LOG_RUN_INF("[mes] start TCP sender monitor finish");
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        thread_t *shm_monitor = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor.thread;
+        if (shm_monitor->id != 0) {
+            cm_close_thread(shm_monitor);
+        }
+        ret = cm_create_thread(mes_shm_monitor_proc, 0, NULL, shm_monitor);
+        if (ret != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] failed to create SHM monitor thread");
+            return ret;
+        }
+        LOG_RUN_INF("[mes] start SHM monitor finish");
+    }
+    
     return ret;
 }
 
 void mes_stop_sender_monitor()
 {
-    receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
-    mes_stop_one_receiver(receiver);
-    LOG_RUN_INF("[mes] stop sender monitor finish");
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        receiver_t *receiver = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor;
+        mes_stop_one_receiver(receiver);
+        LOG_RUN_INF("[mes] stop TCP sender monitor finish");
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        thread_t *shm_monitor = &MES_GLOBAL_INST_MSG.mes_ctx.sender_monitor.thread;
+        if (shm_monitor->id != 0) {
+            cm_close_thread(shm_monitor);
+        }
+        LOG_RUN_INF("[mes] stop SHM monitor finish");
+    }
 }
 
 int mes_add_send_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock)

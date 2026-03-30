@@ -28,6 +28,8 @@
 #include "cm_epoll.h"
 #include "mes_func.h"
 
+#define MES_MAX_RECV_THREAD_PER_PRIO 32
+
 int mes_start_receivers(uint32 priority_count, unsigned int *recv_task_count, mes_event_proc_t event_proc);
 void mes_stop_receivers();
 int mes_add_recv_pipe_to_epoll(uint16 channel_id, mes_priority_t priority, uint32 version, int sock);

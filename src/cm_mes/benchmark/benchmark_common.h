@@ -65,9 +65,15 @@ typedef struct {
     int verbose;
 } benchmark_verify_config_t;
 
-extern void mes_benchmark_log_output(int log_type, int log_level,
+#if defined(__GNUC__) && !defined(WIN32)
+void benchmark_mes_log_output(int log_type, int log_level,
+    const char *code_file_name, unsigned int code_line_num,
+    const char *module_name, const char *format, ...) __attribute__((format(printf, 6, 7)));
+#else
+void benchmark_mes_log_output(int log_type, int log_level,
     const char *code_file_name, unsigned int code_line_num,
     const char *module_name, const char *format, ...);
+#endif
 
 extern uint64_t benchmark_get_time_us(void);
 

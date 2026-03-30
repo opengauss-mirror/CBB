@@ -32,6 +32,8 @@
 #define CM_IOF_ERR_DUP_OP (-2)
 // mpathpersist_dss 1K,dss home 64,dev 196,others 96
 #define MULTIBUS_MAX_CMD_LEN (SIZE_K(1) + 64 + 196 + 96)
+#define CM_OUT_SCSI_RK(reg) ((reg)->rk + 1)
+#define CM_OUT_SCSI_SARK(reg) ((reg)->rk_kick + 1)
 
 typedef struct st_iof_reg_out {
     int64 rk;      // unique register key for each host
