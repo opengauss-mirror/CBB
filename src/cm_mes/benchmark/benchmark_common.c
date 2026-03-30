@@ -224,6 +224,7 @@ const char *benchmark_pipe_type_to_string(mes_pipe_type_t pipe_type)
         case MES_TYPE_TCP: return "TCP";
         case MES_TYPE_RDMA: return "RDMA";
         case MES_TYPE_IPC: return "IPC";
+        case MES_TYPE_SHM: return "SHM";
         default: return "UNKNOWN";
     }
 }
