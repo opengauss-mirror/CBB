@@ -30,6 +30,8 @@
 #include "cs_tcp.h"
 #include "mes_tcp.h"
 #include "cm_date_to_text.h"
+#include "mes_shm.h"
+#include "mes_shm_dl.h"
 #include "mes_rpc_dl.h"
 #include "cm_defs.h"
 #include "mes_metadata.h"
@@ -583,6 +585,14 @@ static int mes_set_profile(mes_profile_t *profile)
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_is_bind_core = profile->rdma_rpc_is_bind_core;
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_bind_core_start = profile->rdma_rpc_bind_core_start;
     MES_GLOBAL_INST_MSG.profile.rdma_rpc_bind_core_end = profile->rdma_rpc_bind_core_end;
+
+    if (profile->pipe_type == MES_TYPE_SHM) {
+        for (uint32_t qi = 0; qi < MES_SHM_UB_QUEUE_NUM; qi++) {
+            MES_GLOBAL_INST_MSG.profile.mes_shm_ub_comm_cpu_ids[qi] =
+                profile->mes_shm_ub_comm_cpu_ids[qi];
+        }
+    }
+
     ret = strncpy_sp(MES_GLOBAL_INST_MSG.profile.ock_log_path, MES_MAX_LOG_PATH, profile->ock_log_path,
                      MES_MAX_LOG_PATH - 1);
     if (ret != EOK) {
@@ -700,6 +710,13 @@ static int mes_register_func(void)
         g_cbb_mes_callback.send_func = mes_rdma_rpc_send_data;
         g_cbb_mes_callback.send_bufflist_func = mes_rdma_rpc_send_bufflist;
         g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        g_cbb_mes_callback.connect_func = mes_shm_try_connect;
+        g_cbb_mes_callback.heartbeat_func = mes_shm_heartbeat_channel;
+        g_cbb_mes_callback.disconnect_func = mes_shm_disconnect_handle;
+        g_cbb_mes_callback.send_func = mes_shm_send_data;
+        g_cbb_mes_callback.send_bufflist_func = mes_shm_send_bufflist;
+        g_cbb_mes_callback.alloc_msgitem_func = mes_alloc_msgitem;
     }
     return CM_SUCCESS;
 }
@@ -708,7 +725,9 @@ static int mes_init_conn(void)
 {
     mes_conn_t *conn = NULL;
     if (MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_TCP &&
-        MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_RDMA) {
+        MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_RDMA &&
+        MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_UBC &&
+        MES_GLOBAL_INST_MSG.profile.pipe_type != MES_TYPE_SHM) {
         return ERR_MES_CONNTYPE_ERR;
     }
 
@@ -731,6 +750,8 @@ static int mes_init_pipe_resource(void)
         return mes_init_tcp_resource();
     } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         return mes_init_rdma_rpc_resource();
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        return mes_init_shm_resource();
     }
     return CM_ERROR;
 }
@@ -954,6 +975,8 @@ static inline void mes_close_libdl(void)
 {
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
         FinishOckRpcDl();
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        FinishUbsMemDl();
     }
 }
 
@@ -963,6 +986,9 @@ static void mes_destroy_resource(void)
     mes_free_channel_msg_queue(CM_FALSE);
     mes_free_channels();
     mes_clean_session_mutex(CM_MAX_MES_ROOMS);
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        mes_shm_cleanup();
+    }
     mes_close_libdl();
     return;
 }
@@ -1130,6 +1156,19 @@ static int mes_start_listen_thread(void)
         ret = mes_start_rdma_rpc_lsnr();
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes]mes start rdma rpc lsnr failed, ret: %d", ret);
+            return ret;
+        }
+    } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+        ret = mes_shm_map_peers();
+        if (ret != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] mes_shm_map_peers failed, ret: %d", ret);
+            return ret;
+        }
+
+        // Then initialize ub_dist_comm_queue
+        ret = mes_init_shm_queue();
+        if (ret != CM_SUCCESS) {
+            LOG_RUN_ERR("[mes] mes_init_shm_queue failed, ret: %d", ret);
             return ret;
         }
     }
@@ -1528,9 +1567,11 @@ int mes_init(mes_profile_t *profile)
             }
         }
 
-        ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_recv_pipe_event_proc);
-        if (ret != CM_SUCCESS) {
-            break;
+        if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+            ret = mes_start_receivers(profile->priority_cnt, profile->recv_task_count, mes_recv_pipe_event_proc);
+            if (ret != CM_SUCCESS) {
+                break;
+            }
         }
 
         ret = mes_start_sender_monitor();
@@ -2189,7 +2230,8 @@ bool32 mes_connection_ready_with_count(uint32 inst_id, uint32 *ready_count)
     mes_channel_t *channel = NULL;
     mes_pipe_t *pipe = NULL;
     bool32 check_ready = 0;
-    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP ||
+        MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
         for (i = 0; i < MES_GLOBAL_INST_MSG.profile.channel_cnt; i++) {
             channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[inst_id][i];
             for (j = 0; j < MES_GLOBAL_INST_MSG.profile.priority_cnt; j++) {
@@ -2447,7 +2489,10 @@ int mes_init_single_inst_channel(unsigned int inst_id)
         channel->id = (inst_id << CHANNEL_ID_BITS) | i;
         if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
             mes_tcp_init_channels_param((uintptr_t)channel);
-        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA) {
+        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_SHM) {
+            mes_shm_init_channels_param((uintptr_t)channel);
+        } else if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_RDMA ||
+                   MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_UBC) {
             mes_rdma_rpc_init_channels_param((uintptr_t)channel);
         }
     }
