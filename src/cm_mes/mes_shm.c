@@ -48,6 +48,8 @@
 /* ub_dist_comm ring blob layout (must match lib sizing used by ub_comm_queue_init). */
 #define MES_SHM_UB_COMM_SLOT_PREFIX_BYTES (8U)
 #define MES_SHM_UB_COMM_RING_HEADER_BYTES (192U)
+#define MES_SHM_DEALLOC_RETRY_MAX (30U)
+#define MES_SHM_MAP_RETRY_MAX (60U)
 
 static char g_region_name[MAX_REGION_NAME_DESC_LENGTH] = {0};
 static char g_shm_queue_names[MES_SHM_UB_QUEUE_NUM][MAX_SHM_NAME_LENGTH] = {{0}};
@@ -237,6 +239,7 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
         return CM_ERROR;
     }
 
+    uint32_t map_retry_cnt = 0;
     while (MES_GLOBAL_INST_MSG.mes_ctx.phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         ret = mes_ubsmem_shmem_map(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, peer_shm_name, 0,
             &shm_lsnr->peer_ring[index][ub_queue_idx]);
@@ -244,7 +247,15 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
             return CM_SUCCESS;
         }
         if (ret == UBSM_ERR_NOT_FOUND) {
-            LOG_RUN_INF("[mes] peer %u shm ub_queue_idx=%u not found, retrying...", peer_id, ub_queue_idx);
+            map_retry_cnt++;
+            if (map_retry_cnt >= MES_SHM_MAP_RETRY_MAX) {
+                mes_shm_unmap_peer_queues(shm_lsnr, index);
+                LOG_RUN_ERR("[mes] map peer %u shm ub_queue_idx=%u timed out after %u retries.",
+                    peer_id, ub_queue_idx, map_retry_cnt);
+                return CM_ERROR;
+            }
+            LOG_RUN_INF("[mes] peer %u shm ub_queue_idx=%u not found, retrying (%u/%u)...",
+                peer_id, ub_queue_idx, map_retry_cnt, MES_SHM_MAP_RETRY_MAX);
             cm_sleep(CM_SLEEP_1000_FIXED);
             continue;
         }
@@ -904,6 +915,7 @@ void mes_shm_cleanup(void)
         if (g_shm_queue_names[ub_queue_idx][0] == '\0') {
             continue;
         }
+        uint32_t retry_cnt = 0;
         do {
             ret = mes_ubsmem_shmem_deallocate(g_shm_queue_names[ub_queue_idx]);
             if (ret == UBSM_OK) {
@@ -911,6 +923,12 @@ void mes_shm_cleanup(void)
             } else if (ret != UBSM_ERR_IN_USING) {
                 LOG_RUN_ERR("[mes_shm_cleanup] failed to deallocate shm %s, err = %d.", g_shm_queue_names[ub_queue_idx],
                     ret);
+                break;
+            }
+            retry_cnt++;
+            if (retry_cnt >= MES_SHM_DEALLOC_RETRY_MAX) {
+                LOG_RUN_ERR("[mes_shm_cleanup] deallocate shm %s timed out after %u retries, err = %d.",
+                    g_shm_queue_names[ub_queue_idx], retry_cnt, ret);
                 break;
             }
             cm_sleep(CM_SLEEP_1000_FIXED);
