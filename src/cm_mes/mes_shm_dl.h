@@ -66,6 +66,8 @@ int mes_ubsmem_shmem_map(void *addr, size_t length, int port, int flags,
     const char *name, off_t offset, void **local_ptr);
 int mes_ubsmem_shmem_unmap(void *local_ptr, size_t length);
 
+int mes_ubsmem_init_and_set_inited(ubsmem_options_t *opts);
+
 #ifdef __cplusplus
 }
 #endif
