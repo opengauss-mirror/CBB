@@ -473,6 +473,24 @@ int mes_ubsmem_shmem_unmap(void *local_ptr, size_t length)
     return CM_ERROR;
 }
 
+int mes_ubsmem_init_and_set_inited(ubsmem_options_t *opts)
+{
+    int ret = mes_ubsmem_init_attributes(opts);
+    if (ret != UBSM_OK) {
+        LOG_RUN_ERR("Failed to initialize ubsmem attributes, error: %d.", ret);
+        return ret;
+    }
+
+    ret = mes_ubsmem_initialize(opts);
+    if (ret != UBSM_OK) {
+        LOG_RUN_ERR("Failed to initialize ubsmem, error: %d.", ret);
+        return ret;
+    }
+
+    g_ubsMemFunc.matrix_mem_inited = true;
+    return CM_SUCCESS;
+}
+
 int ub_comm_queue_init(ub_shm_comm_t *handle, ub_shm_area_t *init_region, ub_ring_region_map_t *ring_regions,
                        ub_comm_conf_t *conf)
 {
