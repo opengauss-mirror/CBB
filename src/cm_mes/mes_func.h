@@ -25,6 +25,7 @@
 #ifndef __MES_FUNC_H__
 #define __MES_FUNC_H__
 
+#include <stdbool.h>
 #include "cm_utils.h"
 #include "cm_defs.h"
 #include "cm_thread.h"
@@ -43,6 +44,9 @@
 #include "mes_stat.h"
 #include "mes_task_threadpool_interface.h"
 #include "cm_system.h"
+#include "mes_shm.h"
+#include "ub_dist_comm_queue.h"
+#include "ubs_mem_def.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -156,9 +160,18 @@ typedef struct rdma_rpc_lsnr_t {
     rwlock_t server_lock;
 } rdma_rpc_lsnr_t;
 
+/*
+ * SHM: one shared-memory object per (inst_index, queue) pair; each ub_handle[q] uses peer_ring[*][q] for that queue.
+ */
+typedef struct shm_rpc_lsnr_t {
+    ub_shm_comm_t ub_handle[MES_SHM_UB_QUEUE_NUM];
+    void *peer_ring[MAX_HOST_NUM][MES_SHM_UB_QUEUE_NUM];
+} shm_rpc_lsnr_t;
+
 typedef struct st_mes_lsnr {
     tcp_lsnr_t tcp;
     rdma_rpc_lsnr_t rdma;
+    shm_rpc_lsnr_t shm;
 } mes_lsnr_t;
 
 typedef struct st_mes_pipe {
