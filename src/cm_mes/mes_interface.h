@@ -78,6 +78,8 @@ typedef enum en_mes_pipe_type {
     MES_TYPE_EMBEDDED = 5, // embedded mode, reserved
     MES_TYPE_DIRECT = 6,   // direct mode, reserved
     MES_TYPE_RDMA = 7,     // direct mode, reserved
+    MES_TYPE_UBC = 8,     // direct mode, reserved
+    MES_TYPE_SHM = 9,     // SHM / ub shared-memory transport
     MES_TYPE_CEIL
 } mes_pipe_type_t;
 
@@ -172,6 +174,14 @@ typedef struct st_mes_task_threadpool_attr {
     unsigned int max_cnt;
 } mes_task_threadpool_attr_t;
 
+/* mes_shm_ub_comm_cpu_ids: always in mes_profile_t; SHM path uses pipe_type. */
+#ifndef MES_SHM_UB_QUEUE_NUM
+#define MES_SHM_UB_QUEUE_NUM ((unsigned int)MES_PRIORITY_CEIL + 1U)
+#endif
+#ifndef MES_SHM_UB_QUEUE_PRIO6_MIRROR
+#define MES_SHM_UB_QUEUE_PRIO6_MIRROR ((unsigned int)8)
+#endif
+
 typedef struct st_mes_profile {
     inst_type inst_id;
     unsigned int inst_cnt;
@@ -186,6 +196,8 @@ typedef struct st_mes_profile {
     unsigned char rdma_rpc_is_bind_core;
     unsigned char rdma_rpc_bind_core_start;
     unsigned char rdma_rpc_bind_core_end;
+    /* SHM ub_comm: per-queue CPU bind; -1 = no bind. */
+    int mes_shm_ub_comm_cpu_ids[MES_SHM_UB_QUEUE_NUM];
     char ock_log_path[MES_MAX_LOG_PATH];
     // The array subscript does not correspond to the instance id.
     mes_addr_t inst_net_addr[MES_MAX_INSTANCES];
