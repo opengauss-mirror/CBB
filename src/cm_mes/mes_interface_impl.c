@@ -25,6 +25,7 @@
 #include "mes_func.h"
 
 #define MES_ALLOC_ROOM_SLEEP_TIME 1000
+#define MES_ALLOC_ROOM_TIMEOUT 60000U
 
 static uint16 mes_get_app_cmd(char *buff, uint8 cmd)
 {
@@ -82,6 +83,7 @@ static inline void mes_reinit_room(mes_waiting_room_t* room)
 
 static mes_waiting_room_t *mes_alloc_room(void)
 {
+    uint64 start_time = cm_clock_monotonic_now();
     mes_waiting_room_t *room = NULL;
     uint32 free_idx;
     mes_waiting_room_pool_t *wrpool = &MES_WAITING_ROOM_POOL;
@@ -97,6 +99,10 @@ static mes_waiting_room_t *mes_alloc_room(void)
             break;
         } else {
             LOG_DEBUG_WAR("freelist %u room leaked, check for unpaired messages!", free_idx);
+            if ((cm_clock_monotonic_now() - start_time) / MICROSECS_PER_MILLISEC >= MES_ALLOC_ROOM_TIMEOUT) {
+                LOG_RUN_ERR("[mes]alloc waiting room timeout, no free room available.");
+                return NULL;
+            }
             cm_sleep(MES_ALLOC_ROOM_SLEEP_TIME);
         }
     }
@@ -223,6 +229,7 @@ void mes_prepare_request(ruid_type *ruid)
         LOG_RUN_ERR("[mes]disable_request = 1, no support send request and get response, func:mes_prepare_request");
         return;
     }
+    *ruid = MES_INVLD_RUID;
     mes_waiting_room_t *room = mes_alloc_room();
     if (room == NULL) {
         LOG_RUN_ERR("[mes]mes_alloc_room failed");
@@ -266,6 +273,10 @@ int mes_send_request_x(inst_type dest_inst, flag_type flag, ruid_type *ruid, uns
     mes_message_head_t head;
 
     mes_waiting_room_t* room = mes_alloc_room();
+    if (room == NULL) {
+        LOG_RUN_ERR("[mes]mes_alloc_room failed");
+        return ERR_MES_WAIT_OVERTIME;
+    }
     room->room_status = STATUS_PTP_SENT;
     *ruid = mes_room_get_ruid(room);
     head.ruid = *ruid;
@@ -468,6 +479,11 @@ int mes_broadcast_request_x(flag_type flag, ruid_type* ruid, unsigned int count,
     va_list args;
     va_start(args, count);
     mes_waiting_room_t* room = mes_alloc_room();
+    if (room == NULL) {
+        va_end(args);
+        LOG_RUN_ERR("[mes]mes_alloc_room failed");
+        return ERR_MES_WAIT_OVERTIME;
+    }
     *ruid = mes_room_get_ruid(room);
     room->room_status = STATUS_BCAST_SENDING;
     room->ack_count = 0;
@@ -509,6 +525,11 @@ int mes_broadcast_request_spx(inst_type* inst_list, unsigned int inst_count,
     va_list args;
     va_start(args, count);
     mes_waiting_room_t* room = mes_alloc_room();
+    if (room == NULL) {
+        va_end(args);
+        LOG_RUN_ERR("[mes]mes_alloc_room failed");
+        return ERR_MES_WAIT_OVERTIME;
+    }
     *ruid = mes_room_get_ruid(room);
     room->room_status = STATUS_BCAST_SENDING;
     room->ack_count = 0;

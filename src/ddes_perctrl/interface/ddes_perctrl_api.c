@@ -24,6 +24,8 @@
 
 #ifdef WIN32
 #else
+#include <string.h>
+#include <limits.h>
 #include <sys/types.h>
 #include "sys/wait.h"
 #endif
@@ -119,9 +121,16 @@ status_t perctrl_receive(int32 fd, perctrl_packet_t *msg)
     }
 
     uint32 size = ((perctrl_cmd_head_t *)msg->buf)->size;
+    if (size < (uint32)sizeof(perctrl_cmd_head_t) || size > MAX_PACKET_LEN) {
+        LOG_DEBUG_ERR("Invalid perctrl packet size:%u.", size);
+        return CM_ERROR;
+    }
+
     // read params
     if (size > sizeof(perctrl_cmd_head_t)) {
-        ret = perctrl_read_pipe(fd, (msg->buf + sizeof(perctrl_cmd_head_t)), (size - sizeof(perctrl_cmd_head_t)));
+        ret = perctrl_read_pipe(fd,
+            (msg->buf + sizeof(perctrl_cmd_head_t)),
+            (size - sizeof(perctrl_cmd_head_t)));
         if (ret != CM_SUCCESS) {
             return ret;
         }
@@ -167,16 +176,37 @@ status_t perctrl_init(perctrl_pipes_t *perctrl, const char* name)
         g_is_init = CM_FALSE;
         char req_fd[MAX_FD_LEN];
         char ack_fd[MAX_FD_LEN];
+        char helper_path[PATH_MAX + CM_MAX_NAME_LEN + 2] = {0};
+        char exe_path[PATH_MAX + CM_MAX_NAME_LEN + 2] = {0};
+        char *slash = NULL;
+        ssize_t len = 0;
         (void)prctl(PR_SET_PDEATHSIG, SIGKILL);
         int32 ret = snprintf_s(req_fd, sizeof(req_fd), sizeof(req_fd) - 1, "%d", perctrl->req_pipe.rfd);
         PRTS_RETURN_IFERR(ret);
         ret = snprintf_s(ack_fd, sizeof(ack_fd), sizeof(ack_fd) - 1, "%d", perctrl->res_pipe.wfd);
         PRTS_RETURN_IFERR(ret);
-        
+
+        len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        if (len <= 0 || len >= (ssize_t)(sizeof(exe_path) - 1)) {
+            LOG_DEBUG_ERR("read /proc/self/exe fail.");
+            exit(1); // exit child process
+        }
+        exe_path[len] = 0;
+        slash = strrchr(exe_path, '/');
+        if (slash == NULL) {
+            LOG_DEBUG_ERR("resolve perctrl helper path fail.");
+            exit(1); // exit child process
+        }
+        *(slash + 1) = 0;
+        if (snprintf_s(helper_path, sizeof(helper_path), sizeof(helper_path) - 1, "%sperctrl", exe_path) == -1) {
+            LOG_DEBUG_ERR("build perctrl helper path fail.");
+            exit(1); // exit child process
+        }
+
         (void)close(perctrl->res_pipe.rfd);
         (void)close(perctrl->req_pipe.wfd);
 
-        if (execlp("perctrl", "perctrl", req_fd, ack_fd, NULL) == -1) {
+        if (execl(helper_path, "perctrl", req_fd, ack_fd, NULL) == -1) {
             LOG_DEBUG_ERR("execl pertctrl fail.");
             exit(1); // exit child process
         }

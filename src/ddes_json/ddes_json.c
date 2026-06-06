@@ -511,6 +511,7 @@ status_t json_create(json_t **json, const text_t *txt, cm_allocator_t *allocator
             *json = NULL;
             return CM_ERROR;
         }
+        MEMS_RETURN_IFERR(memset_sp(jval, sizeof(json_t), 0, sizeof(json_t)));
         (*json)->head = jval;
         (*json)->type = JSON_ARRAY;
         jval->type = JSON_ARRAY;
