@@ -102,6 +102,42 @@ static status_t mec_check_connect_head_info(const mec_message_head_adapter_t *me
     return CM_SUCCESS;
 }
 
+static bool32 mec_match_peer_ip(const char *peer_host, const char *cfg_host)
+{
+    return !CM_IS_EMPTY_STR(cfg_host) &&
+        (cm_is_equal_ip(peer_host, cfg_host) || cm_is_equal_ip(cfg_host, peer_host));
+}
+
+static status_t mec_check_peer_identity(cs_pipe_t *pipe, inst_type src_inst)
+{
+    uint32 index;
+    const mes_addr_t *inst_addr = NULL;
+    char peer_host[CM_HOST_NAME_BUFFER_SIZE] = {0};
+
+    if (mes_get_inst_net_add_index(src_inst, &index) != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes_mec] src_inst %u is not configured.", src_inst);
+        cs_disconnect(pipe);
+        return CM_ERROR;
+    }
+
+    cs_get_remote_host(pipe, peer_host);
+    if (CM_IS_EMPTY_STR(peer_host)) {
+        LOG_RUN_ERR("[mes_mec] failed to get peer host for src_inst %u.", src_inst);
+        cs_disconnect(pipe);
+        return CM_ERROR;
+    }
+
+    inst_addr = &MES_GLOBAL_INST_MSG.profile.inst_net_addr[index];
+    if (!mec_match_peer_ip(peer_host, inst_addr->ip) &&
+        !mec_match_peer_ip(peer_host, inst_addr->secondary_ip)) {
+        LOG_RUN_ERR("[mes_mec] peer host %s does not match src_inst %u.", peer_host, src_inst);
+        cs_disconnect(pipe);
+        return CM_ERROR;
+    }
+
+    return CM_SUCCESS;
+}
+
 int mec_accept(cs_pipe_t *pipe)
 {
     LOG_RUN_INF("[mes_mec] mec_accept start");
@@ -114,6 +150,7 @@ int mec_accept(cs_pipe_t *pipe)
     }
 
     CM_RETURN_IFERR(mec_handle_cross_cluster_head_info(&mec_head));
+    CM_RETURN_IFERR(mec_check_peer_identity(pipe, mec_head.src_inst));
     CM_RETURN_IFERR(mec_check_connect_head_info(&mec_head));
 
     channel = &MES_GLOBAL_INST_MSG.mes_ctx.channels[mec_head.src_inst][mec_head.stream_id];
@@ -233,6 +270,7 @@ int mec_process_event(mes_pipe_t *pipe)
 
     CM_RETURN_IFERR(mec_handle_cross_cluster_head_info(&mec_head));
     CM_RETURN_IFERR(mec_check_recv_head_info(&mec_head));
+    CM_RETURN_IFERR(mec_check_peer_identity(&pipe->recv_pipe, mec_head.src_inst));
 
     mes_priority_t priority = MEC_PRIV_LOW_ADAPTER(mec_head.flags) ? MES_PRIORITY_ONE : MES_PRIORITY_ZERO;
     if (priority != pipe->priority) {
