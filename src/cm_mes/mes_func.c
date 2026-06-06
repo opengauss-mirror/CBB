@@ -268,6 +268,14 @@ static int mes_set_instance_info(inst_type inst_id, uint32 inst_cnt, const mes_a
         return ERR_MES_PARAM_INVALID;
     }
 
+    for (i = 0; i < inst_cnt; i++) {
+        if (inst_net_addrs[i].inst_id >= MES_MAX_INSTANCES) {
+            LOG_RUN_ERR("[mes] peer inst_id %u is invalid, exceed max instance num %u.",
+                        inst_net_addrs[i].inst_id, MES_MAX_INSTANCES);
+            return ERR_MES_PARAM_INVALID;
+        }
+    }
+
     mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
     cm_spin_lock(&g_profile_lock, NULL);
     profile->inst_id = inst_id;
