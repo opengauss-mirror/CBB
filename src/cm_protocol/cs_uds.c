@@ -287,21 +287,15 @@ status_t cs_uds_send(const uds_link_t *link, const char *buf, uint32 size, int32
 
 status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint32 timeout)
 {
-    int32 remain_size, offset, writen_size;
+    int32 remain_size = (int32)size;
+    int32 offset = 0;
+    int32 writen_size;
     uint32 wait_interval = 0;
     bool32 ready = CM_FALSE;
 
     if (link->closed) {
         return CM_ERROR;
     }
-
-    /* for most cases, all data are written by the following call */
-    if (cs_uds_send(link, buf, size, &writen_size) != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-
-    remain_size = size - writen_size;
-    offset = writen_size;
 
     while (remain_size > 0) {
         if (cs_uds_wait(link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
@@ -360,18 +354,11 @@ status_t cs_uds_recv(const uds_link_t *link, char *buf, uint32 size, int32 *recv
 
 status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 timeout)
 {
-    uint32 remain_size, offset;
+    uint32 remain_size = size;
+    uint32 offset = 0;
     uint32 wait_interval = 0;
     int32 recv_size;
     bool32 ready = CM_FALSE;
-
-    remain_size = size;
-    if (cs_uds_recv(link, buf, remain_size, &recv_size) != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-
-    remain_size -= recv_size;
-    offset = (uint32)recv_size;
 
     while (remain_size > 0) {
         if (cs_uds_wait(link, CS_WAIT_FOR_READ, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
@@ -391,8 +378,8 @@ status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 time
             return CM_ERROR;
         }
 
-        remain_size -= recv_size;
-        offset += recv_size;
+        remain_size -= (uint32)recv_size;
+        offset += (uint32)recv_size;
     }
 
     return CM_SUCCESS;

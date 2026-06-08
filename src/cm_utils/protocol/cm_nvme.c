@@ -22,6 +22,7 @@
  * -------------------------------------------------------------------------
  */
 #include "cm_nvme.h"
+#include "cm_scsi.h"
 #include "cm_log.h"
 #include "cm_error.h"
 #include "cm_binary.h"
@@ -482,6 +483,25 @@ int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
     return CM_SUCCESS;
 }
 
+static int32 cm_nvme_validate_io_params(uint16 block_count, int32 buff_len)
+{
+    if (block_count == 0 || block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
+        LOG_DEBUG_ERR("Invalid input param, buff_len %d, block_count %d.", buff_len, block_count);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
+static int32 cm_nvme_validate_caw_params(uint16 block_count, int32 buff_len)
+{
+    if (block_count < 2 || (block_count % 2) != 0 ||
+        block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
+        LOG_DEBUG_ERR("Invalid input param, buff_len %d, block_count %d.", buff_len, block_count);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
 // nvme vaai read
 int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
@@ -489,7 +509,7 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
     uint8 opcode = nvme_cmd_read;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks = block_count - 1;
+    uint16 nblocks;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -497,6 +517,11 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
+
+    if (cm_nvme_validate_io_params(block_count, buff_len) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    nblocks = block_count - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
@@ -518,7 +543,7 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
     uint8 opcode = nvme_cmd_write;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks = block_count - 1;
+    uint16 nblocks;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -526,6 +551,11 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
+
+    if (cm_nvme_validate_io_params(block_count, buff_len) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    nblocks = block_count - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
@@ -547,7 +577,7 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     uint8 opcode = nvme_cmd_compare;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks = (block_count / 2) - 1;
+    uint16 nblocks;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -555,6 +585,11 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
+
+    if (cm_nvme_validate_caw_params(block_count, buff_len) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    nblocks = (block_count / 2) - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status == CM_NVME_SC_COMPARE_FAILED) {
