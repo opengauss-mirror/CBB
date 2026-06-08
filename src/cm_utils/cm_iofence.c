@@ -24,8 +24,22 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include "cm_file.h"
 #include "cm_log.h"
 #include "cm_iofence.h"
+
+static bool32 cm_iof_validate_path(const char *path, const char *name)
+{
+    if (path == NULL || path[0] == '\0') {
+        LOG_RUN_ERR("iofence %s is NULL or empty.", name);
+        return CM_FALSE;
+    }
+    if (cm_check_exist_special_char(path, (uint32)strlen(path))) {
+        LOG_RUN_ERR("iofence %s contains special characters, rejected.", name);
+        return CM_FALSE;
+    }
+    return CM_TRUE;
+}
 
 static int32 cm_iof_exec_cmd(const char *cmd)
 {
@@ -62,6 +76,11 @@ static int32 cm_iof_exec_cmd(const char *cmd)
 
 int32 cm_iof_multibus_register(const char *mpathpersist_path, const char *log_path, const char *iof_dev, int64 sark)
 {
+    if (!cm_iof_validate_path(mpathpersist_path, "mpathpersist_path") ||
+        !cm_iof_validate_path(log_path, "log_path") ||
+        !cm_iof_validate_path(iof_dev, "iof_dev")) {
+        return (int32)CM_ERROR;
+    }
     int32 ret;
     char cmd[MULTIBUS_MAX_CMD_LEN];
     // device must be the 4th parameter,because mpathpersist_dss.sh will check device owner
@@ -78,6 +97,11 @@ int32 cm_iof_multibus_register(const char *mpathpersist_path, const char *log_pa
 int32 cm_iof_multibus_reserve(const char *mpathpersist_path, const char *log_path, const char *iof_dev,
     int64 rk, scsi_reserv_type_e type)
 {
+    if (!cm_iof_validate_path(mpathpersist_path, "mpathpersist_path") ||
+        !cm_iof_validate_path(log_path, "log_path") ||
+        !cm_iof_validate_path(iof_dev, "iof_dev")) {
+        return (int32)CM_ERROR;
+    }
     int32 ret;
     char cmd[MULTIBUS_MAX_CMD_LEN];
     // device must be the 4th parameter,because mpathpersist_dss.sh will check device owner
@@ -94,6 +118,11 @@ int32 cm_iof_multibus_reserve(const char *mpathpersist_path, const char *log_pat
 int32 cm_iof_multibus_preempt(const char *mpathpersist_path, const char *log_path, const char *iof_dev, int64 rk,
     int64 sark, scsi_reserv_type_e type)
 {
+    if (!cm_iof_validate_path(mpathpersist_path, "mpathpersist_path") ||
+        !cm_iof_validate_path(log_path, "log_path") ||
+        !cm_iof_validate_path(iof_dev, "iof_dev")) {
+        return (int32)CM_ERROR;
+    }
     int32 ret;
     char cmd[MULTIBUS_MAX_CMD_LEN];
     // device must be the 4th parameter,because mpathpersist_dss.sh will check device owner
@@ -109,6 +138,11 @@ int32 cm_iof_multibus_preempt(const char *mpathpersist_path, const char *log_pat
 
 int32 cm_iof_multibus_unregister(const char *mpathpersist_path, const char *log_path, const char *iof_dev, int64 rk)
 {
+    if (!cm_iof_validate_path(mpathpersist_path, "mpathpersist_path") ||
+        !cm_iof_validate_path(log_path, "log_path") ||
+        !cm_iof_validate_path(iof_dev, "iof_dev")) {
+        return (int32)CM_ERROR;
+    }
     int32 ret;
     char cmd[MULTIBUS_MAX_CMD_LEN];
     // device must be the 4th parameter,because mpathpersist_dss.sh will check device owner
