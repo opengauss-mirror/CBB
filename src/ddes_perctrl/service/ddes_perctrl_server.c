@@ -108,8 +108,12 @@ static void ddes_return_error(perctrl_packet_t *req, perctrl_packet_t *ack)
     const char *message = NULL;
 
     ack->head->cmd = req->head->cmd;
-    ack->head->result = (uint8)CM_ERROR;
+    ack->head->size = (uint32)sizeof(perctrl_cmd_head_t);
+    ack->head->result = CM_ERROR;
     cm_get_error(&code, &message);
+    if (message == NULL) {
+        message = "unknown error";
+    }
 
     (void)ddes_put_int32(ack, (uint32)code);
     (void)ddes_put_str(ack, message);
