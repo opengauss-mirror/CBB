@@ -92,6 +92,22 @@ typedef struct st_perctrl_packet {
 #define DDES_REMAIN_SIZE(pack) (MAX_PACKET_LEN - ((pack)->head->size))
 #define DDES_READ_ADDR(pack) ((pack)->buf + (pack)->offset)
 
+static inline status_t ddes_check_read_bound(perctrl_packet_t *pack, uint32 need_size)
+{
+    if (pack == NULL || pack->head == NULL) {
+        return CM_ERROR;
+    }
+    if (pack->head->size > MAX_PACKET_LEN || pack->offset > pack->head->size) {
+        LOG_DEBUG_ERR("Invalid packet size %u, offset %u.", pack->head->size, pack->offset);
+        return CM_ERROR;
+    }
+    if (need_size > pack->head->size - pack->offset) {
+        LOG_DEBUG_ERR("Packet read overflow, offset %u, need %u, size %u.", pack->offset, need_size, pack->head->size);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
 status_t ddes_put_text(perctrl_packet_t *pack, text_t *text);
 status_t init_req_and_ack(perctrl_packet_t *req, perctrl_packet_t *ack);
 
@@ -153,27 +169,44 @@ static inline status_t ddes_put_data(perctrl_packet_t *pack, const void *data, u
 
 static inline status_t ddes_get_data(perctrl_packet_t *pack, uint32 size, void **buf)
 {
+    uint32 aligned_size;
+
     CM_ASSERT(pack != NULL);
-    int64 len = (int64)CM_ALIGN4(size);
-    TO_UINT32_OVERFLOW_CHECK(len, int64);
-    char *temp_buf = DDES_READ_ADDR(pack);
-    pack->offset += CM_ALIGN4(size);
+    aligned_size = CM_ALIGN4(size);
+    CM_RETURN_IFERR(ddes_check_read_bound(pack, aligned_size));
+
     if (buf != NULL) {
-        *buf = (void *)temp_buf;
+        *buf = (void *)DDES_READ_ADDR(pack);
     }
+    pack->offset += aligned_size;
     return CM_SUCCESS;
 }
 
 static inline status_t ddes_get_str(perctrl_packet_t *pack, char **buf)
 {
+    uint32 remain;
+    uint32 str_len;
+    uint32 aligned_len;
+    char *str;
+
     CM_ASSERT(pack != NULL);
+    CM_RETURN_IFERR(ddes_check_read_bound(pack, 1));
 
-    char *str = DDES_READ_ADDR(pack);
-    size_t str_len = strlen(str) + 1;
+    str = DDES_READ_ADDR(pack);
+    remain = pack->head->size - pack->offset;
+    str_len = 0;
+    while (str_len < remain && str[str_len] != '\0') {
+        str_len++;
+    }
+    if (str_len >= remain) {
+        LOG_DEBUG_ERR("Invalid packet string without terminator, offset %u.", pack->offset);
+        return CM_ERROR;
+    }
+    str_len++;
+    aligned_len = CM_ALIGN4(str_len);
+    CM_RETURN_IFERR(ddes_check_read_bound(pack, aligned_len));
 
-    int64 len = (int64)CM_ALIGN4(str_len);
-    TO_UINT32_OVERFLOW_CHECK(len, int64);
-    pack->offset += (uint32)len;
+    pack->offset += aligned_len;
     if (buf != NULL) {
         *buf = str;
     }
@@ -183,7 +216,9 @@ static inline status_t ddes_get_str(perctrl_packet_t *pack, char **buf)
 static inline status_t ddes_get_int64(perctrl_packet_t *pack, int64 *value)
 {
     int64 temp_value;
+
     CM_ASSERT(pack != NULL);
+    CM_RETURN_IFERR(ddes_check_read_bound(pack, (uint32)sizeof(int64)));
     temp_value = *(int64 *)DDES_READ_ADDR(pack);
     pack->offset += (uint32)sizeof(int64);
     if (value != NULL) {
@@ -195,7 +230,9 @@ static inline status_t ddes_get_int64(perctrl_packet_t *pack, int64 *value)
 static inline status_t ddes_get_int32(perctrl_packet_t *pack, int32 *value)
 {
     int32 temp_value;
+
     CM_ASSERT(pack != NULL);
+    CM_RETURN_IFERR(ddes_check_read_bound(pack, (uint32)sizeof(int32)));
     temp_value = *(int32 *)DDES_READ_ADDR(pack);
     pack->offset += (uint32)sizeof(int32);
     if (value != NULL) {
@@ -206,10 +243,17 @@ static inline status_t ddes_get_int32(perctrl_packet_t *pack, int32 *value)
 
 static inline status_t ddes_get_text(perctrl_packet_t *pack, text_t *text)
 {
+    int32 len = 0;
+
     CM_ASSERT(pack != NULL);
     CM_ASSERT(text != NULL);
 
-    CM_RETURN_IFERR(ddes_get_int32(pack, (int32 *)&text->len));
+    CM_RETURN_IFERR(ddes_get_int32(pack, &len));
+    if (len < 0) {
+        LOG_DEBUG_ERR("Invalid packet text length %d.", len);
+        return CM_ERROR;
+    }
+    text->len = (uint32)len;
     return ddes_get_data(pack, text->len, (void **)&(text->str));
 }
 
