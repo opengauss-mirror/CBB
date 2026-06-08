@@ -285,10 +285,47 @@ int32 cm_scsi3_register(int32 fd, int64 sark)
         if (hdr.status == SAM_RESERVATION_CONFLICT) {
             LOG_RUN_INF("SCSI register get reservation confict return, sark %lld, status %d.", sark, hdr.status);
             return CM_SCSI_ERR_CONFLICT;
-        } else {
-            LOG_RUN_ERR("SCSI register failed, status %d.", hdr.status);
-            return CM_ERROR;
         }
+
+        {
+            int32 sb_len = (int32)hdr.sb_len_wr;
+            if (sb_len > CM_SCSI_SENSE_LEN) {
+                sb_len = CM_SCSI_SENSE_LEN;
+            }
+            LOG_RUN_ERR(
+                "SCSI register failed: scsi_status=%u masked_status=%u host_status=%u driver_status=%u sb_len_wr=%d sark=%lld.",
+                (uint32)(uchar)hdr.status, (uint32)(uchar)hdr.masked_status, (uint32)hdr.host_status,
+                (uint32)hdr.driver_status, (int32)hdr.sb_len_wr, (long long)sark);
+
+            if (sb_len > 0) {
+                scsi_sense_hdr_t ssh;
+                if (cm_get_scsi_sense_des(&ssh, sense_buffer, sb_len)) {
+                    LOG_RUN_ERR("SCSI register sense: response_code=0x%02x sense_key=0x%x asc=0x%02x ascq=0x%02x.",
+                        (uint32)ssh.response_code, (uint32)ssh.sense_key, (uint32)ssh.asc, (uint32)ssh.ascq);
+                } else {
+                    LOG_RUN_ERR("SCSI register sense: parse failed (sb_len=%d).", sb_len);
+                }
+
+                for (int32 row = 0; row < sb_len; row += 16) {
+                    char sense_line[80];
+                    size_t off = 0;
+                    sense_line[0] = '\0';
+                    int32 lim = sb_len - row;
+                    if (lim > 16) {
+                        lim = 16;
+                    }
+                    for (int32 k = 0; k < lim; k++) {
+                        int32 r = sprintf_s(sense_line + off, sizeof(sense_line) - off, "%02x ", sense_buffer[row + k]);
+                        if (r < 0) {
+                            break;
+                        }
+                        off += (size_t)r;
+                    }
+                    LOG_RUN_ERR("SCSI register sense [%02d]: %s", row, sense_line);
+                }
+            }
+        }
+        return CM_ERROR;
     }
 
     return CM_SUCCESS;

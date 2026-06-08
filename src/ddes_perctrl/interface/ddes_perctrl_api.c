@@ -40,6 +40,26 @@ static perctrl_pipes_t g_perctrl = {.req_pipe.fds = {0}, .res_pipe.fds = {0}, .p
 static bool32 g_is_init = CM_FALSE;
 static spinlock_t g_init_lock = 0;
 
+#define PERCTRL_CAW_BUFF_LEN (2 * CM_DEF_BLOCK_SIZE)
+
+static status_t perctrl_validate_io_params(uint16 block_count, int32 buff_len)
+{
+    if (block_count == 0 || block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
+        LOG_DEBUG_ERR("Invalid io param, buff_len %d, block_count %u.", buff_len, block_count);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
+static status_t perctrl_validate_caw_params(int32 buff_len)
+{
+    if (buff_len != PERCTRL_CAW_BUFF_LEN) {
+        LOG_DEBUG_ERR("Invalid caw param, buff_len %d, expect %d.", buff_len, PERCTRL_CAW_BUFF_LEN);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
 #ifdef WIN32
 status_t perctrl_init(perctrl_pipes_t *perctrl, const char* name)
 {
@@ -90,8 +110,10 @@ static status_t perctrl_read_pipe(int32 fd, char *buf, uint32 size)
 
 status_t perctrl_receive(int32 fd, perctrl_packet_t *msg)
 {
-    // read head
-    status_t ret = perctrl_read_pipe(fd, msg->buf, sizeof(perctrl_cmd_head_t));
+    status_t ret;
+    uint32 size;
+
+    ret = perctrl_read_pipe(fd, msg->buf, sizeof(perctrl_cmd_head_t));
     if (ret != CM_SUCCESS) {
         return ret;
     }
@@ -468,6 +490,8 @@ int32 perctrl_caw_impl(const char *scsi_dev, ctrl_params_t *params, uint64 block
     char *errmsg = NULL;
     req->head->cmd = PERCTRL_CMD_CAW;
     text_t text;
+
+    CM_RETURN_IFERR(perctrl_validate_caw_params(params->buff_len));
     text.str = params->buff;
     text.len = (uint32)params->buff_len;
     CM_RETURN_IFERR(ddes_put_str(req, scsi_dev));
@@ -507,6 +531,8 @@ status_t perctrl_read_impl(ctrl_params_t *params, const char *iof_dev, perctrl_p
     char *errmsg = NULL;
     req->head->cmd = PERCTRL_CMD_READ;
     text_t text;
+
+    CM_RETURN_IFERR(perctrl_validate_io_params(params->block_count, params->buff_len));
     text.str = params->buff;
     text.len = (uint32)params->buff_len;
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
@@ -548,6 +574,8 @@ status_t perctrl_write_impl(ctrl_params_t *params, const char *iof_dev, perctrl_
     char *errmsg = NULL;
     req->head->cmd = PERCTRL_CMD_WRITE;
     text_t text;
+
+    CM_RETURN_IFERR(perctrl_validate_io_params(params->block_count, params->buff_len));
     text.str = params->buff;
     text.len = (uint32)params->buff_len;
     CM_RETURN_IFERR(ddes_put_str(req, iof_dev));
