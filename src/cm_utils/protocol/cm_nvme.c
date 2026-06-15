@@ -203,7 +203,7 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
 
 int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 {
-    bool8 iekey = 1; // Ignore Existing Key
+    bool8 iekey = 0; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 racqa = 0; // Reservation Acquire Action: Acquire
     uint32 nsid = 0;
