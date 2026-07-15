@@ -21,122 +21,10 @@
  *
  * -------------------------------------------------------------------------
  */
-#include <time.h>
-
 #include "cm_atomic.h"
 #include "cm_spinlock.h"
-#include "cm_log.h"
-#include "securec.h"
 #include "mes_func.h"
 #include "mes_stat.h"
-
-#define MES_SHM_LAT_LOG_INTERVAL_S (10ULL)
-
-typedef struct st_mes_shm_lat_acc {
-    uint64 sum_us;
-    uint64 cnt;
-    uint64 max_us;
-    uint64 min_us;
-} mes_shm_lat_acc_t;
-
-static spinlock_t g_mes_shm_lat_lock = 0;
-static uint64 g_mes_shm_lat_next_log_sec = 0;
-static mes_shm_lat_acc_t g_mes_shm_send_lat[MES_SHM_UB_QUEUE_NUM] = {0};
-static uint64 g_mes_shm_send_cnt[MES_SHM_UB_QUEUE_NUM] = {0};
-static uint64 g_mes_shm_recv_cnt[MES_SHM_UB_QUEUE_NUM] = {0};
-
-static void mes_shm_lat_acc_record(mes_shm_lat_acc_t *acc, uint64 cost_us)
-{
-    acc->sum_us += cost_us;
-    acc->cnt++;
-    if (acc->cnt == 1) {
-        acc->max_us = cost_us;
-        acc->min_us = cost_us;
-        return;
-    }
-    if (cost_us > acc->max_us) {
-        acc->max_us = cost_us;
-    }
-    if (cost_us < acc->min_us) {
-        acc->min_us = cost_us;
-    }
-}
-
-static void mes_shm_lat_try_log(void)
-{
-    if (!g_mes_stat.mes_elapsed_switch) {
-        return;
-    }
-    time_t now = time(NULL);
-    if (now <= 0) {
-        return;
-    }
-
-    mes_shm_lat_acc_t send_snap[MES_SHM_UB_QUEUE_NUM];
-    uint64 send_cnt_snap[MES_SHM_UB_QUEUE_NUM];
-    uint64 recv_cnt_snap[MES_SHM_UB_QUEUE_NUM];
-    int need_log = 0;
-
-    cm_spin_lock(&g_mes_shm_lat_lock, NULL);
-    if (g_mes_shm_lat_next_log_sec == 0) {
-        g_mes_shm_lat_next_log_sec = (uint64)now + MES_SHM_LAT_LOG_INTERVAL_S;
-    }
-    if ((uint64)now >= g_mes_shm_lat_next_log_sec) {
-        g_mes_shm_lat_next_log_sec = (uint64)now + MES_SHM_LAT_LOG_INTERVAL_S;
-        errno_t rc;
-        rc = memcpy_s(send_snap, sizeof(send_snap), g_mes_shm_send_lat, sizeof(g_mes_shm_send_lat));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memcpy_s g_mes_shm_send_lat failed, rc=%d.", rc);
-        }
-        rc = memcpy_s(send_cnt_snap, sizeof(send_cnt_snap), g_mes_shm_send_cnt, sizeof(g_mes_shm_send_cnt));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memcpy_s g_mes_shm_send_cnt failed, rc=%d.", rc);
-        }
-        rc = memcpy_s(recv_cnt_snap, sizeof(recv_cnt_snap), g_mes_shm_recv_cnt, sizeof(g_mes_shm_recv_cnt));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memcpy_s g_mes_shm_recv_cnt failed, rc=%d.", rc);
-        }
-        rc = memset_s(g_mes_shm_send_lat, sizeof(g_mes_shm_send_lat), 0, sizeof(g_mes_shm_send_lat));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memset_s g_mes_shm_send_lat failed, rc=%d.", rc);
-        }
-        rc = memset_s(g_mes_shm_send_cnt, sizeof(g_mes_shm_send_cnt), 0, sizeof(g_mes_shm_send_cnt));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memset_s g_mes_shm_send_cnt failed, rc=%d.", rc);
-        }
-        rc = memset_s(g_mes_shm_recv_cnt, sizeof(g_mes_shm_recv_cnt), 0, sizeof(g_mes_shm_recv_cnt));
-        if (rc != EOK) {
-            LOG_RUN_ERR("memset_s g_mes_shm_recv_cnt failed, rc=%d.", rc);
-        }
-        need_log = 1;
-    }
-    cm_spin_unlock(&g_mes_shm_lat_lock);
-
-    if (!need_log) {
-        return;
-    }
-
-    uint64 total_send_cnt = 0;
-    uint64 total_recv_cnt = 0;
-    for (uint32 qi = 0; qi < (uint32)MES_SHM_UB_QUEUE_NUM; qi++) {
-        const mes_shm_lat_acc_t *s = &send_snap[qi];
-        uint64 avg_us = (s->cnt == 0 ? 0 : ((s->sum_us + s->cnt / 2) / s->cnt));
-        total_send_cnt += send_cnt_snap[qi];
-        total_recv_cnt += recv_cnt_snap[qi];
-        LOG_RUN_INF(
-            "[mes][shm latency] q=%u send(avg/max/min)=%llu us/%llu us/%llu us "
-            "send_cnt=%llu recv_cnt=%llu (interval=%llu s)",
-            (unsigned int)qi, (unsigned long long)avg_us,
-            (unsigned long long)s->max_us, (unsigned long long)s->min_us,
-            (unsigned long long)send_cnt_snap[qi],
-            (unsigned long long)recv_cnt_snap[qi],
-            (unsigned long long)MES_SHM_LAT_LOG_INTERVAL_S);
-    }
-    LOG_RUN_INF("[mes][shm latency] total send_cnt=%llu recv_cnt=%llu (interval=%llu s)",
-        (unsigned long long)total_send_cnt,
-        (unsigned long long)total_recv_cnt,
-        (unsigned long long)MES_SHM_LAT_LOG_INTERVAL_S);
-}
 
 mes_elapsed_stat_t g_mes_elapsed_stat;
 mes_stat_t g_mes_stat;
@@ -281,40 +169,6 @@ void mes_consume_with_time(uint16 cmd, mes_time_stat_t type, uint64 start_time)
         cm_spin_unlock(&stats->lock);
     }
     return;
-}
-
-void mes_consume_with_time_shm_send(uint16 cmd, uint64 start_time, uint32 ub_q)
-{
-    mes_consume_with_time(cmd, MES_TIME_WRITE_SOCKET, start_time);
-
-    if (!g_mes_elapsed_stat.mes_elapsed_switch || cmd >= CM_MAX_MES_MSG_CMD) {
-        return;
-    }
-    uint64 now_usec = cm_get_time_usec();
-    if (now_usec < start_time) {
-        return;
-    }
-    uint64 elapsed_time = now_usec - start_time;
-    if (ub_q < MES_SHM_UB_QUEUE_NUM) {
-        cm_spin_lock(&g_mes_shm_lat_lock, NULL);
-        mes_shm_lat_acc_record(&g_mes_shm_send_lat[ub_q], elapsed_time);
-        g_mes_shm_send_cnt[ub_q]++;
-        cm_spin_unlock(&g_mes_shm_lat_lock);
-    }
-    mes_shm_lat_try_log();
-}
-
-void mes_shm_latency_note_shm_recv(uint32 ub_q)
-{
-    if (!g_mes_stat.mes_elapsed_switch) {
-        return;
-    }
-    if (ub_q >= MES_SHM_UB_QUEUE_NUM) {
-        return;
-    }
-    cm_spin_lock(&g_mes_shm_lat_lock, NULL);
-    g_mes_shm_recv_cnt[ub_q]++;
-    cm_spin_unlock(&g_mes_shm_lat_lock);
 }
 
 void mes_set_elapsed_switch(unsigned char elapsed_switch)

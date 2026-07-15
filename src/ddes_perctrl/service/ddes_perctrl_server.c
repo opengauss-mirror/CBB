@@ -33,46 +33,12 @@ static int req_fd = 0;
 static int ack_fd = 0;
 
 #define PERCTRL_ALIGN_SIZE (uint32)512
-#define PERCTRL_CAW_BLOCK_COUNT 2
-#define PERCTRL_CAW_BUFF_LEN (PERCTRL_CAW_BLOCK_COUNT * PERCTRL_ALIGN_SIZE)
 #define PERCTRL_ARG_COUNT_1 1
 #define PERCTRL_ARG_COUNT_2 2
 #define PERCTRL_ARG_COUNT_3 3
 
 #define PERCTRL_IO_PROTOCOL_SCSI3 0
 #define PERCTRL_IO_PROTOCOL_NVME 1
-
-static status_t ddes_validate_io_block_len(uint16 block_count, uint32 text_len)
-{
-    if (block_count == 0 || text_len != (uint32)block_count * PERCTRL_ALIGN_SIZE) {
-        LOG_DEBUG_ERR("Invalid io param, text_len %u, block_count %u.", text_len, block_count);
-        return CM_ERROR;
-    }
-    return CM_SUCCESS;
-}
-
-static status_t ddes_validate_caw_buff_len(uint32 text_len)
-{
-    if (text_len != PERCTRL_CAW_BUFF_LEN) {
-        LOG_DEBUG_ERR("Invalid caw param, text_len %u, expect %u.", text_len, PERCTRL_CAW_BUFF_LEN);
-        return CM_ERROR;
-    }
-    return CM_SUCCESS;
-}
-
-static status_t ddes_get_block_count(perctrl_packet_t *req, uint16 *block_count)
-{
-    int32 value = 0;
-
-    CM_RETURN_IFERR(ddes_get_int32(req, &value));
-    if (value <= 0 || value > (int32)CM_MAX_UINT16) {
-        LOG_DEBUG_ERR("Invalid block_count %d.", value);
-        return CM_ERROR;
-    }
-    *block_count = (uint16)value;
-    return CM_SUCCESS;
-}
-
 #ifndef WIN32
 static status_t ddes_open_scsi_dev(const char *scsi_dev, int32 *fd)
 {
@@ -108,12 +74,8 @@ static void ddes_return_error(perctrl_packet_t *req, perctrl_packet_t *ack)
     const char *message = NULL;
 
     ack->head->cmd = req->head->cmd;
-    ack->head->size = (uint32)sizeof(perctrl_cmd_head_t);
-    ack->head->result = CM_ERROR;
+    ack->head->result = (uint8)CM_ERROR;
     cm_get_error(&code, &message);
-    if (message == NULL) {
-        message = "unknown error";
-    }
 
     (void)ddes_put_int32(ack, (uint32)code);
     (void)ddes_put_str(ack, message);
@@ -233,7 +195,6 @@ int32 exec_scsi3_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_str(req, &scsi_dev));
     CM_RETURN_IFERR(ddes_get_int64(req, (int64 *)&block_addr));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_caw_buff_len(text.len));
 
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
@@ -268,9 +229,8 @@ int32 exec_scsi3_read(perctrl_packet_t *req, perctrl_packet_t *ack)
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
-    CM_RETURN_IFERR(ddes_get_block_count(req, &block_count));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_io_block_len(block_count, text.len));
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
         LOG_DEBUG_ERR("Failed to alloc memory.");
@@ -306,9 +266,8 @@ int32 exec_scsi3_write(perctrl_packet_t *req, perctrl_packet_t *ack)
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
-    CM_RETURN_IFERR(ddes_get_block_count(req, &block_count));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_io_block_len(block_count, text.len));
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
         LOG_DEBUG_ERR("Failed to alloc memory.");
@@ -530,7 +489,6 @@ int32 exec_nvme_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
     CM_RETURN_IFERR(ddes_get_str(req, &scsi_dev));
     CM_RETURN_IFERR(ddes_get_int64(req, (int64 *)&block_addr));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_caw_buff_len(text.len));
 
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
@@ -549,7 +507,7 @@ int32 exec_nvme_caw(perctrl_packet_t *req, perctrl_packet_t *ack)
         free(buff);
         return CM_ERROR;
     }
-    ret = cm_nvme_caw(fd, block_addr, PERCTRL_CAW_BLOCK_COUNT, buff, (int32)text.len);
+    ret = cm_nvme_caw(fd, block_addr, 2, buff, (int32)text.len);
     LOG_DEBUG_INF("Exec nvme caw ret %d.", ret);
     free(buff);
     (void)close(fd);
@@ -566,9 +524,8 @@ int32 exec_nvme_read(perctrl_packet_t *req, perctrl_packet_t *ack)
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
-    CM_RETURN_IFERR(ddes_get_block_count(req, &block_count));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_io_block_len(block_count, text.len));
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
         LOG_DEBUG_ERR("Failed to alloc memory.");
@@ -603,9 +560,8 @@ int32 exec_nvme_write(perctrl_packet_t *req, perctrl_packet_t *ack)
     ddes_init_get(req);
     CM_RETURN_IFERR(ddes_get_str(req, &iof_dev));
     CM_RETURN_IFERR(ddes_get_int32(req, &block_addr));
-    CM_RETURN_IFERR(ddes_get_block_count(req, &block_count));
+    CM_RETURN_IFERR(ddes_get_int32(req, (int32 *)&block_count));
     CM_RETURN_IFERR(ddes_get_text(req, &text));
-    CM_RETURN_IFERR(ddes_validate_io_block_len(block_count, text.len));
     char *buff = (char *)ddes_malloc_align(PERCTRL_ALIGN_SIZE, text.len);
     if (buff == NULL) {
         LOG_DEBUG_ERR("Failed to alloc memory.");

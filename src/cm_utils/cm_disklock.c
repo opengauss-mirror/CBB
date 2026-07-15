@@ -146,7 +146,7 @@ unsigned int cm_dl_alloc(const char *path, unsigned long long offset, unsigned l
     }
 
     int fd = open(path, O_RDWR | O_DIRECT | O_SYNC);
-    if (fd < 0) {
+    if (fd <= 0) {
         (void)close(fd);
         g_dl_ctx.lock_info[id].fd = 0;
         LOG_RUN_ERR("DL:open path failed:%d,%s.", errno, strerror(errno));

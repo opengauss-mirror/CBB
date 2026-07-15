@@ -193,58 +193,21 @@ status_t cs_uds_wait(uds_link_t *link, uint32 wait_for, int32 timeout, bool32 *r
     }
 
     if (ret > 0) {
-        // Check if we have the expected event (POLLIN/POLLOUT)
-        bool32 has_expected_event = CM_FALSE;
-        if (wait_for == CS_WAIT_FOR_READ && ((uint16)fd.revents & POLLIN)) {
-            has_expected_event = CM_TRUE;
-        } else if (wait_for == CS_WAIT_FOR_WRITE && ((uint16)fd.revents & POLLOUT)) {
-            has_expected_event = CM_TRUE;
-        }
-        
-        // If data is available, process it first even if POLLHUP is also set
-        if (has_expected_event) {
-            if (ready != NULL) {
-                *ready = CM_TRUE;
-            }
-            // Log warning if POLLHUP is also set, but don't return error
-            if ((uint16)fd.revents & POLLHUP) {
-                LOG_DEBUG_WAR("[UDS] poll has data with POLLHUP, revents=0x%x, sock=%d, "
-                    "will read data first", (uint16)fd.revents, link->sock);
-            }
-            return CM_SUCCESS;
-        }
-        
-        // No expected event, check for error conditions
-        if ((uint16)fd.revents & POLLHUP) {
-            LOG_RUN_WAR("[UDS] poll got POLLHUP without data, revents=0x%x, sock=%d, "
-                "wait_for=%s", (uint16)fd.revents, link->sock,
-                wait_for == CS_WAIT_FOR_READ ? "READ" : "WRITE");
-            cs_uds_disconnect(link);
-            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds peer closed");
-            return CM_ERROR;
-        }
-        
-        if ((uint16)fd.revents & (POLLERR | POLLNVAL)) {
-            LOG_RUN_WAR("[UDS] poll got error, revents=0x%x (ERR=%d, NVAL=%d), sock=%d",
-                (uint16)fd.revents,
-                ((uint16)fd.revents & POLLERR) ? 1 : 0,
-                ((uint16)fd.revents & POLLNVAL) ? 1 : 0,
-                link->sock);
-            cs_uds_disconnect(link);
-            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds poll error");
-            return CM_ERROR;
-        }
-        
         if (ready != NULL) {
             *ready = CM_TRUE;
+        }
+
+        if ((uint16)fd.revents & POLLHUP) {
+            cs_uds_disconnect(link);
+            CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
+            return CM_ERROR;
         }
         return CM_SUCCESS;
     }
 
     if (errno != EINTR) {
-        LOG_RUN_WAR("[UDS] poll failed, ret=%d, errno=%d, sock=%d", ret, errno, link->sock);
         cs_uds_disconnect(link);
-        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds poll failed");
+        CM_THROW_ERROR(ERR_PEER_CLOSED, "uds");
         return CM_ERROR;
     }
 
@@ -272,9 +235,7 @@ status_t cs_uds_send(const uds_link_t *link, const char *buf, uint32 size, int32
         if (code == WSAEWOULDBLOCK) {
 #else
         code = errno;
-        LOG_RUN_INF("[mes] cs_uds_send errno: %d, errmsg: %s", code, strerror(code));
-        /* If block by buffer or signo, we should return and retry */
-        if (code == EWOULDBLOCK || code == EAGAIN || code == EINTR) {
+        if (code == EWOULDBLOCK) {
 #endif
             *send_size = 0;
             return CM_SUCCESS;
@@ -287,9 +248,7 @@ status_t cs_uds_send(const uds_link_t *link, const char *buf, uint32 size, int32
 
 status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint32 timeout)
 {
-    int32 remain_size = (int32)size;
-    int32 offset = 0;
-    int32 writen_size;
+    int32 remain_size, offset, writen_size;
     uint32 wait_interval = 0;
     bool32 ready = CM_FALSE;
 
@@ -297,16 +256,22 @@ status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint3
         return CM_ERROR;
     }
 
+    /* for most cases, all data are written by the following call */
+    if (cs_uds_send(link, buf, size, &writen_size) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+
+    remain_size = size - writen_size;
+    offset = writen_size;
+
     while (remain_size > 0) {
         if (cs_uds_wait(link, CS_WAIT_FOR_WRITE, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
-            LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_wait get event poll failed.");
             return CM_ERROR;
         }
 
         if (!ready) {
             wait_interval += CM_POLL_WAIT;
             if (wait_interval >= timeout) {
-                LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_wait wait timeout.");
                 return CM_ERROR;
             }
 
@@ -314,7 +279,6 @@ status_t cs_uds_send_timed(uds_link_t *link, const char *buf, uint32 size, uint3
         }
 
         if (cs_uds_send(link, buf + offset, (uint32)remain_size, &writen_size) != CM_SUCCESS) {
-            LOG_RUN_INF("[mes][cs_uds_send_timed] cs_uds_send error.");
             return CM_ERROR;
         }
 
@@ -354,11 +318,18 @@ status_t cs_uds_recv(const uds_link_t *link, char *buf, uint32 size, int32 *recv
 
 status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 timeout)
 {
-    uint32 remain_size = size;
-    uint32 offset = 0;
+    uint32 remain_size, offset;
     uint32 wait_interval = 0;
     int32 recv_size;
     bool32 ready = CM_FALSE;
+
+    remain_size = size;
+    if (cs_uds_recv(link, buf, remain_size, &recv_size) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+
+    remain_size -= recv_size;
+    offset = (uint32)recv_size;
 
     while (remain_size > 0) {
         if (cs_uds_wait(link, CS_WAIT_FOR_READ, CM_POLL_WAIT, &ready) != CM_SUCCESS) {
@@ -378,8 +349,8 @@ status_t cs_uds_recv_timed(uds_link_t *link, char *buf, uint32 size, uint32 time
             return CM_ERROR;
         }
 
-        remain_size -= (uint32)recv_size;
-        offset += (uint32)recv_size;
+        remain_size -= recv_size;
+        offset += recv_size;
     }
 
     return CM_SUCCESS;

@@ -41,30 +41,27 @@ static _Unwind_Word cm_dummy_getcfa(struct _Unwind_Context *ctx __attribute__((u
     return 0;
 }
 
-static bool32 cm_load_unwind_symbols(unwind_bt_handle_t *handle, void *lib_handle)
-{
-    handle->unwind_backtrace = dlsym(lib_handle, "_Unwind_Backtrace");
-    handle->unwind_getip = dlsym(lib_handle, "_Unwind_GetIP");
-    if (handle->unwind_getip == NULL) {
-        handle->unwind_backtrace = NULL;
-    }
-    handle->unwind_getcfa = dlsym(lib_handle, "_Unwind_GetCFA");
-    if (handle->unwind_getcfa == NULL) {
-        handle->unwind_getcfa = cm_dummy_getcfa;
-    }
-    return (handle->unwind_backtrace != NULL) ? CM_TRUE : CM_FALSE;
-}
-
 void cm_init_backtrace_handle(void)
 {
     unwind_bt_handle_t *handle = cm_unwind_bt_handle();
-
-    handle->backtrace_handle = NULL;
-    if (cm_load_unwind_symbols(handle, RTLD_DEFAULT)) {
-        handle->inited = CM_TRUE;
+    handle->backtrace_handle = dlopen("libgcc_s.so.1", RTLD_LAZY);
+    if (handle->backtrace_handle == NULL) {
+        LOG_RUN_INF("Load backtrace handle failed.");
+        return;
+    }
+    handle->unwind_backtrace = dlsym(handle->backtrace_handle, "_Unwind_Backtrace");
+    handle->unwind_getip = dlsym(handle->backtrace_handle, "_Unwind_GetIP");
+    if (handle->unwind_getip == NULL) {
+        handle->unwind_backtrace = NULL;
+    }
+    handle->unwind_getcfa = dlsym(handle->backtrace_handle, "_Unwind_GetCFA");
+    if (handle->unwind_getcfa == NULL) {
+        handle->unwind_getcfa = cm_dummy_getcfa;
+    }
+    handle->inited = (handle->unwind_backtrace == NULL) ? CM_FALSE : CM_TRUE;
+    if (handle->inited) {
         LOG_RUN_INF("Load backtrace handle succeed.");
     } else {
-        handle->inited = CM_FALSE;
         LOG_RUN_INF("Load backtrace handle failed.");
     }
 }

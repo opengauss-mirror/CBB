@@ -129,11 +129,6 @@ void mes_consume_with_time(uint16 cmd, mes_time_stat_t type, uint64 start_time);
 void mes_msg_size_stats(uint32 size);
 void mes_get_wait_event(unsigned int cmd, unsigned long long *event_cnt, unsigned long long *event_time);
 
-/* SHM: mes_consume_with_time for WRITE_SOCKET + periodic [mes][shm latency] log (same interval/format as before). */
-void mes_consume_with_time_shm_send(uint16 cmd, uint64 start_time, uint32 ub_q);
-/* SHM recv: bump per-queue recv_cnt for the log only (matches prior mes_lat_shm_on_recv). */
-void mes_shm_latency_note_shm_recv(uint32 ub_q);
-
 #ifdef __cplusplus  
 }
 #endif

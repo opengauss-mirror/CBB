@@ -22,7 +22,6 @@
  * -------------------------------------------------------------------------
  */
 #include "cm_nvme.h"
-#include "cm_scsi.h"
 #include "cm_log.h"
 #include "cm_error.h"
 #include "cm_binary.h"
@@ -43,9 +42,6 @@
 
 #define CM_SCSI_ERR_CONFLICT (-2)
 #define CM_NVME_ERR_MISCOMPARE (-2)
-
-/* CAW requires at least 2 blocks: 1 for compare + 1 for write */
-#define CM_NVME_CAW_MIN_BLOCKS 2
 
 int cm_nvme_get_nsid(int fd, int32 *nsid)
 {
@@ -122,7 +118,7 @@ int32 cm_nvme_register(int32 fd, int64 nrkey)
 {
     uint8 rrega = 0;  // Register Reservation Key
     uint8 cptpl = 0;  // No change to Persist Through Power Loss State
-    bool8 iekey = 1;  // Ignore Existing Key
+    bool8 iekey = 0; // Ignore Existing Key
     uint64 crkey = 0; // Current Reservation Key
     uint32 nsid = 0;
     int32 status = 0;
@@ -163,7 +159,7 @@ int32 cm_nvme_unregister(int32 fd, int64 crkey)
 {
     uint8 rrega = 1;  // Unregister Reservation Key
     uint8 cptpl = 0;  // No change to Persist Through Power Loss State
-    bool8 iekey = 1;  // Ignore Existing Key
+    bool8 iekey = 0; //  Ignore Existing Key
     uint64 nrkey = 0; // New Reservation Key
     uint32 nsid = 0;
     int32 status = 0;
@@ -243,9 +239,9 @@ int32 cm_nvme_reserve(int32 fd, int64 nrkey)
 
 int32 cm_nvme_release(int32 fd, int64 crkey)
 {
-    bool8 iekey = 1; // Ignore Existing Key
+    bool8 iekey = 0; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
-    uint8 rrela = 0; // Reservation Release Action: Release
+    uint8 rrela = 0; // Reservation Release Action:Release
     uint32 nsid = 0;
     int32 status = 0;
 
@@ -266,7 +262,7 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
         if (status < 0) {
-            LOG_DEBUG_ERR("Sending NVMe release command failed, crkey %lld, error:%s(%d)",
+            LOG_DEBUG_ERR("Sending NVMe release command failed, crkey %lld.error:%s(%d)",
                 crkey, strerror(errno), errno);
             return CM_ERROR;
         } else {
@@ -280,9 +276,9 @@ int32 cm_nvme_release(int32 fd, int64 crkey)
 
 int32 cm_nvme_clear(int32 fd, int64 crkey)
 {
-    bool8 iekey = 1; // Ignore Existing Key
-    uint8 rtype = 0; // Reservation Type: Reserved (for Clear action)
-    uint8 rrela = 1; // Reservation Release Action: Clear
+    bool8 iekey = 0; // Ignore Existing Key
+    uint8 rtype = 0; // Reservation Type:Reserved
+    uint8 rrela = 1; // Reservation Release Action:Clear
     uint32 nsid = 0;
     int32 status = 0;
 
@@ -316,7 +312,7 @@ int32 cm_nvme_clear(int32 fd, int64 crkey)
 
 int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 {
-    bool8 iekey = 1; // Ignore Existing Key
+    bool8 iekey = 0; // Ignore Existing Key
     uint8 rtype = 6; // Reservation Type: Exclusive Access - All Registrants Reservation
     uint8 racqa = 1; // Reservation Acquire Action: Preempt
     uint32 nsid = 0;
@@ -338,11 +334,8 @@ int32 cm_nvme_preempt(int32 fd, int64 crkey, int64 nrkey)
 
     status = cm_nvme_submit_io_passthru(fd, &cmd);
     if (status != CM_NVME_SC_SUCCESS) {
-        if (status == CM_NVME_SC_RESERVATION_CONFLICT) {
-            LOG_DEBUG_INF("NVMe preempt get reservation conflict, crkey %lld, nrkey %lld.", crkey, nrkey);
-            return CM_SCSI_ERR_CONFLICT;
-        } else if (status < 0) {
-            LOG_DEBUG_ERR("Sending NVMe preempt command failed, crkey %lld, nrkey %lld, error:%s(%d)",
+        if (status < 0) {
+            LOG_DEBUG_ERR("Sending NVMe preempt command failed, crkey %lld, nrkey %lld .error:%s(%d)",
                 crkey, nrkey, strerror(errno), errno);
             return CM_ERROR;
         } else {
@@ -486,37 +479,14 @@ int32 cm_nvme_rres(int32 fd, int64 *crkey, uint32 *generation)
     return CM_SUCCESS;
 }
 
-static int32 cm_nvme_validate_io_params(uint16 block_count, int32 buff_len)
-{
-    if (block_count == 0 || block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
-        LOG_DEBUG_ERR("Invalid input param, buff_len %d, block_count %d.", buff_len, block_count);
-        return CM_ERROR;
-    }
-    return CM_SUCCESS;
-}
-
-static int32 cm_nvme_validate_caw_params(uint16 block_count, int32 buff_len)
-{
-    if (block_count < 2 || (block_count % 2) != 0 ||
-        block_count != buff_len / CM_DEF_BLOCK_SIZE || buff_len % CM_DEF_BLOCK_SIZE != 0) {
-        LOG_DEBUG_ERR("Invalid input param, buff_len %d, block_count %d.", buff_len, block_count);
-        return CM_ERROR;
-    }
-    return CM_SUCCESS;
-}
-
 // nvme vaai read
 int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count == 0) {
-        LOG_DEBUG_ERR("Invalid NVMe read: block_count is 0");
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_read;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks;
+    uint16 nblocks = block_count - 1;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -524,11 +494,6 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
-
-    if (cm_nvme_validate_io_params(block_count, buff_len) != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-    nblocks = block_count - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
@@ -546,15 +511,11 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
 // nvme vaai write
 int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count == 0) {
-        LOG_DEBUG_ERR("Invalid NVMe write: block_count is 0");
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_write;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks;
+    uint16 nblocks = block_count - 1;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -562,11 +523,6 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
-
-    if (cm_nvme_validate_io_params(block_count, buff_len) != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-    nblocks = block_count - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status != CM_NVME_SC_SUCCESS) {
@@ -584,15 +540,11 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
 // nvme vaai compare and write
 int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count < CM_NVME_CAW_MIN_BLOCKS) {
-        LOG_DEBUG_ERR("Invalid NVMe caw: block_count(%u) must be >= %u", block_count, CM_NVME_CAW_MIN_BLOCKS);
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_compare;
     uint8 flags = 0;
     uint64 slba = block_addr;
-    uint16 nblocks;
+    uint16 nblocks = (block_count / 2) - 1;
     uint16 control = 0;
     uint32 dsmgmt = 0;
     uint32 reftag = 0;
@@ -600,11 +552,6 @@ int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, i
     uint16 appmask = 0;
     void *data = buff;
     void *metadata  = 0;
-
-    if (cm_nvme_validate_caw_params(block_count, buff_len) != CM_SUCCESS) {
-        return CM_ERROR;
-    }
-    nblocks = (block_count / 2) - 1;
 
     status = cm_nvme_io(fd, opcode, flags, slba, nblocks, control, dsmgmt, reftag, apptag, appmask, data, metadata);
     if (status == CM_NVME_SC_COMPARE_FAILED) {
