@@ -113,7 +113,6 @@ static status_t perctrl_read_pipe(int32 fd, char *buf, uint32 size)
 status_t perctrl_receive(int32 fd, perctrl_packet_t *msg)
 {
     status_t ret;
-    uint32 size;
 
     ret = perctrl_read_pipe(fd, msg->buf, sizeof(perctrl_cmd_head_t));
     if (ret != CM_SUCCESS) {
