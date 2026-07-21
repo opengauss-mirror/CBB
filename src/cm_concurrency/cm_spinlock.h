@@ -238,7 +238,7 @@ static forceinline void cm_spin_unlock(spinlock_t *lock)
         return;
     }
 
-    __atomic_store_n(lock, 0, __ATOMIC_RELEASE);
+    *lock = 0;
 }
 #endif
 

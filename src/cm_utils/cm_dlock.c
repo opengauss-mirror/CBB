@@ -416,8 +416,6 @@ status_t cm_disk_timed_lock(dlock_t *lock, int32 fd, uint64 wait_usecs, int32 lo
             return CM_TIMEDOUT;
         }
 
-        CM_RETURN_IFERR(cm_init_dlock(lock, lock->lock_addr, LOCKW_INST_ID(*lock) - 1));
-
         times++;
         if (times == dlock_retry_count) {
             cm_usleep(disk_lock_interval);

@@ -44,9 +44,6 @@
 #define CM_SCSI_ERR_CONFLICT (-2)
 #define CM_NVME_ERR_MISCOMPARE (-2)
 
-/* CAW requires at least 2 blocks: 1 for compare + 1 for write */
-#define CM_NVME_CAW_MIN_BLOCKS 2
-
 int cm_nvme_get_nsid(int fd, int32 *nsid)
 {
     static struct stat nvme_stat;
@@ -508,10 +505,6 @@ static int32 cm_nvme_validate_caw_params(uint16 block_count, int32 buff_len)
 // nvme vaai read
 int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count == 0) {
-        LOG_DEBUG_ERR("Invalid NVMe read: block_count is 0");
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_read;
     uint8 flags = 0;
@@ -546,10 +539,6 @@ int32 cm_nvme_read(int32 fd, uint64 block_addr, uint16 block_count, char *buff, 
 // nvme vaai write
 int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count == 0) {
-        LOG_DEBUG_ERR("Invalid NVMe write: block_count is 0");
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_write;
     uint8 flags = 0;
@@ -584,10 +573,6 @@ int32 cm_nvme_write(int32 fd, uint64 block_addr, uint16 block_count, char *buff,
 // nvme vaai compare and write
 int32 cm_nvme_caw(int32 fd, uint64 block_addr, uint16 block_count, char *buff, int32 buff_len)
 {
-    if (block_count < CM_NVME_CAW_MIN_BLOCKS) {
-        LOG_DEBUG_ERR("Invalid NVMe caw: block_count(%u) must be >= %u", block_count, CM_NVME_CAW_MIN_BLOCKS);
-        return CM_ERROR;
-    }
     int32 status;
     uint8 opcode = nvme_cmd_compare;
     uint8 flags = 0;
