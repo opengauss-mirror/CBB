@@ -26,6 +26,7 @@ function print_help()
     -3rd|--binarylib_dir   the directory of third party binarylibs.
     -m|--version_mode      this values of paramenter is Debug, Release, Memcheck, the default value is Release.
     -t|--build_tool        this values of parameter is cmake, make, the default value is cmake.
+    -E|--enable_arm64_esb  ENABLE_ARM64_ESB for MES SHM SIGBUS/ESB, values ON|OFF, default ON (cmake/aarch64 only).
 "
 }
 
@@ -59,6 +60,14 @@ while [ $# -gt 0 ]; do
           build_tool=$2
           shift 2
           ;;
+        -E|--enable_arm64_esb)
+          if [ "$2"X = X ]; then
+              echo "no given ENABLE_ARM64_ESB value (ON|OFF)"
+              exit 1
+          fi
+          enable_arm64_esb=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+          shift 2
+          ;;
          *)
             echo "Internal Error: option processing error: $1" 1>&2
             echo "please input right paramtenter, the following command may help you"
@@ -66,6 +75,7 @@ while [ $# -gt 0 ]; do
             exit 1
     esac
 done
+enable_arm64_esb=ON
 
 if [ -z "${version_mode}" ] || [ "$version_mode"x == ""x ]; then
     version_mode=Release
@@ -77,12 +87,19 @@ fi
 if [ -z "${build_tool}" ] || [ "$build_tool"x == ""x ]; then
     build_tool=cmake
 fi
+if [ -z "${enable_arm64_esb}" ] || [ "$enable_arm64_esb"x == ""x ]; then
+    enable_arm64_esb=ON
+fi
 if [ ! "$version_mode"x == "Debug"x ] && [ ! "$version_mode"x == "Release"x ] && [ ! "$version_mode"x == "Memcheck"x ]; then
     echo "ERROR: version_mode param is error"
     exit 1
 fi
 if [ ! "$build_tool"x == "make"x ] && [ ! "$build_tool"x == "cmake"x ]; then
     echo "ERROR: build_tool param is error"
+    exit 1
+fi
+if [ ! "$enable_arm64_esb"x == "ON"x ] && [ ! "$enable_arm64_esb"x == "OFF"x ]; then
+    echo "ERROR: enable_arm64_esb param is error, expect ON or OFF"
     exit 1
 fi
 
@@ -133,9 +150,11 @@ cp -r $LIB_PATH/zlib1.2.11/comm/include              $CBB_LIBRARYS/zlib/include
 
 cd $PACKAGE
 if [ "$build_tool"x == "cmake"x ];then
-    cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF
+    echo "ENABLE_ARM64_ESB=${enable_arm64_esb}"
+    cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF -DENABLE_ARM64_ESB=${enable_arm64_esb}
     make -sj 8
 else
+    echo "WARNING: build_tool=make ignores -E/--enable_arm64_esb (cmake option only)"
     make clean
     make BUILD_TYPE=${version_mode} -sj 8
 fi

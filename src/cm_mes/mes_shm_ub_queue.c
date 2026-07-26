@@ -24,10 +24,13 @@
  */
 #include "mes_shm_ub_queue.h"
 
+#include <setjmp.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "mes_shm.h"
+#include "mes_shm_fallback_internal.h"
+#include "mes_shm_sigbus.h"
 #include "cm_memory.h"
 #include "mes_stat.h"
 #include "mes_func.h"
@@ -56,10 +59,6 @@ static void mes_ub_comm_queue_call_back(const message_t *msg, void *ctx)
         return;
     }
 
-    if (msg->header.msg_type == MES_CMD_HEARTBEAT) {
-        return;
-    }
-
     if (msg->header.body_length < sizeof(mes_message_head_t) || msg->header.body_length > max_msg_size) {
         LOG_RUN_ERR("[mes_shm callback] Invalid message size: %u.", msg->header.body_length);
         return;
@@ -73,11 +72,33 @@ static void mes_ub_comm_queue_call_back(const message_t *msg, void *ctx)
         return;
     }
 
+#if defined(__aarch64__) && defined(ENABLE_ARM64_ESB)
+    {
+        int ub_fault_rc = sigsetjmp(g_mes_shm_sigbus_jump_env, 1);
+        if (ub_fault_rc == 0) {
+            g_mes_shm_sigbus_jump_active = CM_TRUE;
+            if (memcpy_sp((void *)data, msg->header.body_length, msg->body, msg->header.body_length) != EOK) {
+                g_mes_shm_sigbus_jump_active = CM_FALSE;
+                LOG_RUN_ERR("[mes_shm callback] Failed to copy message to buffer item.");
+                mes_free_buf_item(data);
+                return;
+            }
+            MES_SHM_ESB_BARRIER();
+            g_mes_shm_sigbus_jump_active = CM_FALSE;
+        } else {
+            g_mes_shm_sigbus_jump_active = CM_FALSE;
+            mes_free_buf_item(data);
+            mes_shm_handle_ub_fault("mes_ub_comm_queue_call_back");
+            return;
+        }
+    }
+#else
     if (memcpy_sp((void *)data, msg->header.body_length, msg->body, msg->header.body_length) != EOK) {
         LOG_RUN_ERR("[mes_shm callback] Failed to copy message to buffer item.");
         mes_free_buf_item(data);
         return;
     }
+#endif
 
     mes_message_t mes_msg;
     MES_MESSAGE_ATTACH((&mes_msg), (void *)data);
@@ -128,17 +149,57 @@ static int mes_shm_build_ring_region_entries(ub_ring_region_info_t *ring_info, u
     return CM_SUCCESS;
 }
 
+static void mes_ub_heartbeat_recv_callback(const message_t *msg, void *ctx)
+{
+    (void)msg;
+    (void)ctx;
+}
+
 static int mes_shm_register_dist_comm_callbacks(ub_shm_comm_t *handle, uint32_t queue_idx)
 {
     for (uint8_t msg_type = 0; msg_type < MES_CMD_MAX; msg_type++) {
-        int err = ub_comm_queue_register_process_func(handle, msg_type, UB_FUNC_SYNC, mes_ub_comm_queue_call_back,
+        ub_func_type_t func_type;
+        ub_callback_t func;
+
+        if (msg_type == MES_CMD_HEARTBEAT) {
+            func_type = UB_FUNC_ASYNC;
+            func = mes_ub_heartbeat_recv_callback;
+        } else {
+            func_type = UB_FUNC_SYNC;
+            func = mes_ub_comm_queue_call_back;
+        }
+
+        int err = ub_comm_queue_register_process_func(handle, msg_type, func_type, func,
             (void *)(uintptr_t)queue_idx);
         if (err != 0) {
             LOG_RUN_ERR("Failed to register callback for msg_type %u, error: %d.", msg_type, err);
             return CM_ERROR;
         }
     }
+
+    int err = ub_comm_queue_register_process_func(handle, (uint8_t)MES_SHM_UB_MSG_TYPE_FALLBACK, UB_FUNC_SYNC,
+        mes_ub_fallback_recv_callback, (void *)(uintptr_t)queue_idx);
+    if (err != 0) {
+        LOG_RUN_ERR("Failed to register SHM fallback msg_type %u, error: %d.", (unsigned)MES_SHM_UB_MSG_TYPE_FALLBACK,
+            err);
+        return CM_ERROR;
+    }
     return CM_SUCCESS;
+}
+
+void mes_shm_deinit_all_ub_handles(shm_rpc_lsnr_t *shm_lsnr)
+{
+    for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
+        if (shm_lsnr->ub_handle[ub_queue_idx] == NULL) {
+            continue;
+        }
+        int ret = ub_comm_queue_deinit(&shm_lsnr->ub_handle[ub_queue_idx]);
+        if (ret != 0) {
+            LOG_RUN_ERR("[mes_shm] failed to deinit ub_dist_comm_queue ub_queue_idx=%u, error: %d.",
+                (unsigned int)ub_queue_idx, ret);
+        }
+        shm_lsnr->ub_handle[ub_queue_idx] = NULL;
+    }
 }
 
 int mes_init_shm_queue(void)
@@ -201,19 +262,4 @@ int mes_init_shm_queue(void)
     }
     LOG_RUN_INF("[mes] ub_comm_queue init ok, queues=%u", (unsigned int)MES_SHM_UB_QUEUE_NUM);
     return CM_SUCCESS;
-}
-
-void mes_shm_deinit_all_ub_handles(shm_rpc_lsnr_t *shm_lsnr)
-{
-    for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        if (shm_lsnr->ub_handle[ub_queue_idx] == NULL) {
-            continue;
-        }
-        int ret = ub_comm_queue_deinit(&shm_lsnr->ub_handle[ub_queue_idx]);
-        if (ret != 0) {
-            LOG_RUN_ERR("[mes_shm] failed to deinit ub_dist_comm_queue ub_queue_idx=%u, error: %d.",
-                (unsigned int)ub_queue_idx, ret);
-        }
-        shm_lsnr->ub_handle[ub_queue_idx] = NULL;
-    }
 }

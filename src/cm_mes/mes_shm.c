@@ -23,6 +23,7 @@
 #include "mes_interface.h"
 
 #include <dirent.h>
+#include <setjmp.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -31,6 +32,7 @@
 
 #include "mes_shm.h"
 #include "mes_shm_ub_queue.h"
+#include "mes_shm_fallback_internal.h"
 #include "mes_shm_dl.h"
 #include "cm_system.h"
 #include "cm_memory.h"
@@ -302,10 +304,6 @@ static void mes_shm_rollback_self_queue_shm(shm_rpc_lsnr_t *shm_lsnr, uint32_t s
     }
 }
 
-/* NUMA node of cpu via /sys/devices/system/cpu/cpuN/nodeM; UINT32_MAX if unknown. */
-
-/* Product mapping: numa 0/1 -> socket 0; numa 2/3 -> socket 4. */
-
 static int mes_init_shm(void)
 {
     int ret;
@@ -438,6 +436,10 @@ void mes_shm_try_connect(uintptr_t pipePtr)
     inst_type self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
     inst_type peer_id = MES_INSTANCE_ID(pipe->channel->id);
 
+    if (mes_shm_fallback_in_progress() || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        return;
+    }
+
     if (peer_id >= MAX_HOST_NUM) {
         LOG_RUN_ERR("[mes] mes_shm_try_connect: invalid peer_id %u", peer_id);
         return;
@@ -498,6 +500,10 @@ void mes_shm_heartbeat_channel(uintptr_t channelPtr)
         return;
     }
 
+    if (mes_shm_fallback_in_progress() || MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        return;
+    }
+
     inst_type peer_id = MES_INSTANCE_ID(channel->id);
     if (peer_id >= MAX_HOST_NUM) {
         return;
@@ -544,6 +550,16 @@ int mes_shm_send_data(const void *msg_data)
         return CM_ERROR;
     }
 
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        LOG_DEBUG_ERR("[mes_shm] send_data: reject, already switched to TCP");
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
+
+    if (mes_shm_fallback_in_progress()) {
+        LOG_DEBUG_ERR("[mes_shm] send_data: reject during SHM fallback, dst_inst=%u", head->dst_inst);
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
+
     mes_priority_t pri = MES_PRIORITY(head->flags);
     inst_type dst_inst = head->dst_inst;
     mes_channel_t *channel = mes_get_active_send_channel(head->dst_inst, head->caller_tid, head->flags);
@@ -576,8 +592,27 @@ int mes_shm_send_data(const void *msg_data)
 
     uint64 stat_time = cm_get_time_usec();
 
+#if defined(__aarch64__) && defined(ENABLE_ARM64_ESB)
+    {
+        int ub_fault_rc = sigsetjmp(g_mes_shm_sigbus_jump_env, 1);
+        if (ub_fault_rc == 0) {
+            g_mes_shm_sigbus_jump_active = CM_TRUE;
+            ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], &msg);
+            MES_SHM_ESB_BARRIER();
+            g_mes_shm_sigbus_jump_active = CM_FALSE;
+        } else {
+            g_mes_shm_sigbus_jump_active = CM_FALSE;
+            mes_shm_handle_ub_fault("mes_shm_send_data");
+            return ERR_MES_SENDPIPE_NO_READY;
+        }
+    }
+#else
     ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], &msg);
+#endif
 
+    if (mes_shm_fallback_in_progress()) {
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
     if (ret != 0) {
         LOG_RUN_WAR("[mes_shm] send_data: failed to send to inst %u mes_pri=%u ub_handle_idx=%u size %u err %d",
             dst_inst, (unsigned int)pri, ub_q, head->size, ret);
@@ -595,6 +630,16 @@ int mes_shm_send_bufflist(mes_bufflist_t *buff_list)
     }
 
     mes_message_head_t *head = (mes_message_head_t *)buff_list->buffers[0].buf;
+
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        LOG_DEBUG_ERR("[mes_shm] send_bufflist: reject, already switched to TCP");
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
+
+    if (mes_shm_fallback_in_progress()) {
+        LOG_DEBUG_ERR("[mes_shm] send_bufflist: reject during SHM fallback, dst_inst=%u", head->dst_inst);
+        return ERR_MES_SENDPIPE_NO_READY;
+    }
 
     uint32 total_size = 0;
     for (uint32_t i = 0; i < buff_list->cnt; i++) {
@@ -794,6 +839,17 @@ int mes_init_shm_resource(void)
         mes_shm_cleanup();
         FinishUbsMemDl();
         LOG_RUN_ERR("mes init ubs mem failed.");
+        return ret;
+    }
+
+    ret = mes_shm_sigbus_register_handler();
+    if (ret != CM_SUCCESS) {
+        mes_free_channel_msg_queue(CM_TRUE);
+        mes_free_channel_msg_queue(CM_FALSE);
+        mes_free_channels();
+        mes_shm_cleanup();
+        FinishUbsMemDl();
+        LOG_RUN_ERR("[mes] register sigbus handler failed.");
         return ret;
     }
 
