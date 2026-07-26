@@ -261,5 +261,6 @@ int mes_init_shm_queue(void)
         }
     }
     LOG_RUN_INF("[mes] ub_comm_queue init ok, queues=%u", (unsigned int)MES_SHM_UB_QUEUE_NUM);
+    mes_shm_start_map_touch_thread();
     return CM_SUCCESS;
 }

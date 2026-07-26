@@ -23,7 +23,6 @@
 #include "mes_interface.h"
 
 #include <dirent.h>
-#include <setjmp.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,6 +33,7 @@
 #include "mes_shm_ub_queue.h"
 #include "mes_shm_fallback_internal.h"
 #include "mes_shm_dl.h"
+#include "mes_shm_sigbus.h"
 #include "cm_system.h"
 #include "cm_memory.h"
 #include "mes_stat.h"
@@ -53,8 +53,8 @@
 #define MES_SHM_UB_COMM_RING_HEADER_BYTES (192U)
 #define MES_SHM_DEALLOC_RETRY_MAX (30U)
 #define MES_SHM_MAP_RETRY_MAX (60U)
+#define MES_SHM_MAP_ERR_RETRY_MAX (3U)
 
-static char g_region_name[MAX_REGION_NAME_DESC_LENGTH] = {0};
 static char g_shm_queue_names[MES_SHM_UB_QUEUE_NUM][MAX_SHM_NAME_LENGTH] = {{0}};
 static uint32_t g_inst_id_map[MAX_HOST_NUM];
 static inst_type g_mes_coordinator_inst_id = -1;
@@ -202,6 +202,7 @@ static void mes_shm_unmap_peer(shm_rpc_lsnr_t *shm_lsnr, uint32_t idx, inst_type
     }
 }
 
+
 /*
  * Map one ub_queue slot for a peer. NOT_FOUND and other errors use independent retry
  * budgets (60x/1s vs 3x/100ms). On shutdown during retry, returns CM_SUCCESS without unmap.
@@ -230,31 +231,54 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
         return CM_ERROR;
     }
 
-    uint32_t map_retry_cnt = 0;
+    uint32_t not_found_cnt = 0;
+    uint32_t err_cnt = 0;
+
     while (MES_GLOBAL_INST_MSG.mes_ctx.phase == SHUTDOWN_PHASE_NOT_BEGIN) {
         ret = mes_ubsmem_shmem_map(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, peer_shm_name, 0,
             &shm_lsnr->peer_ring[index][ub_queue_idx]);
         if (ret == UBSM_OK) {
+            uint64_t boot_size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
+            void *map_ptr = shm_lsnr->peer_ring[index][ub_queue_idx];
+            void *ring_ptr = (void *)((uintptr_t)map_ptr + (uintptr_t)boot_size);
+            LOG_RUN_INF("[mes_shm] mapped PEER import: peer_inst=%u idx=%u q=%u name=%s "
+                "map_ptr=%p ring_ptr=%p map_len=%llu (dcat_ub -a uses map_ptr)",
+                peer_id, index, ub_queue_idx, peer_shm_name, map_ptr, ring_ptr,
+                (unsigned long long)map_len);
             return CM_SUCCESS;
         }
+
         if (ret == UBSM_ERR_NOT_FOUND) {
-            map_retry_cnt++;
-            if (map_retry_cnt >= MES_SHM_MAP_RETRY_MAX) {
-                mes_shm_unmap_peer(shm_lsnr, index, peer_id);
-                LOG_RUN_ERR("[mes] map peer %u shm ub_queue_idx=%u timed out after %u retries.",
-                    peer_id, ub_queue_idx, map_retry_cnt);
-                return CM_ERROR;
+            not_found_cnt++;
+            if (not_found_cnt > MES_SHM_MAP_RETRY_MAX) {
+                break;
             }
             LOG_RUN_INF("[mes] peer %u shm ub_queue_idx=%u not found, retrying (%u/%u)...",
-                peer_id, ub_queue_idx, map_retry_cnt, MES_SHM_MAP_RETRY_MAX);
+                peer_id, ub_queue_idx, not_found_cnt, MES_SHM_MAP_RETRY_MAX);
             cm_sleep(CM_SLEEP_1000_FIXED);
-            continue;
+        } else {
+            err_cnt++;
+            if (err_cnt >= MES_SHM_MAP_ERR_RETRY_MAX) {
+                break;
+            }
+            LOG_RUN_INF("[mes] map peer %u shm ub_queue_idx=%u failed (err=%d), retrying (%u/%u)...",
+                peer_id, ub_queue_idx, ret, err_cnt, MES_SHM_MAP_ERR_RETRY_MAX);
+            cm_sleep(100);
         }
-        mes_shm_unmap_peer(shm_lsnr, index, peer_id);
-        LOG_RUN_ERR("[mes] failed to map peer %u ub_queue_idx=%u shm, err = %d.", peer_id, ub_queue_idx, ret);
-        return CM_ERROR;
     }
 
+    if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
+        return CM_SUCCESS;
+    }
+
+    mes_shm_unmap_peer(shm_lsnr, index, peer_id);
+    if (ret == UBSM_ERR_NOT_FOUND) {
+        LOG_RUN_ERR("[mes] map peer %u shm ub_queue_idx=%u timed out after %u retries (NOT_FOUND).",
+            peer_id, ub_queue_idx, MES_SHM_MAP_RETRY_MAX);
+    } else {
+        LOG_RUN_ERR("[mes] failed to map peer %u ub_queue_idx=%u shm after %u retries, last err = %d.",
+            peer_id, ub_queue_idx, MES_SHM_MAP_ERR_RETRY_MAX, ret);
+    }
     return CM_ERROR;
 }
 
@@ -304,6 +328,72 @@ static void mes_shm_rollback_self_queue_shm(shm_rpc_lsnr_t *shm_lsnr, uint32_t s
     }
 }
 
+/* NUMA node of cpu via /sys/devices/system/cpu/cpuN/nodeM; UINT32_MAX if unknown. */
+static uint32_t mes_shm_cpu_to_numa_id(int cpu_id)
+{
+    char path[128];
+    DIR *dir;
+    struct dirent *ent;
+    uint32_t numa = UINT32_MAX;
+
+    if (cpu_id < 0) {
+        return UINT32_MAX;
+    }
+    if (sprintf_s(path, sizeof(path), "/sys/devices/system/cpu/cpu%d", cpu_id) <= EOK) {
+        return UINT32_MAX;
+    }
+    dir = opendir(path);
+    if (dir == NULL) {
+        return UINT32_MAX;
+    }
+    while ((ent = readdir(dir)) != NULL) {
+        char *end = NULL;
+        unsigned long v;
+
+        if (strncmp(ent->d_name, "node", 4) != 0 || ent->d_name[4] == '\0') {
+            continue;
+        }
+        v = strtoul(ent->d_name + 4, &end, 10);
+        if (end != NULL && *end == '\0' && v < (unsigned long)UINT32_MAX) {
+            numa = (uint32_t)v;
+            break;
+        }
+    }
+    (void)closedir(dir);
+    return numa;
+}
+
+/* Product mapping: numa 0/1 -> socket 0; numa 2/3 -> socket 4. */
+static uint32_t mes_shm_socket_id_from_numa(uint32_t numa_id)
+{
+    if (numa_id <= 1U) {
+        return 0U;
+    }
+    if (numa_id == 2U || numa_id == 3U) {
+        return 1U;
+    }
+    return UINT32_MAX;
+}
+
+static void mes_shm_fill_local_provider(ubs_mem_provider_t *provider, const char *host_name, uint32_t queue_idx)
+{
+    int cpu_id;
+
+    if (provider == NULL || queue_idx >= MES_SHM_UB_QUEUE_NUM) {
+        return;
+    }
+
+    (void)memset_s(provider, sizeof(*provider), 0, sizeof(*provider));
+    if (host_name != NULL && host_name[0] != '\0') {
+        (void)strncpy_s(provider->host_name, sizeof(provider->host_name), host_name,
+            strnlen(host_name, sizeof(provider->host_name) - 1));
+    }
+    provider->port_id = UINT32_MAX;
+    cpu_id = MES_GLOBAL_INST_MSG.profile.mes_shm_ub_comm_cpu_ids[queue_idx];
+    provider->numa_id = mes_shm_cpu_to_numa_id(cpu_id);
+    provider->socket_id = mes_shm_socket_id_from_numa(provider->numa_id);
+}
+
 static int mes_init_shm(void)
 {
     int ret;
@@ -323,8 +413,6 @@ static int mes_init_shm(void)
     mes_shm_refresh_per_queue_shm_size();
 
     shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
-    ubsmem_regions_t regions;
-    ubsmem_region_attributes_t region;
     ubsmem_options_t ubsm_shmem_opts;
 
     ret = mes_ubsmem_init_and_set_inited(&ubsm_shmem_opts);
@@ -332,42 +420,11 @@ static int mes_init_shm(void)
         return CM_ERROR;
     }
 
-    ret = mes_ubsmem_lookup_regions(&regions);
-    if (ret != UBSM_OK) {
-        LOG_RUN_ERR("Failed to lookup shm regions, error: %d.", ret);
-        return CM_ERROR;
-    }
-
-    region = regions.region[0];
-    for (int i = 0; i < region.host_num; i++) {
-        region.hosts[i].affinity = (strcmp(region.hosts[i].host_name, host_name) == 0);
-    }
-
-    char region_name[MAX_REGION_NAME_DESC_LENGTH] = {0};
-    ret = sprintf_s(region_name, sizeof(region_name), "region_mes_%s_%llu", user_name, self_index);
-    if (ret <= EOK) {
-        LOG_RUN_ERR("Failed to format shm region name.");
-        return CM_ERROR;
-    }
-
-    ret = mes_ubsmem_create_region(region_name, 0, &region);
-    if (ret != UBSM_OK && ret != UBSM_ERR_ALREADY_EXIST) {
-        LOG_RUN_ERR("Failed to create shm region %s, error: %d.", region_name, ret);
-        return CM_ERROR;
-    }
-    if (ret == UBSM_ERR_ALREADY_EXIST) {
-        LOG_RUN_INF("shm region %s already exists, continue.", region_name);
-    }
-
-    ret = strncpy_s(g_region_name, sizeof(g_region_name), region_name, sizeof(region_name) - 1);
-    MEMS_RETURN_IFERR(ret);
-
     ret = memset_s(g_shm_queue_names, sizeof(g_shm_queue_names), 0, sizeof(g_shm_queue_names));
     MEMS_RETURN_IFERR(ret);
 
     for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        uint64_t queue_shmem_sz = g_mes_shm_size[ub_queue_idx];
-        if (queue_shmem_sz == 0) {
+        if (g_mes_shm_size[ub_queue_idx] == 0) {
             LOG_RUN_ERR("mes_init_shm: invalid shm size for ub_queue_idx=%u self_index %u.", ub_queue_idx,
                 (unsigned int)self_index);
             mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
@@ -383,8 +440,10 @@ static int mes_init_shm(void)
             return CM_ERROR;
         }
 
-        ret = mes_ubsmem_shmem_allocate(region_name, shm_name, queue_shmem_sz, MES_SHM_SHMEM_MODE,
-            UBSM_FLAG_WR_DELAY_COMP | UBSM_FLAG_ONLY_IMPORT_NONCACHE);
+        ubs_mem_provider_t provider;
+        mes_shm_fill_local_provider(&provider, host_name, ub_queue_idx);
+        ret = mes_ubsmem_shmem_allocate_with_provider(&provider, shm_name, g_mes_shm_size[ub_queue_idx],
+            MES_SHM_SHMEM_MODE, UBSM_FLAG_WR_DELAY_COMP | UBSM_FLAG_ONLY_IMPORT_NONCACHE);
         if (ret != UBSM_OK && ret != UBSM_ERR_ALREADY_EXIST) {
             LOG_RUN_ERR("mes_init_shm: Failed to allocate shm %s, error: %d.", shm_name, ret);
             mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
@@ -395,13 +454,20 @@ static int mes_init_shm(void)
             sizeof(shm_name) - 1);
         MEMS_RETURN_IFERR(ret);
 
-        ret = mes_ubsmem_shmem_map(NULL, queue_shmem_sz, PROT_READ | PROT_WRITE, MAP_SHARED, shm_name, 0,
+        ret = mes_ubsmem_shmem_map(NULL, g_mes_shm_size[ub_queue_idx], PROT_READ | PROT_WRITE, MAP_SHARED, shm_name, 0,
             &shm_lsnr->peer_ring[self_index][ub_queue_idx]);
         if (ret != UBSM_OK) {
             LOG_RUN_ERR("[mes] failed to map self shm ub_queue_idx=%u, err = %d.", ub_queue_idx, ret);
             mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
             return CM_ERROR;
         }
+        uint64_t boot_size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
+        void *map_ptr = shm_lsnr->peer_ring[self_index][ub_queue_idx];
+        void *ring_ptr = (void *)((uintptr_t)map_ptr + (uintptr_t)boot_size);
+        LOG_RUN_INF("[mes_shm] mapped SELF export: self_inst=%u idx=%u q=%u name=%s "
+            "map_ptr=%p ring_ptr=%p map_len=%llu",
+            MES_GLOBAL_INST_MSG.profile.inst_id, self_index, ub_queue_idx, shm_name, map_ptr, ring_ptr,
+            (unsigned long long)g_mes_shm_size[ub_queue_idx]);
     }
 
     return CM_SUCCESS;
@@ -694,6 +760,7 @@ static void mes_shm_stop_cluster_queue(void)
 {
     shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
 
+    mes_shm_stop_map_touch_thread();
     mes_shm_deinit_all_ub_handles(shm_lsnr);
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
@@ -781,11 +848,6 @@ void mes_shm_cleanup(void)
             cm_sleep(CM_SLEEP_1000_FIXED);
         } while (true);
         g_shm_queue_names[ub_queue_idx][0] = '\0';
-    }
-
-    if (strlen(g_region_name) > 0) {
-        (void)mes_ubsmem_destroy_region(g_region_name);
-        g_region_name[0] = '\0';
     }
 
     ret = memset_s(g_mes_shm_size, sizeof(g_mes_shm_size), 0, sizeof(g_mes_shm_size));

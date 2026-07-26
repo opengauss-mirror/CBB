@@ -166,6 +166,13 @@ typedef struct {
     uint64_t mem_id_list[MAX_MEMID_NUM];
 } ubsmem_shmem_info_t;
 
+typedef struct {
+    char host_name[MAX_HOST_NAME_DESC_LENGTH];
+    uint32_t socket_id;
+    uint32_t numa_id;
+    uint32_t port_id;
+} ubs_mem_provider_t;
+
 typedef int32_t (*shmem_faults_func)(const char *shm_name);
 
 #ifdef __cplusplus

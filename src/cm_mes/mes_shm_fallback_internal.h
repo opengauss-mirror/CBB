@@ -44,5 +44,8 @@ uint32_t mes_shm_ring_capacity(uint32_t ub_queue_idx);
 uint64_t mes_shm_get_queue_shm_size(uint32_t ub_queue_idx);
 inst_type mes_shm_get_coordinator_inst_id(void);
 
+/* Optional fault-injection thread (MES_SHM_MAP_TOUCH=1); implemented in mes_shm_fallback.c. */
+void mes_shm_start_map_touch_thread(void);
+void mes_shm_stop_map_touch_thread(void);
 
 #endif
