@@ -22,6 +22,7 @@
  */
 #include "mes_interface.h"
 
+#include <dirent.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -29,13 +30,14 @@
 #include <time.h>
 
 #include "mes_shm.h"
+#include "mes_shm_ub_queue.h"
 #include "mes_shm_dl.h"
 #include "cm_system.h"
-#include "cm_thread.h"
 #include "cm_memory.h"
-#include "cm_sync.h"
 #include "mes_stat.h"
 #include "mes_func.h"
+#include "mes_tcp.h"
+#include "mes_recv.h"
 #include "cm_atomic.h"
 
 #define MES_SHM_SHMEM_MODE ((mode_t)0600)
@@ -44,7 +46,6 @@
 #define MES_SHM_UB_RING_CAPACITY_BIG (8192U)
 #define MES_SHM_SLICE_BOOT_RAW ((uint64_t)((MES_MAX_INSTANCES + 1) * 128))
 #define MES_SHM_SLICE_TAIL_PAD (1024ULL * 1024)
-#define MES_SHM_UB_WIRE_MSG_PRIORITY (1U)
 /* ub_dist_comm ring blob layout (must match lib sizing used by ub_comm_queue_init). */
 #define MES_SHM_UB_COMM_SLOT_PREFIX_BYTES (8U)
 #define MES_SHM_UB_COMM_RING_HEADER_BYTES (192U)
@@ -135,7 +136,7 @@ static void mes_init_inst_id_map(void)
     LOG_RUN_INF("[mes] inst_id map ready, inst_cnt=%u", (unsigned int)MES_GLOBAL_INST_MSG.profile.inst_cnt);
 }
 
-static uint32_t mes_get_index_from_inst_id(inst_type inst_id)
+uint32_t mes_get_index_from_inst_id(inst_type inst_id)
 {
     if (inst_id >= MAX_HOST_NUM || g_inst_id_map[inst_id] == 0xFFFFFFFF) {
         LOG_RUN_ERR("[mes] Invalid inst_id %u in mapping table", inst_id);
@@ -145,75 +146,63 @@ static uint32_t mes_get_index_from_inst_id(inst_type inst_id)
     return g_inst_id_map[inst_id];
 }
 
-/* Max MES payload per ub queue for ring slot sizing; override per ub_queue_idx when priorities differ. */
-static uint32_t mes_shm_max_msg_size(uint32_t ub_queue_idx)
+inst_type mes_shm_get_coordinator_inst_id(void)
 {
-    (void)ub_queue_idx;
-    return (uint32_t)MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile);
+    return g_mes_coordinator_inst_id;
 }
 
-/* Ring slot count for ub_comm on this ub queue; cluster must use same value per ub_queue_idx for shared segments. */
-static uint32_t mes_shm_ring_capacity(uint32_t ub_queue_idx)
+uint64_t mes_shm_get_queue_shm_size(uint32_t ub_queue_idx)
 {
-    if (ub_queue_idx == MES_PRIORITY_SIX || ub_queue_idx == MES_SHM_UB_QUEUE_PRIO6_MIRROR) {
+    if (ub_queue_idx >= MES_SHM_UB_QUEUE_NUM) {
+        return 0;
+    }
+    return g_mes_shm_size[ub_queue_idx];
+}
+
+/* Ring slot count for ub_comm; cluster must use same value per ub_queue_idx for shared segments. */
+uint32_t mes_shm_ring_capacity(uint32_t ub_queue_idx)
+{
+    if (ub_queue_idx == MES_PRIORITY_FIVE || ub_queue_idx == MES_PRIORITY_SIX ||
+        ub_queue_idx == MES_SHM_UB_QUEUE_PRIO6_MIRROR) {
         return (uint32_t)MES_SHM_UB_RING_CAPACITY_BIG;
     }
-
-    if (ub_queue_idx == MES_PRIORITY_FIVE) {
-        return (uint32_t)MES_SHM_UB_RING_CAPACITY_BIG;
-    }
-
     return (uint32_t)MES_SHM_UB_RING_CAPACITY;
 }
 
-/* One ub_comm ring blob (metadata + slots), 64-byte aligned; used footprint excludes boot and slice tail pad. */
-static uint64_t mes_shm_single_ring_bytes(uint32_t ub_queue_idx)
-{
-    uint64_t max_msg = (uint64_t)mes_shm_max_msg_size(ub_queue_idx);
-    uint64_t slot = mes_shm_align64_up_u64((uint64_t)MES_SHM_UB_COMM_SLOT_PREFIX_BYTES + max_msg);
-    uint32_t ring_cap = mes_shm_ring_capacity(ub_queue_idx);
-    return mes_shm_align64_up_u64((uint64_t)MES_SHM_UB_COMM_RING_HEADER_BYTES + (uint64_t)ring_cap * slot);
-}
-
-/* Used footprint before 128MiB round-up: boot + ring + tail (64-byte aligned). */
-static uint64_t mes_shm_calculate_shm_size(uint32_t ub_queue_idx)
-{
-    uint64_t ring_total = mes_shm_single_ring_bytes(ub_queue_idx);
-    uint64_t raw = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW) + ring_total + MES_SHM_SLICE_TAIL_PAD;
-    return mes_shm_align64_up_u64(raw);
-}
-
-/* Fills g_mes_shm_size (128MiB-aligned ubsmem length). mes_init_shm once per bring-up. */
+/* Fills g_mes_shm_size (128MiB-aligned ubsmem length). Called once per bring-up. */
 static void mes_shm_refresh_per_queue_shm_size(void)
 {
+    uint64_t max_msg = (uint64_t)MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile);
+    uint64_t slot = mes_shm_align64_up_u64((uint64_t)MES_SHM_UB_COMM_SLOT_PREFIX_BYTES + max_msg);
+    uint64_t boot = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
+
     for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        uint64_t used = mes_shm_calculate_shm_size(ub_queue_idx);
+        uint64_t ring = mes_shm_align64_up_u64(
+            (uint64_t)MES_SHM_UB_COMM_RING_HEADER_BYTES + (uint64_t)mes_shm_ring_capacity(ub_queue_idx) * slot);
+        uint64_t used = mes_shm_align64_up_u64(boot + ring + MES_SHM_SLICE_TAIL_PAD);
         g_mes_shm_size[ub_queue_idx] = (used + MES_SHM_ALLOC_ALIGN - 1ULL) & ~(MES_SHM_ALLOC_ALIGN - 1ULL);
     }
 }
 
-static void mes_shm_unmap_peer_queues(shm_rpc_lsnr_t *shm_lsnr, uint32_t index)
+static void mes_shm_unmap_peer(shm_rpc_lsnr_t *shm_lsnr, uint32_t idx, inst_type inst_id)
 {
     for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        if (shm_lsnr->peer_ring[index][ub_queue_idx] != NULL) {
-            uint64_t map_len = g_mes_shm_size[ub_queue_idx];
-            (void)mes_ubsmem_shmem_unmap(shm_lsnr->peer_ring[index][ub_queue_idx], map_len);
-            shm_lsnr->peer_ring[index][ub_queue_idx] = NULL;
+        if (shm_lsnr->peer_ring[idx][ub_queue_idx] == NULL) {
+            continue;
         }
-    }
-}
-
-static void mes_shm_deinit_ub_handles_upto(shm_rpc_lsnr_t *shm_lsnr, uint32_t bound)
-{
-    for (uint32_t rollback = 0; rollback < bound; rollback++) {
-        (void)ub_comm_queue_deinit(&shm_lsnr->ub_handle[rollback]);
-        shm_lsnr->ub_handle[rollback] = NULL;
+        uint64_t unmap_len = g_mes_shm_size[ub_queue_idx];
+        int ret = mes_ubsmem_shmem_unmap(shm_lsnr->peer_ring[idx][ub_queue_idx], unmap_len);
+        if (ret != UBSM_OK) {
+            LOG_RUN_ERR("[mes_shm] failed to unmap shm for instance %u (idx %u ub_queue_idx=%u), err = %d.",
+                inst_id, idx, ub_queue_idx, ret);
+        }
+        shm_lsnr->peer_ring[idx][ub_queue_idx] = NULL;
     }
 }
 
 /*
- * Map one ub_queue slot for a peer; retries while shm not found. On hard map/sprintf failure, unmaps all
- * peer queues for index and returns CM_ERROR. On shutdown during retry, returns CM_ERROR without extra unmap.
+ * Map one ub_queue slot for a peer. NOT_FOUND and other errors use independent retry
+ * budgets (60x/1s vs 3x/100ms). On shutdown during retry, returns CM_SUCCESS without unmap.
  */
 static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
 {
@@ -235,7 +224,7 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
         (unsigned long long)index, ub_queue_idx);
     if (ret <= EOK) {
         LOG_RUN_ERR("Failed to format peer shm name for instance %u ub_queue_idx=%u.", peer_id, ub_queue_idx);
-        mes_shm_unmap_peer_queues(shm_lsnr, index);
+        mes_shm_unmap_peer(shm_lsnr, index, peer_id);
         return CM_ERROR;
     }
 
@@ -249,7 +238,7 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
         if (ret == UBSM_ERR_NOT_FOUND) {
             map_retry_cnt++;
             if (map_retry_cnt >= MES_SHM_MAP_RETRY_MAX) {
-                mes_shm_unmap_peer_queues(shm_lsnr, index);
+                mes_shm_unmap_peer(shm_lsnr, index, peer_id);
                 LOG_RUN_ERR("[mes] map peer %u shm ub_queue_idx=%u timed out after %u retries.",
                     peer_id, ub_queue_idx, map_retry_cnt);
                 return CM_ERROR;
@@ -259,7 +248,7 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
             cm_sleep(CM_SLEEP_1000_FIXED);
             continue;
         }
-        mes_shm_unmap_peer_queues(shm_lsnr, index);
+        mes_shm_unmap_peer(shm_lsnr, index, peer_id);
         LOG_RUN_ERR("[mes] failed to map peer %u ub_queue_idx=%u shm, err = %d.", peer_id, ub_queue_idx, ret);
         return CM_ERROR;
     }
@@ -286,6 +275,7 @@ static int mes_shm_map_single_peer(inst_type peer_id)
         if (shm_lsnr->peer_ring[index][ub_queue_idx] != NULL) {
             continue;
         }
+        /* mes_shm_map_peer_queue: NOT_FOUND 60x/1s, other errors 3x/100ms (independent counters). */
         int mret = mes_shm_map_peer_queue(peer_id, ub_queue_idx);
         if (mret != CM_SUCCESS) {
             if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
@@ -303,7 +293,7 @@ static int mes_shm_map_single_peer(inst_type peer_id)
 
 static void mes_shm_rollback_self_queue_shm(shm_rpc_lsnr_t *shm_lsnr, uint32_t self_index)
 {
-    mes_shm_unmap_peer_queues(shm_lsnr, self_index);
+    mes_shm_unmap_peer(shm_lsnr, self_index, MES_GLOBAL_INST_MSG.profile.inst_id);
     for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
         if (g_shm_queue_names[ub_queue_idx][0] != '\0') {
             (void)mes_ubsmem_shmem_deallocate(g_shm_queue_names[ub_queue_idx]);
@@ -311,6 +301,10 @@ static void mes_shm_rollback_self_queue_shm(shm_rpc_lsnr_t *shm_lsnr, uint32_t s
         }
     }
 }
+
+/* NUMA node of cpu via /sys/devices/system/cpu/cpuN/nodeM; UINT32_MAX if unknown. */
+
+/* Product mapping: numa 0/1 -> socket 0; numa 2/3 -> socket 4. */
 
 static int mes_init_shm(void)
 {
@@ -415,170 +409,6 @@ static int mes_init_shm(void)
     return CM_SUCCESS;
 }
 
-static void mes_ub_comm_queue_call_back(const message_t *msg, void *ctx)
-{
-    uint32_t ub_queue_idx = (uint32_t)(uintptr_t)ctx;
-    uint32 max_msg_size = MES_MESSAGE_BUFFER_SIZE(&MES_GLOBAL_INST_MSG.profile);
-    uint64 stat_time = cm_get_time_usec();
-
-    if (g_mes_stat.mes_elapsed_switch) {
-        mes_shm_latency_note_shm_recv(ub_queue_idx);
-    }
-
-    if (msg->header.msg_type >= MES_CMD_MAX) {
-        LOG_RUN_ERR("[mes_shm callback] Invalid cmd type: %u.", msg->header.msg_type);
-        return;
-    }
-
-    if (msg->header.msg_type == MES_CMD_HEARTBEAT) {
-        return;
-    }
-
-    if (msg->header.body_length < sizeof(mes_message_head_t) || msg->header.body_length > max_msg_size) {
-        LOG_RUN_ERR("[mes_shm callback] Invalid message size: %u.", msg->header.body_length);
-        return;
-    }
-
-    mes_message_head_t *mes_head = (mes_message_head_t *)msg->body;
-    char *data = mes_alloc_buf_item_fc(msg->header.body_length, CM_FALSE, mes_head->src_inst,
-        MES_PRIORITY(mes_head->flags));
-    if (SECUREC_UNLIKELY(data == NULL)) {
-        LOG_RUN_ERR("[mes_shm callback] Failed to allocate buffer item for message size: %u.", msg->header.body_length);
-        return;
-    }
-
-    if (memcpy_sp((void *)data, msg->header.body_length, msg->body, msg->header.body_length) != EOK) {
-        LOG_RUN_ERR("[mes_shm callback] Failed to copy message to buffer item.");
-        mes_free_buf_item(data);
-        return;
-    }
-
-    mes_message_t mes_msg;
-    MES_MESSAGE_ATTACH((&mes_msg), (void *)data);
-    mes_consume_with_time((uint16)mes_msg.head->app_cmd, MES_TIME_READ_SOCKET, stat_time);
-    uint32 channel_id = MES_CALLER_TID_TO_CHANNEL_ID(mes_head->caller_tid);
-    mq_context_t *mq_ctx = &MES_GLOBAL_INST_MSG.recv_mq;
-    mes_msgqueue_t *my_mq = &mq_ctx->channel_private_queue[mes_head->src_inst][channel_id];
-    mes_process_message(my_mq, &mes_msg);
-}
-
-static void mes_shm_build_ub_comm_conf(uint32_t queue_idx, ub_comm_conf_t *conf, ub_ring_desc_t *ring_descs)
-{
-    mes_profile_t *profile = &MES_GLOBAL_INST_MSG.profile;
-
-    conf->cpu_id = profile->mes_shm_ub_comm_cpu_ids[queue_idx];
-    if (conf->cpu_id < 0) {
-        conf->cpu_id = -1;
-    }
-    conf->max_nodes = profile->inst_cnt;
-    conf->current_node_id = mes_get_index_from_inst_id(profile->inst_id);
-    conf->num_rings = 1;
-    conf->ring_descs = ring_descs;
-    uint32_t max_msg = mes_shm_max_msg_size(queue_idx);
-    ring_descs[0].ring_capacity = mes_shm_ring_capacity(queue_idx);
-    ring_descs[0].max_msg_size = max_msg;
-    ring_descs[0].priority = (uint8_t)MES_SHM_UB_WIRE_MSG_PRIORITY;
-}
-
-static int mes_shm_build_ring_region_entries(ub_ring_region_info_t *ring_info, uint32_t queue_idx)
-{
-    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
-    uint32_t inst_cnt = MES_GLOBAL_INST_MSG.profile.inst_cnt;
-    uint64_t boot_size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
-    uint64_t shm_segment_size = g_mes_shm_size[queue_idx];
-    uint64_t ring_region_size = shm_segment_size - boot_size;
-
-    for (uint32 i = 0; i < inst_cnt; i++) {
-        inst_type index = mes_get_index_from_inst_id(MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id);
-        if (index == 0xFFFFFFFF) {
-            LOG_RUN_ERR("[mes] inst_id %u not found in inst_net_addr",
-                MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id);
-            return CM_ERROR;
-        }
-        void *base = shm_lsnr->peer_ring[index][queue_idx];
-        ring_info[index].region.ptr = (void *)((uintptr_t)base + boot_size);
-        ring_info[index].region.size = ring_region_size;
-        ring_info[index].node_id = (uint8_t)index;
-    }
-    return CM_SUCCESS;
-}
-
-static int mes_shm_register_dist_comm_callbacks(ub_shm_comm_t *handle, uint32_t queue_idx)
-{
-    for (uint8_t msg_type = 0; msg_type < MES_CMD_MAX; msg_type++) {
-        int err = ub_comm_queue_register_process_func(handle, msg_type, UB_FUNC_SYNC, mes_ub_comm_queue_call_back,
-            (void *)(uintptr_t)queue_idx);
-        if (err != 0) {
-            LOG_RUN_ERR("Failed to register callback for msg_type %u, error: %d.", msg_type, err);
-            return CM_ERROR;
-        }
-    }
-    return CM_SUCCESS;
-}
-
-int mes_init_shm_queue(void)
-{
-    int ret;
-    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
-    uint32_t coordinator_index = mes_get_index_from_inst_id(g_mes_coordinator_inst_id);
-    if (coordinator_index == 0xFFFFFFFF) {
-        LOG_RUN_ERR("[mes] coordinator inst_id %u not found in inst_net_addr", g_mes_coordinator_inst_id);
-        return CM_ERROR;
-    }
-
-    ub_shm_area_t init_region;
-    init_region.size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
-
-    for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        void *coord_q = shm_lsnr->peer_ring[coordinator_index][ub_queue_idx];
-        if (coord_q == NULL) {
-            LOG_RUN_ERR("[mes] coordinator shm queue %u is NULL (idx %u)", (unsigned int)ub_queue_idx,
-                coordinator_index);
-            return CM_ERROR;
-        }
-        init_region.ptr = coord_q;
-
-        ub_comm_conf_t conf;
-        ub_ring_desc_t ring_descs[1];
-        mes_shm_build_ub_comm_conf(ub_queue_idx, &conf, ring_descs);
-
-        ub_ring_region_map_t ring_regions;
-        ring_regions.count = MES_GLOBAL_INST_MSG.profile.inst_cnt;
-        uint32_t inst_cnt = MES_GLOBAL_INST_MSG.profile.inst_cnt;
-        ub_ring_region_info_t *ring_info = (ub_ring_region_info_t *)cm_malloc_prot(
-            inst_cnt * sizeof(ub_ring_region_info_t));
-        if (ring_info == NULL) {
-            LOG_RUN_ERR("[mes_shm] failed to alloc ring_info for ub_queue_idx=%u.", (unsigned int)ub_queue_idx);
-            return CM_ERROR;
-        }
-        ret = mes_shm_build_ring_region_entries(ring_info, ub_queue_idx);
-        if (ret != CM_SUCCESS) {
-            CM_FREE_PROT_PTR(ring_info);
-            return CM_ERROR;
-        }
-        ring_regions.entries = ring_info;
-
-        ret = ub_comm_queue_init(&shm_lsnr->ub_handle[ub_queue_idx], &init_region, &ring_regions, &conf);
-        CM_FREE_PROT_PTR(ring_info);
-        if (ret != 0) {
-            LOG_RUN_ERR("Failed to initialize ub_dist_comm_queue ub_queue_idx=%u, error: %d.",
-                (unsigned int)ub_queue_idx, ret);
-            mes_shm_deinit_ub_handles_upto(shm_lsnr, ub_queue_idx);
-            return CM_ERROR;
-        }
-
-        ret = mes_shm_register_dist_comm_callbacks(&shm_lsnr->ub_handle[ub_queue_idx], ub_queue_idx);
-        if (ret != CM_SUCCESS) {
-            (void)ub_comm_queue_deinit(&shm_lsnr->ub_handle[ub_queue_idx]);
-            shm_lsnr->ub_handle[ub_queue_idx] = NULL;
-            mes_shm_deinit_ub_handles_upto(shm_lsnr, ub_queue_idx);
-            return CM_ERROR;
-        }
-    }
-    LOG_RUN_INF("[mes] ub_comm_queue init ok, queues=%u", (unsigned int)MES_SHM_UB_QUEUE_NUM);
-    return CM_SUCCESS;
-}
-
 int mes_shm_map_peers(void)
 {
     inst_type self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
@@ -594,7 +424,7 @@ int mes_shm_map_peers(void)
         ret = mes_shm_map_single_peer(peer_id);
         if (ret != CM_SUCCESS) {
             LOG_RUN_ERR("[mes] mes_shm_map_single_peer failed, peer_id=%u", peer_id);
-            continue;
+            return CM_ERROR;
         }
     }
 
@@ -691,7 +521,7 @@ void mes_shm_heartbeat_channel(uintptr_t channelPtr)
     LOG_DEBUG_INF("[mes] SHM heartbeat completed for instance %u", peer_id);
 }
 
-static uint32_t mes_shm_send_pick_ub_q(mes_priority_t pri)
+uint32_t mes_shm_send_pick_ub_q(mes_priority_t pri)
 {
     uint32_t ub_q = (uint32_t)pri;
     if (pri == MES_PRIORITY_SIX) {
@@ -745,7 +575,9 @@ int mes_shm_send_data(const void *msg_data)
     msg.body = (char *)msg_data;
 
     uint64 stat_time = cm_get_time_usec();
+
     ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], &msg);
+
     if (ret != 0) {
         LOG_RUN_WAR("[mes_shm] send_data: failed to send to inst %u mes_pri=%u ub_handle_idx=%u size %u err %d",
             dst_inst, (unsigned int)pri, ub_q, head->size, ret);
@@ -763,6 +595,7 @@ int mes_shm_send_bufflist(mes_bufflist_t *buff_list)
     }
 
     mes_message_head_t *head = (mes_message_head_t *)buff_list->buffers[0].buf;
+
     uint32 total_size = 0;
     for (uint32_t i = 0; i < buff_list->cnt; i++) {
         uint32 prev = total_size;
@@ -809,37 +642,6 @@ static void mes_shm_mark_peer_channels_down(inst_type peer_inst)
             pipe->send_pipe_active = CM_FALSE;
             pipe->recv_pipe_active = CM_FALSE;
         }
-    }
-}
-
-static void mes_shm_deinit_all_ub_handles(shm_rpc_lsnr_t *shm_lsnr)
-{
-    for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        if (shm_lsnr->ub_handle[ub_queue_idx] == NULL) {
-            continue;
-        }
-        int ret = ub_comm_queue_deinit(&shm_lsnr->ub_handle[ub_queue_idx]);
-        if (ret != 0) {
-            LOG_RUN_ERR("[mes_shm] failed to deinit ub_dist_comm_queue ub_queue_idx=%u, error: %d.",
-                (unsigned int)ub_queue_idx, ret);
-        }
-        shm_lsnr->ub_handle[ub_queue_idx] = NULL;
-    }
-}
-
-static void mes_shm_unmap_peer(shm_rpc_lsnr_t *shm_lsnr, uint32_t idx, inst_type inst_id)
-{
-    for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        if (shm_lsnr->peer_ring[idx][ub_queue_idx] == NULL) {
-            continue;
-        }
-        uint64_t unmap_len = g_mes_shm_size[ub_queue_idx];
-        int ret = mes_ubsmem_shmem_unmap(shm_lsnr->peer_ring[idx][ub_queue_idx], unmap_len);
-        if (ret != UBSM_OK) {
-            LOG_RUN_ERR("[mes_shm] failed to unmap shm for instance %u (idx %u ub_queue_idx=%u), err = %d.",
-                inst_id, idx, ub_queue_idx, ret);
-        }
-        shm_lsnr->peer_ring[idx][ub_queue_idx] = NULL;
     }
 }
 
