@@ -277,7 +277,8 @@ typedef struct st_mes_context {
     uint32 creatWaitRoom : 1;
     uint32 reserve : 29;
 
-    /* TRUE once SHM->TCP fallback starts (hijack SHM sends); stays TRUE after switch; send path uses pipe_type/callbacks */
+    /* TRUE once SHM->TCP fallback starts (hijack SHM sends); stays TRUE after switch;
+     * send path uses pipe_type/callbacks. */
     volatile bool8 shm_degraded_to_tcp;
 } mes_context_t;
 

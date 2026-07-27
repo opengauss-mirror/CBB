@@ -54,6 +54,8 @@
 #define MES_SHM_DEALLOC_RETRY_MAX (30U)
 #define MES_SHM_MAP_RETRY_MAX (60U)
 #define MES_SHM_MAP_ERR_RETRY_MAX (3U)
+#define MES_SHM_SYSFS_NODE_PREFIX_LEN 4
+#define MES_SHM_SYSFS_NODE_NUM_BASE 10
 
 static char g_shm_queue_names[MES_SHM_UB_QUEUE_NUM][MAX_SHM_NAME_LENGTH] = {{0}};
 static uint32_t g_inst_id_map[MAX_HOST_NUM];
@@ -238,13 +240,6 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
         ret = mes_ubsmem_shmem_map(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, peer_shm_name, 0,
             &shm_lsnr->peer_ring[index][ub_queue_idx]);
         if (ret == UBSM_OK) {
-            uint64_t boot_size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
-            void *map_ptr = shm_lsnr->peer_ring[index][ub_queue_idx];
-            void *ring_ptr = (void *)((uintptr_t)map_ptr + (uintptr_t)boot_size);
-            LOG_RUN_INF("[mes_shm] mapped PEER import: peer_inst=%u idx=%u q=%u name=%s "
-                "map_ptr=%p ring_ptr=%p map_len=%llu (dcat_ub -a uses map_ptr)",
-                peer_id, index, ub_queue_idx, peer_shm_name, map_ptr, ring_ptr,
-                (unsigned long long)map_len);
             return CM_SUCCESS;
         }
 
@@ -263,7 +258,7 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
             }
             LOG_RUN_INF("[mes] map peer %u shm ub_queue_idx=%u failed (err=%d), retrying (%u/%u)...",
                 peer_id, ub_queue_idx, ret, err_cnt, MES_SHM_MAP_ERR_RETRY_MAX);
-            cm_sleep(100);
+            cm_sleep(CM_SLEEP_100_FIXED);
         }
     }
 
@@ -272,13 +267,6 @@ static int mes_shm_map_peer_queue(inst_type peer_id, uint32_t ub_queue_idx)
     }
 
     mes_shm_unmap_peer(shm_lsnr, index, peer_id);
-    if (ret == UBSM_ERR_NOT_FOUND) {
-        LOG_RUN_ERR("[mes] map peer %u shm ub_queue_idx=%u timed out after %u retries (NOT_FOUND).",
-            peer_id, ub_queue_idx, MES_SHM_MAP_RETRY_MAX);
-    } else {
-        LOG_RUN_ERR("[mes] failed to map peer %u ub_queue_idx=%u shm after %u retries, last err = %d.",
-            peer_id, ub_queue_idx, MES_SHM_MAP_ERR_RETRY_MAX, ret);
-    }
     return CM_ERROR;
 }
 
@@ -350,10 +338,11 @@ static uint32_t mes_shm_cpu_to_numa_id(int cpu_id)
         char *end = NULL;
         unsigned long v;
 
-        if (strncmp(ent->d_name, "node", 4) != 0 || ent->d_name[4] == '\0') {
+        if (strncmp(ent->d_name, "node", MES_SHM_SYSFS_NODE_PREFIX_LEN) != 0 ||
+            ent->d_name[MES_SHM_SYSFS_NODE_PREFIX_LEN] == '\0') {
             continue;
         }
-        v = strtoul(ent->d_name + 4, &end, 10);
+        v = strtoul(ent->d_name + MES_SHM_SYSFS_NODE_PREFIX_LEN, &end, MES_SHM_SYSFS_NODE_NUM_BASE);
         if (end != NULL && *end == '\0' && v < (unsigned long)UINT32_MAX) {
             numa = (uint32_t)v;
             break;
@@ -394,16 +383,63 @@ static void mes_shm_fill_local_provider(ubs_mem_provider_t *provider, const char
     provider->socket_id = mes_shm_socket_id_from_numa(provider->numa_id);
 }
 
+static int mes_shm_alloc_and_map_self_queue(shm_rpc_lsnr_t *shm_lsnr, uint32_t self_index,
+    const char *user_name, const char *host_name, uint32_t ub_queue_idx)
+{
+    int ret;
+    char shm_name[MAX_SHM_NAME_LENGTH] = {0};
+    ubs_mem_provider_t provider;
+
+    if (g_mes_shm_size[ub_queue_idx] == 0) {
+        LOG_RUN_ERR("mes_init_shm: invalid shm size for ub_queue_idx=%u self_index %u.", ub_queue_idx,
+            (unsigned int)self_index);
+        return CM_ERROR;
+    }
+
+    ret = sprintf_s(shm_name, sizeof(shm_name), "shm_mes_%s_%llu_%u", user_name, (unsigned long long)self_index,
+        ub_queue_idx);
+    if (ret <= EOK) {
+        LOG_RUN_ERR("mes_init_shm: Failed to format shm name for ub_queue_idx=%u.", ub_queue_idx);
+        return CM_ERROR;
+    }
+
+    mes_shm_fill_local_provider(&provider, host_name, ub_queue_idx);
+    ret = mes_ubsmem_shmem_allocate_with_provider(&provider, shm_name, g_mes_shm_size[ub_queue_idx],
+        MES_SHM_SHMEM_MODE, UBSM_FLAG_WR_DELAY_COMP | UBSM_FLAG_ONLY_IMPORT_NONCACHE);
+    if (ret != UBSM_OK && ret != UBSM_ERR_ALREADY_EXIST) {
+        LOG_RUN_ERR("mes_init_shm: Failed to allocate shm %s, error: %d.", shm_name, ret);
+        return CM_ERROR;
+    }
+
+    ret = strncpy_s(g_shm_queue_names[ub_queue_idx], sizeof(g_shm_queue_names[ub_queue_idx]), shm_name,
+        sizeof(shm_name) - 1);
+    MEMS_RETURN_IFERR(ret);
+
+    ret = mes_ubsmem_shmem_map(NULL, g_mes_shm_size[ub_queue_idx], PROT_READ | PROT_WRITE, MAP_SHARED, shm_name, 0,
+        &shm_lsnr->peer_ring[self_index][ub_queue_idx]);
+    if (ret != UBSM_OK) {
+        LOG_RUN_ERR("[mes] failed to map self shm ub_queue_idx=%u, err = %d.", ub_queue_idx, ret);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+
 static int mes_init_shm(void)
 {
     int ret;
     const char *user_name = cm_sys_user_name();
+    char *host_name;
+    int self_id;
+    uint32_t self_index;
+    shm_rpc_lsnr_t *shm_lsnr;
+    ubsmem_options_t ubsm_shmem_opts;
+
     if (user_name == NULL || user_name[0] == '\0') {
         user_name = "unknown";
     }
-    char *host_name = cm_sys_host_name();
-    int self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
-    uint32_t self_index = mes_get_index_from_inst_id(self_id);
+    host_name = cm_sys_host_name();
+    self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
+    self_index = mes_get_index_from_inst_id(self_id);
     if (self_index == 0xFFFFFFFF) {
         LOG_RUN_ERR("mes_init_shm: self_id %u not in profile.", (unsigned int)self_id);
         return CM_ERROR;
@@ -412,9 +448,7 @@ static int mes_init_shm(void)
     /* Single refresh per bring-up: later mes_shm_map_peers / mes_init_shm_queue read g_mes_shm_size only. */
     mes_shm_refresh_per_queue_shm_size();
 
-    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
-    ubsmem_options_t ubsm_shmem_opts;
-
+    shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
     ret = mes_ubsmem_init_and_set_inited(&ubsm_shmem_opts);
     if (ret != CM_SUCCESS) {
         return CM_ERROR;
@@ -424,50 +458,11 @@ static int mes_init_shm(void)
     MEMS_RETURN_IFERR(ret);
 
     for (uint32_t ub_queue_idx = 0; ub_queue_idx < MES_SHM_UB_QUEUE_NUM; ub_queue_idx++) {
-        if (g_mes_shm_size[ub_queue_idx] == 0) {
-            LOG_RUN_ERR("mes_init_shm: invalid shm size for ub_queue_idx=%u self_index %u.", ub_queue_idx,
-                (unsigned int)self_index);
+        ret = mes_shm_alloc_and_map_self_queue(shm_lsnr, self_index, user_name, host_name, ub_queue_idx);
+        if (ret != CM_SUCCESS) {
             mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
             return CM_ERROR;
         }
-
-        char shm_name[MAX_SHM_NAME_LENGTH] = {0};
-        ret = sprintf_s(shm_name, sizeof(shm_name), "shm_mes_%s_%llu_%u", user_name, (unsigned long long)self_index,
-            ub_queue_idx);
-        if (ret <= EOK) {
-            LOG_RUN_ERR("mes_init_shm: Failed to format shm name for ub_queue_idx=%u.", ub_queue_idx);
-            mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
-            return CM_ERROR;
-        }
-
-        ubs_mem_provider_t provider;
-        mes_shm_fill_local_provider(&provider, host_name, ub_queue_idx);
-        ret = mes_ubsmem_shmem_allocate_with_provider(&provider, shm_name, g_mes_shm_size[ub_queue_idx],
-            MES_SHM_SHMEM_MODE, UBSM_FLAG_WR_DELAY_COMP | UBSM_FLAG_ONLY_IMPORT_NONCACHE);
-        if (ret != UBSM_OK && ret != UBSM_ERR_ALREADY_EXIST) {
-            LOG_RUN_ERR("mes_init_shm: Failed to allocate shm %s, error: %d.", shm_name, ret);
-            mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
-            return CM_ERROR;
-        }
-
-        ret = strncpy_s(g_shm_queue_names[ub_queue_idx], sizeof(g_shm_queue_names[ub_queue_idx]), shm_name,
-            sizeof(shm_name) - 1);
-        MEMS_RETURN_IFERR(ret);
-
-        ret = mes_ubsmem_shmem_map(NULL, g_mes_shm_size[ub_queue_idx], PROT_READ | PROT_WRITE, MAP_SHARED, shm_name, 0,
-            &shm_lsnr->peer_ring[self_index][ub_queue_idx]);
-        if (ret != UBSM_OK) {
-            LOG_RUN_ERR("[mes] failed to map self shm ub_queue_idx=%u, err = %d.", ub_queue_idx, ret);
-            mes_shm_rollback_self_queue_shm(shm_lsnr, self_index);
-            return CM_ERROR;
-        }
-        uint64_t boot_size = mes_shm_align64_up_u64(MES_SHM_SLICE_BOOT_RAW);
-        void *map_ptr = shm_lsnr->peer_ring[self_index][ub_queue_idx];
-        void *ring_ptr = (void *)((uintptr_t)map_ptr + (uintptr_t)boot_size);
-        LOG_RUN_INF("[mes_shm] mapped SELF export: self_inst=%u idx=%u q=%u name=%s "
-            "map_ptr=%p ring_ptr=%p map_len=%llu",
-            MES_GLOBAL_INST_MSG.profile.inst_id, self_index, ub_queue_idx, shm_name, map_ptr, ring_ptr,
-            (unsigned long long)g_mes_shm_size[ub_queue_idx]);
     }
 
     return CM_SUCCESS;
@@ -605,65 +600,63 @@ uint32_t mes_shm_send_pick_ub_q(mes_priority_t pri)
     return ub_q;
 }
 
-int mes_shm_send_data(const void *msg_data)
+/* Resolve ub queue for SHM send after path guards; returns error code or CM_SUCCESS. */
+static int mes_shm_send_resolve_ub_q(const mes_message_head_t *head, uint32_t *ub_q_out)
 {
-    int ret;
-    mes_message_head_t *head = (mes_message_head_t *)msg_data;
-    CM_RETURN_IFERR(mes_check_send_head_info(head));
+    mes_priority_t pri;
+    inst_type dst_inst;
+    mes_channel_t *channel;
+    mes_pipe_t *pipe;
+    shm_rpc_lsnr_t *shm_lsnr;
+    uint32_t ub_q;
 
     if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN) {
         LOG_DEBUG_ERR("[mes_shm] send_data: reject during shutdown, phase=%d", (int)MES_GLOBAL_INST_MSG.mes_ctx.phase);
         return CM_ERROR;
     }
-
     if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
         LOG_DEBUG_ERR("[mes_shm] send_data: reject, already switched to TCP");
         return ERR_MES_SENDPIPE_NO_READY;
     }
-
     if (mes_shm_fallback_in_progress()) {
         LOG_DEBUG_ERR("[mes_shm] send_data: reject during SHM fallback, dst_inst=%u", head->dst_inst);
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
-    mes_priority_t pri = MES_PRIORITY(head->flags);
-    inst_type dst_inst = head->dst_inst;
-    mes_channel_t *channel = mes_get_active_send_channel(head->dst_inst, head->caller_tid, head->flags);
+    pri = MES_PRIORITY(head->flags);
+    dst_inst = head->dst_inst;
+    channel = mes_get_active_send_channel(head->dst_inst, head->caller_tid, head->flags);
     if (channel == NULL) {
         LOG_DEBUG_ERR("[mes_shm] send_data: dst_inst=%u channel is NULL.", dst_inst);
         return ERR_MES_SENDPIPE_NO_READY;
     }
-    mes_pipe_t *pipe = &channel->pipe[pri];
-
+    pipe = &channel->pipe[pri];
     if (!pipe->send_pipe_active) {
         LOG_DEBUG_ERR("[mes_shm] send_data: dst_inst=%u pri=%u send pipe not ready.", dst_inst, (unsigned int)pri);
         return ERR_MES_SENDPIPE_NO_READY;
     }
 
-    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
-    uint32_t ub_q = mes_shm_send_pick_ub_q(pri);
+    shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
+    ub_q = mes_shm_send_pick_ub_q(pri);
     if (shm_lsnr->ub_handle[ub_q] == NULL) {
         LOG_DEBUG_ERR("[mes_shm] send_data: ub_handle[%u] is NULL, skip send dst_inst=%u", ub_q, head->dst_inst);
         return CM_ERROR;
     }
+    *ub_q_out = ub_q;
+    return CM_SUCCESS;
+}
 
-    message_t msg;
-    msg.header.src_thread_id = 0;
-    msg.header.body_length = head->size;
-    msg.header.dest_node_id = mes_get_index_from_inst_id(dst_inst);
-    msg.header.src_node_id = mes_get_index_from_inst_id(MES_GLOBAL_INST_MSG.profile.inst_id);
-    msg.header.msg_type = head->cmd;
-    msg.header.priority = (uint8_t)MES_SHM_UB_WIRE_MSG_PRIORITY;
-    msg.body = (char *)msg_data;
-
-    uint64 stat_time = cm_get_time_usec();
+static int mes_shm_ub_queue_send_with_esb(uint32_t ub_q, message_t *msg)
+{
+    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
+    int ret;
 
 #if defined(__aarch64__) && defined(ENABLE_ARM64_ESB)
     {
         int ub_fault_rc = sigsetjmp(g_mes_shm_sigbus_jump_env, 1);
         if (ub_fault_rc == 0) {
             g_mes_shm_sigbus_jump_active = CM_TRUE;
-            ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], &msg);
+            ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], msg);
             MES_SHM_ESB_BARRIER();
             g_mes_shm_sigbus_jump_active = CM_FALSE;
         } else {
@@ -673,15 +666,41 @@ int mes_shm_send_data(const void *msg_data)
         }
     }
 #else
-    ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], &msg);
+    ret = ub_comm_queue_send(&shm_lsnr->ub_handle[ub_q], msg);
 #endif
+    return ret;
+}
 
+int mes_shm_send_data(const void *msg_data)
+{
+    int ret;
+    mes_message_head_t *head = (mes_message_head_t *)msg_data;
+    uint32_t ub_q = 0;
+    message_t msg;
+    uint64 stat_time;
+
+    CM_RETURN_IFERR(mes_check_send_head_info(head));
+    ret = mes_shm_send_resolve_ub_q(head, &ub_q);
+    if (ret != CM_SUCCESS) {
+        return ret;
+    }
+
+    msg.header.src_thread_id = 0;
+    msg.header.body_length = head->size;
+    msg.header.dest_node_id = mes_get_index_from_inst_id(head->dst_inst);
+    msg.header.src_node_id = mes_get_index_from_inst_id(MES_GLOBAL_INST_MSG.profile.inst_id);
+    msg.header.msg_type = head->cmd;
+    msg.header.priority = (uint8_t)MES_SHM_UB_WIRE_MSG_PRIORITY;
+    msg.body = (char *)msg_data;
+
+    stat_time = cm_get_time_usec();
+    ret = mes_shm_ub_queue_send_with_esb(ub_q, &msg);
     if (mes_shm_fallback_in_progress()) {
         return ERR_MES_SENDPIPE_NO_READY;
     }
     if (ret != 0) {
         LOG_RUN_WAR("[mes_shm] send_data: failed to send to inst %u mes_pri=%u ub_handle_idx=%u size %u err %d",
-            dst_inst, (unsigned int)pri, ub_q, head->size, ret);
+            head->dst_inst, (unsigned int)MES_PRIORITY(head->flags), ub_q, head->size, ret);
         return CM_ERROR;
     }
     mes_consume_with_time_shm_send((uint16)head->app_cmd, stat_time, ub_q);

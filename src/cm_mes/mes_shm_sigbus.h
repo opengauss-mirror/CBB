@@ -39,8 +39,6 @@ int mes_shm_sigbus_register_handler(void);
 void mes_shm_sigbus_unregister_handler(void);
 void mes_shm_execute_esb_with_fault_handler(void);
 
-#define MES_SHM_SIGBUS_ENABLED() (CM_TRUE)
-
 #define MES_SHM_EXECUTE_ESB()                       \
     do {                                            \
         mes_shm_execute_esb_with_fault_handler();   \
@@ -53,7 +51,6 @@ void mes_shm_execute_esb_with_fault_handler(void);
 
 #else
 
-#define MES_SHM_SIGBUS_ENABLED() (CM_FALSE)
 #define MES_SHM_EXECUTE_ESB() ((void)0)
 #define MES_SHM_ESB_BARRIER() ((void)0)
 

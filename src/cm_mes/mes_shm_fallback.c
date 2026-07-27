@@ -45,8 +45,12 @@
 /* Fault-injection: coordinator R/W peer q0 map_ptr[0]. Env MES_SHM_MAP_TOUCH=1. */
 static thread_t g_mes_shm_map_touch_thread;
 static bool8 g_mes_shm_map_touch_started = CM_FALSE;
+static inst_type g_mes_shm_map_touch_peer_id = (inst_type)-1;
+static uint32_t g_mes_shm_map_touch_peer_idx = 0xFFFFFFFF;
+static void *g_mes_shm_map_touch_map_ptr = NULL;
 #define MES_SHM_MAP_TOUCH_INTERVAL_MS 10000U
 #define MES_SHM_MAP_TOUCH_UB_Q 0U
+#define MES_SHM_MAP_TOUCH_DELAY_DEFAULT_MS 60000U
 
 typedef enum en_mes_shm_fallback_trigger {
     MES_SHM_FALLBACK_FROM_FAULT = 0,
@@ -150,11 +154,51 @@ static void mes_shm_notify_all_peers_fallback(void)
 {
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
         inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id || !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id ||
+            !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
             continue;
         }
         mes_shm_send_fallback_notify(inst_id);
     }
+}
+
+static void mes_shm_reinit_tcp_channels(mes_context_t *ctx)
+{
+    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
+        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id || ctx->channels[inst_id] == NULL) {
+            continue;
+        }
+        for (uint32 ch = 0; ch < MES_GLOBAL_INST_MSG.profile.channel_cnt; ch++) {
+            mes_tcp_init_channels_param((uintptr_t)&ctx->channels[inst_id][ch]);
+        }
+    }
+}
+
+static int mes_shm_start_tcp_stack(void)
+{
+    int ret = mes_start_lsnr();
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] TCP fallback lsnr start failed, ret=%d", ret);
+        return ret;
+    }
+
+    ret = mes_start_receivers(MES_GLOBAL_INST_MSG.profile.priority_cnt,
+        MES_GLOBAL_INST_MSG.profile.recv_task_count, mes_recv_pipe_event_proc);
+    if (ret != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes] TCP fallback receivers start failed, ret=%d", ret);
+        return ret;
+    }
+    return CM_SUCCESS;
+}
+
+static void mes_shm_install_tcp_callbacks(void)
+{
+    g_cbb_mes_callback.connect_func = mes_tcp_try_connect;
+    g_cbb_mes_callback.heartbeat_func = mes_tcp_heartbeat_channel;
+    g_cbb_mes_callback.disconnect_func = mes_tcp_disconnect;
+    g_cbb_mes_callback.send_func = mes_tcp_send_data;
+    g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
 }
 
 int mes_switch_shm_to_tcp(void)
@@ -167,54 +211,16 @@ int mes_switch_shm_to_tcp(void)
     }
 
     LOG_RUN_WAR("[mes] UB fault detected, switching SHM to TCP");
-
     mes_shm_cleanup();
+    mes_shm_reinit_tcp_channels(ctx);
 
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id || ctx->channels[inst_id] == NULL) {
-            continue;
-        }
-        for (uint32 ch = 0; ch < MES_GLOBAL_INST_MSG.profile.channel_cnt; ch++) {
-            mes_tcp_init_channels_param((uintptr_t)&ctx->channels[inst_id][ch]);
-        }
-    }
-
-    ret = mes_start_lsnr();
+    ret = mes_shm_start_tcp_stack();
     if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes] TCP fallback lsnr start failed, ret=%d", ret);
         return ret;
     }
 
-    ret = mes_start_receivers(
-        MES_GLOBAL_INST_MSG.profile.priority_cnt,
-        MES_GLOBAL_INST_MSG.profile.recv_task_count,
-        mes_recv_pipe_event_proc);
-    if (ret != CM_SUCCESS) {
-        LOG_RUN_ERR("[mes] TCP fallback receivers start failed, ret=%d", ret);
-        return ret;
-    }
-
-    g_cbb_mes_callback.connect_func = mes_tcp_try_connect;
-    g_cbb_mes_callback.heartbeat_func = mes_tcp_heartbeat_channel;
-    g_cbb_mes_callback.disconnect_func = mes_tcp_disconnect;
-    g_cbb_mes_callback.send_func = mes_tcp_send_data;
-    g_cbb_mes_callback.send_bufflist_func = mes_tcp_send_bufflist;
-
-    for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
-        inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id || ctx->channels[inst_id] == NULL) {
-            continue;
-        }
-        for (uint32 ch = 0; ch < MES_GLOBAL_INST_MSG.profile.channel_cnt; ch++) {
-            mes_channel_t *channel = &ctx->channels[inst_id][ch];
-            for (uint32 prio = 0; prio < MES_GLOBAL_INST_MSG.profile.priority_cnt; prio++) {
-                channel->pipe[prio].send_pipe_active = CM_FALSE;
-                channel->pipe[prio].recv_pipe_active = CM_FALSE;
-            }
-        }
-    }
-
+    mes_shm_install_tcp_callbacks();
+    mes_shm_fence_channels_on_degrade();
     MES_GLOBAL_INST_MSG.profile.pipe_type = MES_TYPE_TCP;
     __atomic_store_n(&ctx->shm_degraded_to_tcp, CM_TRUE, __ATOMIC_RELEASE);
     mes_shm_sigbus_unregister_handler();
@@ -230,7 +236,8 @@ void mes_shm_tcp_bringup_peers(void)
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
         inst_type inst_id = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
-        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id || !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
+        if (inst_id == MES_GLOBAL_INST_MSG.profile.inst_id ||
+            !MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].need_connect) {
             continue;
         }
         if (mes_connect(inst_id) != CM_SUCCESS) {
@@ -317,7 +324,7 @@ static status_t mes_shm_schedule_fallback_worker(mes_shm_fallback_trigger_t trig
     bool8 expected = CM_FALSE;
 
     if (!__atomic_compare_exchange_n(&g_shm_fallback_thread_started, &expected, CM_TRUE, 0,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
         LOG_RUN_INF("[mes_shm] fallback worker already scheduled");
         return CM_SUCCESS;
     }
@@ -406,25 +413,15 @@ void mes_ub_fallback_recv_callback(const message_t *msg, void *ctx)
     mes_shm_handle_peer_fallback_notify((inst_type)notify_head->src_inst);
 }
 
-static void mes_shm_map_touch_entry(thread_t *thread)
+/* Pick first peer with q0 mapped; fill g_mes_shm_map_touch_*. */
+static bool8 mes_shm_map_touch_pick_peer(void)
 {
     shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
     inst_type self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
-    inst_type peer_id = (inst_type)-1;
-    uint32_t peer_idx = 0xFFFFFFFF;
-    uint32_t self_index;
-    volatile uint8_t *map_bytes = NULL;
-    void *map_ptr = NULL;
 
-    cm_set_thread_name("mes_shm_map_touch");
-
-    /* Coordinator is sorted index 0 (smallest inst_id). */
-    self_index = mes_get_index_from_inst_id(self_id);
-    if (self_index != 0) {
-        LOG_RUN_INF("[mes_shm] MAP_TOUCH skip: self=%u is not coordinator (idx=%u)",
-            (unsigned)self_id, self_index);
-        return;
-    }
+    g_mes_shm_map_touch_peer_id = (inst_type)-1;
+    g_mes_shm_map_touch_peer_idx = 0xFFFFFFFF;
+    g_mes_shm_map_touch_map_ptr = NULL;
 
     for (uint32 i = 0; i < MES_GLOBAL_INST_MSG.profile.inst_cnt; i++) {
         inst_type cand = MES_GLOBAL_INST_MSG.profile.inst_net_addr[i].inst_id;
@@ -440,46 +437,71 @@ static void mes_shm_map_touch_entry(thread_t *thread)
         if (shm_lsnr->peer_ring[idx][MES_SHM_MAP_TOUCH_UB_Q] == NULL) {
             continue;
         }
-        peer_id = cand;
-        peer_idx = idx;
-        map_ptr = shm_lsnr->peer_ring[idx][MES_SHM_MAP_TOUCH_UB_Q];
-        break;
+        g_mes_shm_map_touch_peer_id = cand;
+        g_mes_shm_map_touch_peer_idx = idx;
+        g_mes_shm_map_touch_map_ptr = shm_lsnr->peer_ring[idx][MES_SHM_MAP_TOUCH_UB_Q];
+        return CM_TRUE;
     }
+    return CM_FALSE;
+}
 
-    if (map_ptr == NULL) {
-        LOG_RUN_ERR("[mes_shm] MAP_TOUCH: no peer q%u map_ptr, thread exit", MES_SHM_MAP_TOUCH_UB_Q);
-        (void)printf("[mes_shm] MAP_TOUCH: no peer q%u map_ptr, thread exit\n", MES_SHM_MAP_TOUCH_UB_Q);
-        (void)fflush(stdout);
-        return;
+/* Delay before first R/W inside touch thread; override with MES_SHM_MAP_TOUCH_DELAY_MS. */
+static void mes_shm_map_touch_delay_first(thread_t *thread)
+{
+    uint32_t delay_ms = MES_SHM_MAP_TOUCH_DELAY_DEFAULT_MS;
+    const char *delay_env = getenv("MES_SHM_MAP_TOUCH_DELAY_MS");
+
+    if (delay_env != NULL && delay_env[0] != '\0') {
+        delay_ms = (uint32_t)atoi(delay_env);
     }
-
-    map_bytes = (volatile uint8_t *)map_ptr;
-    LOG_RUN_INF("[mes_shm] MAP_TOUCH start: pid=%d self=%u peer=%u idx=%u q=%u map_ptr=%p "
-        "(dcat_ub -a %p -p %d)",
-        (int)getpid(), (unsigned)self_id, (unsigned)peer_id, peer_idx, MES_SHM_MAP_TOUCH_UB_Q,
-        map_ptr, map_ptr, (int)getpid());
-    (void)printf("[mes_shm] MAP_TOUCH start: pid=%d self=%u peer=%u idx=%u q=%u map_ptr=%p\n"
-        "[mes_shm] MAP_TOUCH inject example: /home/dcat/dcat_ub mem -E <peer_ip> -t fd -a %p -p %d\n",
-        (int)getpid(), (unsigned)self_id, (unsigned)peer_id, peer_idx, MES_SHM_MAP_TOUCH_UB_Q,
-        map_ptr, map_ptr, (int)getpid());
+    LOG_RUN_INF("[mes_shm] MAP_TOUCH delaying first access for %u ms", delay_ms);
+    (void)printf("[mes_shm] MAP_TOUCH delaying first access for %u ms\n", delay_ms);
     (void)fflush(stdout);
-
-    /* Delay first R/W so warmup/inject can finish; override with MES_SHM_MAP_TOUCH_DELAY_MS. */
-    {
-        uint32_t delay_ms = 60000;
-        const char *delay_env = getenv("MES_SHM_MAP_TOUCH_DELAY_MS");
-        if (delay_env != NULL && delay_env[0] != '\0') {
-            delay_ms = (uint32_t)atoi(delay_env);
-        }
-        LOG_RUN_INF("[mes_shm] MAP_TOUCH delaying first access for %u ms", delay_ms);
-        (void)printf("[mes_shm] MAP_TOUCH delaying first access for %u ms\n", delay_ms);
-        (void)fflush(stdout);
-        while (delay_ms > 0 && !thread->closed) {
-            uint32_t step = (delay_ms > 100) ? 100 : delay_ms;
-            cm_sleep(step);
-            delay_ms -= step;
-        }
+    while (delay_ms > 0 && !thread->closed) {
+        uint32_t step = (delay_ms > CM_SLEEP_100_FIXED) ? CM_SLEEP_100_FIXED : delay_ms;
+        cm_sleep(step);
+        delay_ms -= step;
     }
+}
+
+/* One R/W of map_ptr[0]; CM_FALSE if UB fault handled (caller should stop). */
+static bool8 mes_shm_map_touch_access_once(volatile uint8_t *map_bytes, void *map_ptr)
+{
+#if defined(__aarch64__) && defined(ENABLE_ARM64_ESB)
+    int ub_fault_rc = sigsetjmp(g_mes_shm_sigbus_jump_env, 1);
+    if (ub_fault_rc == 0) {
+        uint8_t v;
+
+        g_mes_shm_sigbus_jump_active = CM_TRUE;
+        v = map_bytes[0];
+        map_bytes[0] = v;
+        MES_SHM_ESB_BARRIER();
+        g_mes_shm_sigbus_jump_active = CM_FALSE;
+        return CM_TRUE;
+    }
+    g_mes_shm_sigbus_jump_active = CM_FALSE;
+    LOG_RUN_INF("[mes_shm] MAP_TOUCH hit UB fault at map_ptr=%p", map_ptr);
+    (void)printf("[mes_shm] MAP_TOUCH hit UB fault at map_ptr=%p\n", map_ptr);
+    (void)fflush(stdout);
+    mes_shm_handle_ub_fault("mes_shm_map_touch");
+    return CM_FALSE;
+#else
+    uint8_t v = map_bytes[0];
+    map_bytes[0] = v;
+    (void)map_ptr;
+    return CM_TRUE;
+#endif
+}
+
+static void mes_shm_map_touch_entry(thread_t *thread)
+{
+    shm_rpc_lsnr_t *shm_lsnr = &MES_GLOBAL_INST_MSG.mes_ctx.lsnr.shm;
+    void *map_ptr = g_mes_shm_map_touch_map_ptr;
+    uint32_t peer_idx = g_mes_shm_map_touch_peer_idx;
+    volatile uint8_t *map_bytes = (volatile uint8_t *)map_ptr;
+
+    cm_set_thread_name("mes_shm_map_touch");
+    mes_shm_map_touch_delay_first(thread);
 
     while (!thread->closed) {
         if (MES_GLOBAL_INST_MSG.mes_ctx.phase != SHUTDOWN_PHASE_NOT_BEGIN ||
@@ -487,37 +509,13 @@ static void mes_shm_map_touch_entry(thread_t *thread)
             mes_shm_fallback_in_progress()) {
             break;
         }
-        if (peer_idx >= MAX_HOST_NUM ||
+        if (map_ptr == NULL || peer_idx >= MAX_HOST_NUM ||
             shm_lsnr->peer_ring[peer_idx][MES_SHM_MAP_TOUCH_UB_Q] != map_ptr) {
             break;
         }
-
-#if defined(__aarch64__) && defined(ENABLE_ARM64_ESB)
-        {
-            int ub_fault_rc = sigsetjmp(g_mes_shm_sigbus_jump_env, 1);
-            if (ub_fault_rc == 0) {
-                uint8_t v;
-
-                g_mes_shm_sigbus_jump_active = CM_TRUE;
-                v = map_bytes[0];
-                map_bytes[0] = v;
-                MES_SHM_ESB_BARRIER();
-                g_mes_shm_sigbus_jump_active = CM_FALSE;
-            } else {
-                g_mes_shm_sigbus_jump_active = CM_FALSE;
-                LOG_RUN_INF("[mes_shm] MAP_TOUCH hit UB fault at map_ptr=%p", map_ptr);
-                (void)printf("[mes_shm] MAP_TOUCH hit UB fault at map_ptr=%p\n", map_ptr);
-                (void)fflush(stdout);
-                mes_shm_handle_ub_fault("mes_shm_map_touch");
-                break;
-            }
+        if (!mes_shm_map_touch_access_once(map_bytes, map_ptr)) {
+            break;
         }
-#else
-        {
-            uint8_t v = map_bytes[0];
-            map_bytes[0] = v;
-        }
-#endif
         cm_sleep(MES_SHM_MAP_TOUCH_INTERVAL_MS);
     }
 
@@ -528,20 +526,32 @@ void mes_shm_start_map_touch_thread(void)
 {
     const char *env = getenv("MES_SHM_MAP_TOUCH");
     uint32_t self_index;
+    inst_type self_id;
 
     if (env == NULL || env[0] != '1' || env[1] != '\0') {
         return;
     }
-    /* Coordinator is sorted index 0 (smallest inst_id). */
-    self_index = mes_get_index_from_inst_id(MES_GLOBAL_INST_MSG.profile.inst_id);
+    self_id = MES_GLOBAL_INST_MSG.profile.inst_id;
+    self_index = mes_get_index_from_inst_id(self_id);
     if (self_index != 0) {
         LOG_RUN_INF("[mes_shm] MAP_TOUCH not started: non-coordinator inst_id=%u idx=%u",
-            (unsigned)MES_GLOBAL_INST_MSG.profile.inst_id, self_index);
+            (unsigned)self_id, self_index);
         return;
     }
     if (g_mes_shm_map_touch_started) {
         return;
     }
+    if (!mes_shm_map_touch_pick_peer()) {
+        LOG_RUN_ERR("[mes_shm] MAP_TOUCH: no peer q%u map_ptr, not started", MES_SHM_MAP_TOUCH_UB_Q);
+        return;
+    }
+
+    LOG_RUN_INF("[mes_shm] MAP_TOUCH start: pid=%d self=%u peer=%u idx=%u q=%u map_ptr=%p "
+        "(dcat_ub -a %p -p %d)",
+        (int)getpid(), (unsigned)self_id, (unsigned)g_mes_shm_map_touch_peer_id,
+        g_mes_shm_map_touch_peer_idx, MES_SHM_MAP_TOUCH_UB_Q, g_mes_shm_map_touch_map_ptr,
+        g_mes_shm_map_touch_map_ptr, (int)getpid());
+
     if (cm_create_thread(mes_shm_map_touch_entry, 0, NULL, &g_mes_shm_map_touch_thread) != CM_SUCCESS) {
         LOG_RUN_ERR("[mes_shm] failed to start MAP_TOUCH thread");
         return;
