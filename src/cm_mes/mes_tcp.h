@@ -59,6 +59,7 @@ status_t mes_get_pipe_version(cs_pipe_t *pipe, uint32 *version);
 void cs_disconnect_ex(cs_pipe_t *pipe, bool8 is_send, inst_type inst_id);
 void mes_recv_pipe_event_proc(uint16 channel_id, uint16 priority, uint32 version, uint32 event);
 void mes_send_pipe_event_proc(uint16 channel_id, uint16 priority, uint32 version, uint32 event);
+int mes_wait_connect_batch(const unsigned char *inst_id_list, unsigned char inst_id_cnt);
 
 #ifdef __cplusplus
 }

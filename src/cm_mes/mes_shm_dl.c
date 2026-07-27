@@ -36,6 +36,8 @@ typedef struct UbsMemFunc {
     int (*ubsmem_lookup_regions)(ubsmem_regions_t *regions);
     int (*ubsmem_destroy_region)(const char *region_name);
     int (*ubsmem_shmem_allocate)(const char *region_name, const char *name, size_t size, mode_t mode, uint64_t flags);
+    int (*ubsmem_shmem_allocate_with_provider)(const ubs_mem_provider_t *src_loc, const char *name, size_t size,
+        mode_t mode, uint64_t flags);
     int (*ubsmem_shmem_deallocate)(const char *name);
     int (*ubsmem_shmem_map)(void *addr, size_t length, int port, int flags, const char *name, off_t offset,
                             void **local_ptr);
@@ -140,6 +142,11 @@ static int UbsMemDlsym(void)
 
     if (cm_load_symbol(g_ubsMemDl, "ubsmem_shmem_allocate",
                        (void **)&g_ubsMemFunc.ubsmem_shmem_allocate) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+
+    if (cm_load_symbol(g_ubsMemDl, "ubsmem_shmem_allocate_with_provider",
+                       (void **)&g_ubsMemFunc.ubsmem_shmem_allocate_with_provider) != CM_SUCCESS) {
         return CM_ERROR;
     }
 
@@ -440,6 +447,16 @@ int mes_ubsmem_shmem_allocate(const char *region_name, const char *name,
 {
     if (g_ubsMemFunc.ubsmem_shmem_allocate != NULL) {
         return g_ubsMemFunc.ubsmem_shmem_allocate(region_name, name, size, mode, flags);
+    }
+
+    return CM_ERROR;
+}
+
+int mes_ubsmem_shmem_allocate_with_provider(const ubs_mem_provider_t *src_loc, const char *name,
+    size_t size, mode_t mode, uint64_t flags)
+{
+    if (g_ubsMemFunc.ubsmem_shmem_allocate_with_provider != NULL) {
+        return g_ubsMemFunc.ubsmem_shmem_allocate_with_provider(src_loc, name, size, mode, flags);
     }
 
     return CM_ERROR;
