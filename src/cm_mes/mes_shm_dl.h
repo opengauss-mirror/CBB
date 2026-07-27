@@ -46,8 +46,8 @@ extern "C"
 #define UBS_MEM_DEFAULT_SO_PATH "/usr/local/ubs_mem/lib/libubsm_sdk.so"
 
 #define UB_DIST_COMM_ENV_PATH        "UB_DIST_COMM_LIB_PATH"
-#define UB_DIST_COMM_SO_NAME         "libubturbo_tdsql.so"
-#define UB_DIST_COMM_DEFAULT_SO_PATH "/usr/lib64/libubturbo_tdsql.so"
+#define UB_DIST_COMM_SO_NAME         "libubs-atomic.so"
+#define UB_DIST_COMM_DEFAULT_SO_PATH "/usr/lib64/libubs-atomic.so"
 
 int mes_init_ubs_dlopen_so(void);
 void FinishUbsMemDl(void);
@@ -60,6 +60,8 @@ int mes_ubsmem_create_region(const char *region_name, size_t size,
     const ubsmem_region_attributes_t *reg_attr);
 int mes_ubsmem_destroy_region(const char *region_name);
 int mes_ubsmem_shmem_allocate(const char *region_name, const char *name,
+    size_t size, mode_t mode, uint64_t flags);
+int mes_ubsmem_shmem_allocate_with_provider(const ubs_mem_provider_t *src_loc, const char *name,
     size_t size, mode_t mode, uint64_t flags);
 int mes_ubsmem_shmem_deallocate(const char *name);
 int mes_ubsmem_shmem_map(void *addr, size_t length, int port, int flags,

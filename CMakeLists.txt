@@ -110,6 +110,12 @@ if (OS_ARCH STREQUAL "aarch64")
         add_compile_options(-march=armv8-a+crc)
     endif (USE_H1620)
 
+    option(ENABLE_ARM64_ESB "Enable ARM64 ESB for MES SHM SIGBUS fallback" ON)
+    message(STATUS "ENABLE_ARM64_ESB = ${ENABLE_ARM64_ESB}")
+    if (ENABLE_ARM64_ESB)
+        add_compile_definitions(ENABLE_ARM64_ESB)
+    endif ()
+
     add_compile_options(-mtune=cortex-a72 -fsigned-char -g -ggdb3 -march=armv8-a+crc -funwind-tables)
 elseif (OS_ARCH STREQUAL "x86_64")
     add_compile_options(-msse4.2 )
