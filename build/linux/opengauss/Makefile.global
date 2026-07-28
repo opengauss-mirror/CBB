@@ -54,7 +54,7 @@ ifeq ($(BUILD_TUPLE), x86_64)
 endif
 ifeq ($(BUILD_TUPLE), aarch64)
     USE_SSE42_CRC32C_WITH_RUNTIME_CHECK = OFF
-    OS_OPTIONS = -march=armv8-a+crc -mtune=cortex-a72 -fsigned-char -ggdb3 -march=armv8-a+crc -funwind-tables
+    OS_OPTIONS = -march=armv8.2-a+crc -mtune=cortex-a72 -fsigned-char -ggdb3 -march=armv8.2-a+crc -funwind-tables
 endif
 
 
