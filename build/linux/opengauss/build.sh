@@ -75,8 +75,6 @@ while [ $# -gt 0 ]; do
             exit 1
     esac
 done
-enable_arm64_esb=ON
-
 if [ -z "${version_mode}" ] || [ "$version_mode"x == ""x ]; then
     version_mode=Release
 fi
@@ -150,8 +148,12 @@ cp -r $LIB_PATH/zlib1.2.11/comm/include              $CBB_LIBRARYS/zlib/include
 
 cd $PACKAGE
 if [ "$build_tool"x == "cmake"x ];then
-    echo "ENABLE_ARM64_ESB=${enable_arm64_esb}"
-    cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF -DENABLE_ARM64_ESB=${enable_arm64_esb}
+    if [ "$(uname -m)" = "aarch64" ]; then
+        echo "ENABLE_ARM64_ESB=${enable_arm64_esb}"
+        cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF -DENABLE_ARM64_ESB=${enable_arm64_esb}
+    else
+        cmake . -DCMAKE_BUILD_TYPE=${version_mode} -DUSE_GM_TLS=OFF
+    fi
     make -sj 8
 else
     echo "WARNING: build_tool=make ignores -E/--enable_arm64_esb (cmake option only)"
