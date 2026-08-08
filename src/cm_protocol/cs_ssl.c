@@ -1392,27 +1392,25 @@ static int32 cs_ssl_verify_cb(int32 ok, X509_STORE_CTX *ctx)
         return ok;
     }
     int err_code = X509_STORE_CTX_get_error(ctx);
+    /* fail closed: an expired CRL must not be silently accepted */
     if (err_code == X509_V_ERR_CRL_HAS_EXPIRED) {
-        X509_STORE_CTX_set_error(ctx, X509_V_OK);
         if (!g_crl_expired) {
-            LOG_RUN_WAR("the ssl crl file is expired");
+            LOG_RUN_ERR("ssl verify failed: the ssl crl file is expired");
             g_crl_expired = CM_TRUE;
         }
-        return 1;
-    } else if (cs_is_crl_invalid(err_code)) {
-        X509_STORE_CTX_set_error(ctx, X509_V_OK);
-        if (!g_crl_expired) {
-            const char *errmsg = X509_verify_cert_error_string(err_code);
-            LOG_RUN_WAR("SSL connection warning: the ssl crl file is invalid. "
-            "{ssl err code: %d, ssl err message: %s}",
-            err_code, errmsg);
-            g_crl_expired = CM_TRUE;
-        }
-        return 1;
+        return 0;
     }
-    if (err_code == X509_V_ERR_CERT_REVOKED && g_crl_expired) {
-        X509_STORE_CTX_set_error(ctx, X509_V_OK);
-        return 1;
+    /* fail closed: any CRL related error (e.g. signature failure) rejects the connection */
+    if (cs_is_crl_invalid(err_code)) {
+        const char *errmsg = X509_verify_cert_error_string(err_code);
+        LOG_RUN_ERR("ssl verify failed: the ssl crl file is invalid. {ssl err code: %d, ssl err message: %s}",
+            err_code, errmsg);
+        return 0;
+    }
+    /* a revoked certificate must always be rejected, regardless of the CRL state */
+    if (err_code == X509_V_ERR_CERT_REVOKED) {
+        LOG_RUN_ERR("ssl verify failed: the certificate has been revoked");
+        return 0;
     }
     return ok;
 }
@@ -1548,10 +1546,14 @@ ssl_ctx_t *cs_ssl_create_acceptor_fd(ssl_config_t *config)
     SSL_CTX *ssl_fd = NULL;
     uint32 verify = SSL_VERIFY_PEER;
 
-    /* Cannot verify peer if the server don't have the CA */
+    /* Fail closed: without a CA file the peer certificate cannot be verified.
+       Refuse to create the ssl context instead of degrading to SSL_VERIFY_NONE. */
     if (CM_IS_EMPTY_STR(config->ca_file)) {
-        verify = SSL_VERIFY_NONE;
-    } else if (config->verify_peer) {
+        LOG_RUN_ERR("[SECURITY] ssl ca_file is not configured, refuse to create ssl acceptor "
+            "without peer verification. Please configure ssl_ca_file.");
+        return NULL;
+    }
+    if (config->verify_peer) {
         verify |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
     }
 
@@ -1580,12 +1582,12 @@ ssl_ctx_t *cs_ssl_create_connector_fd(ssl_config_t *config)
     SSL_CTX *ssl_fd = NULL;
     int32 verify = SSL_VERIFY_PEER;
 
-    /*
-      Turn off verification of servers certificate if both
-      ca_file and ca_path is set to NULL
-    */
+    /* Fail closed: without a CA file the server certificate cannot be verified.
+       Refuse to create the ssl context instead of degrading to SSL_VERIFY_NONE. */
     if (CM_IS_EMPTY_STR(config->ca_file)) {
-        verify = SSL_VERIFY_NONE;
+        LOG_RUN_ERR("[SECURITY] ssl ca_file is not configured, refuse to create ssl connector "
+            "without peer verification. Please configure ssl_ca_file.");
+        return NULL;
     }
 
     ssl_fd = cs_ssl_create_context(config, CM_TRUE);
