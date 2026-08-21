@@ -55,6 +55,7 @@ static void *g_mes_shm_map_touch_map_ptr = NULL;
 typedef enum en_mes_shm_fallback_trigger {
     MES_SHM_FALLBACK_FROM_FAULT = 0,
     MES_SHM_FALLBACK_FROM_PEER = 1,
+    MES_SHM_FALLBACK_FROM_ADMIN = 2,
 } mes_shm_fallback_trigger_t;
 
 /* Detached worker: ub_comm_queue_deinit must not run on SYNC callback thread. */
@@ -308,7 +309,8 @@ static void mes_shm_fallback_worker_entry(thread_t *thread)
     (void)thread;
     cm_set_thread_name("mes_shm_fb");
     LOG_RUN_INF("[mes_shm] fallback worker started (trigger=%s)",
-        (trigger == MES_SHM_FALLBACK_FROM_PEER) ? "peer_notify" : "local_fault");
+        (trigger == MES_SHM_FALLBACK_FROM_PEER) ? "peer_notify" :
+        ((trigger == MES_SHM_FALLBACK_FROM_ADMIN) ? "admin_disable_ub_ha" : "local_fault"));
 
     if (trigger == MES_SHM_FALLBACK_FROM_PEER) {
         mes_shm_run_fallback_sequence(CM_FALSE, peer_src);
@@ -344,7 +346,35 @@ static status_t mes_shm_schedule_fallback_worker(mes_shm_fallback_trigger_t trig
     (void)pthread_detach(g_shm_fallback_thread.id);
 #endif
     LOG_RUN_INF("[mes_shm] scheduled fallback worker (trigger=%s peer=%u)",
-        (trigger == MES_SHM_FALLBACK_FROM_PEER) ? "peer_notify" : "local_fault", (unsigned)peer_src);
+        (trigger == MES_SHM_FALLBACK_FROM_PEER) ? "peer_notify" :
+        ((trigger == MES_SHM_FALLBACK_FROM_ADMIN) ? "admin_disable_ub_ha" : "local_fault"),
+        (unsigned)peer_src);
+    return CM_SUCCESS;
+}
+
+int mes_request_shm_to_tcp_fallback(int notify_peers)
+{
+    mes_context_t *ctx = &MES_GLOBAL_INST_MSG.mes_ctx;
+    bool8 was_degraded;
+    mes_shm_fallback_trigger_t trigger;
+
+    if (MES_GLOBAL_INST_MSG.profile.pipe_type == MES_TYPE_TCP) {
+        return CM_SUCCESS;
+    }
+
+    was_degraded = (bool8)__atomic_exchange_n(&ctx->shm_degraded_to_tcp, CM_TRUE, __ATOMIC_ACQ_REL);
+    if (was_degraded == CM_TRUE) {
+        return CM_SUCCESS;
+    }
+
+    mes_shm_fence_channels_on_degrade();
+    trigger = (notify_peers != 0) ? MES_SHM_FALLBACK_FROM_ADMIN : MES_SHM_FALLBACK_FROM_PEER;
+    LOG_RUN_WAR("[mes_shm] request SHM to TCP fallback (notify_peers=%d)", notify_peers);
+
+    if (mes_shm_schedule_fallback_worker(trigger, 0) != CM_SUCCESS) {
+        LOG_RUN_ERR("[mes_shm] schedule fallback worker failed on admin request");
+        return CM_ERROR;
+    }
     return CM_SUCCESS;
 }
 
