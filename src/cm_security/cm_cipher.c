@@ -24,7 +24,11 @@
 
 #include "cm_cipher.h"
 #include "cm_log.h"
+#include "cm_utils.h"
 #include "securec.h"
+#ifndef WIN32
+#include <unistd.h>
+#endif
 #include "openssl/rand.h"
 #include "openssl/evp.h"
 #include "openssl/ossl_typ.h"
@@ -234,7 +238,109 @@ static status_t CRYPT_decrypt(uint32 alg_id, const uchar *key, uint32 key_len, c
     return CM_SUCCESS;
 }
 
-status_t cm_get_component(char *buff, uint32 buff_size)
+/*
+ * Per-instance cipher component file.
+ * When configured via cm_cipher_set_component_file(), its RANDOM_LEN random bytes replace the
+ * built-in component below, so the PBKDF2 password source is no longer recoverable from the
+ * binary image. When not configured, the legacy built-in component is used to stay compatible
+ * with ciphertexts produced before the file was introduced.
+ */
+static char g_component_file[CM_FILE_NAME_BUFFER_SIZE] = { 0 };
+static bool8 g_builtin_component_warned = CM_FALSE;
+
+#ifndef WIN32
+static status_t cm_check_component_file_stat(const char *real_path)
+{
+    struct stat stat_buf;
+    if (stat(real_path, &stat_buf) != 0) {
+        LOG_DEBUG_ERR("stat cipher component file \"%s\" failed, errno %d", real_path, errno);
+        return CM_ERROR;
+    }
+    if (!S_ISREG(stat_buf.st_mode)) {
+        LOG_DEBUG_ERR("cipher component file \"%s\" is not a regular file", real_path);
+        return CM_ERROR;
+    }
+    if (stat_buf.st_size != (off_t)RANDOM_LEN) {
+        LOG_DEBUG_ERR("cipher component file \"%s\" size must be exactly %d bytes", real_path, RANDOM_LEN);
+        return CM_ERROR;
+    }
+    if ((stat_buf.st_mode & (S_IRWXG | S_IRWXO)) != 0) {
+        LOG_DEBUG_ERR("cipher component file \"%s\" must not be accessible by group or others", real_path);
+        return CM_ERROR;
+    }
+    if (stat_buf.st_uid != geteuid()) {
+        LOG_DEBUG_ERR("cipher component file \"%s\" must be owned by the current user", real_path);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+}
+#endif
+
+static status_t cm_load_component_file(const char *file_path, char *buff, uint32 buff_size)
+{
+#ifndef WIN32
+    char real_path[CM_FILE_NAME_BUFFER_SIZE] = { 0 };
+    CM_RETURN_IFERR(realpath_file(file_path, real_path, CM_FILE_NAME_BUFFER_SIZE));
+    if (cm_check_component_file_stat(real_path) != CM_SUCCESS) {
+        return CM_ERROR;
+    }
+    if (buff_size < RANDOM_LEN) {
+        LOG_DEBUG_ERR("cipher component buffer size %u is too small", buff_size);
+        return CM_ERROR;
+    }
+    int32 fd = open(real_path, O_RDONLY);
+    if (fd < 0) {
+        LOG_DEBUG_ERR("open cipher component file \"%s\" failed, errno %d", real_path, errno);
+        return CM_ERROR;
+    }
+    uint32 offset = 0;
+    while (offset < RANDOM_LEN) {
+        ssize_t read_len = read(fd, buff + offset, (size_t)(RANDOM_LEN - offset));
+        if (read_len > 0) {
+            offset += (uint32)read_len;
+            continue;
+        }
+        if (read_len < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    (void)close(fd);
+    if (offset != RANDOM_LEN) {
+        LOG_DEBUG_ERR("read cipher component file \"%s\" failed, got %u of %d bytes", real_path, offset, RANDOM_LEN);
+        return CM_ERROR;
+    }
+    return CM_SUCCESS;
+#else
+    LOG_DEBUG_ERR("cipher component file is not supported on windows");
+    return CM_ERROR;
+#endif
+}
+
+status_t cm_cipher_set_component_file(const char *file_path)
+{
+    if (file_path == NULL || file_path[0] == '\0') {
+        LOG_DEBUG_ERR("cipher component file path is empty");
+        return CM_ERROR;
+    }
+    if (strlen(file_path) >= CM_FILE_NAME_BUFFER_SIZE) {
+        LOG_DEBUG_ERR("cipher component file path is too long");
+        return CM_ERROR;
+    }
+    /* validate eagerly so misconfiguration is reported at startup instead of first use */
+    char probe[RANDOM_LEN] = { 0 };
+    if (cm_load_component_file(file_path, probe, (uint32)sizeof(probe)) != CM_SUCCESS) {
+        (void)memset_s(probe, sizeof(probe), 0, sizeof(probe));
+        LOG_DEBUG_ERR("cipher component file \"%s\" is invalid", file_path);
+        return CM_ERROR;
+    }
+    (void)memset_s(probe, sizeof(probe), 0, sizeof(probe));
+    MEMS_RETURN_IFERR(strcpy_s(g_component_file, sizeof(g_component_file), file_path));
+    return CM_SUCCESS;
+}
+
+/* legacy built-in component: public constant, kept only for backward compatibility */
+static status_t cm_get_builtin_component(char *buff, uint32 buff_size)
 {
     char init_vector[32] = {
         (char)0x72, (char)0xA1, (char)0x8D, (char)0x39,
@@ -279,7 +385,23 @@ status_t cm_get_component(char *buff, uint32 buff_size)
     init_vector[30] = (char)init_vector[25] & (char)init_vector[12];
     init_vector[31] = (char)init_vector[6] ^ (char)init_vector[18];
     MEMS_RETURN_IFERR(memcpy_sp(buff, (size_t)buff_size, init_vector, sizeof(init_vector)));
+    (void)memset_s(init_vector, sizeof(init_vector), 0, sizeof(init_vector));
     return CM_SUCCESS;
+}
+
+status_t cm_get_component(char *buff, uint32 buff_size)
+{
+    /* a configured per-instance component file always takes precedence and fails closed */
+    if (g_component_file[0] != '\0') {
+        return cm_load_component_file(g_component_file, buff, buff_size);
+    }
+    if (!g_builtin_component_warned) {
+        LOG_RUN_WAR("cipher component file is not configured, the built-in public component is used and "
+            "encrypted data is only obfuscated. Call cm_cipher_set_component_file() with a per-instance "
+            "random file for real confidentiality.");
+        g_builtin_component_warned = CM_TRUE;
+    }
+    return cm_get_builtin_component(buff, buff_size);
 }
 
 status_t cm_get_actual_component(char *component, uint32 component_len, char *component1)
@@ -293,6 +415,22 @@ status_t cm_get_actual_component(char *component, uint32 component_len, char *co
         src_component[i] = src_component[i] ^ component1[i];
     }
     MEMS_RETURN_IFERR(memcpy_sp(component, (size_t)component_len, src_component, RANDOM_LEN));
+    return CM_SUCCESS;
+}
+
+/* derive the component from the legacy built-in constant, used only for backward-compatible decrypt */
+static status_t cm_get_legacy_actual_component(char *component, uint32 component_len, char *component1)
+{
+    char src_component[RANDOM_LEN + 1] = { 0 };
+    if (cm_get_builtin_component(src_component, RANDOM_LEN) != CM_SUCCESS) {
+        LOG_DEBUG_ERR("get built-in component failed");
+        return CM_ERROR;
+    }
+    for (uint32 i = 0; i < RANDOM_LEN; i++) {
+        src_component[i] = src_component[i] ^ component1[i];
+    }
+    MEMS_RETURN_IFERR(memcpy_sp(component, (size_t)component_len, src_component, RANDOM_LEN));
+    (void)memset_s(src_component, sizeof(src_component), 0, sizeof(src_component));
     return CM_SUCCESS;
 }
 
@@ -341,32 +479,47 @@ status_t cm_encrypt_pwd(uchar *plain_text, uint32 plain_len, cipher_t *cipher)
     return CM_SUCCESS;
 }
 
-status_t cm_decrypt_pwd(cipher_t *cipher, uchar *plain_text, uint32 *plain_len)
+static status_t cm_decrypt_pwd_with_component(cipher_t *cipher, const char *component, uchar *plain_text,
+    uint32 *plain_len)
 {
     uchar key[RANDOM_LEN] = { 0 };
+    /* get the decrypt key value */
+    int32 ret = PKCS5_PBKDF2_HMAC(component, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
+        EVP_sha256(), RANDOM_LEN, key);
+    if (ret != 1) {
+        (void)memset_s(key, RANDOM_LEN, 0, RANDOM_LEN);
+        LOG_DEBUG_ERR("PKCS5_PBKDF2_HMAC generate the derived key failed, errcode:%d", ret);
+        return CM_ERROR;
+    }
+    /* decrypt the cipher */
+    status_t status = CRYPT_decrypt(NID_aes_256_cbc, key, RANDOM_LEN, cipher, plain_text, plain_len);
+    (void)memset_s(key, RANDOM_LEN, 0, RANDOM_LEN);
+    return status;
+}
+
+status_t cm_decrypt_pwd(cipher_t *cipher, uchar *plain_text, uint32 *plain_len)
+{
     char component[RANDOM_LEN + 1] = { 0 };
     if (cm_get_actual_component(component, RANDOM_LEN, (char *)cipher->rand) != CM_SUCCESS) {
         LOG_DEBUG_ERR("Get component failed when decrypt pwd");
         return CM_ERROR;
     }
-    /* get the decrypt key value */
-    int32 ret = PKCS5_PBKDF2_HMAC((const char *)component, RANDOM_LEN, cipher->salt, RANDOM_LEN, ITERATE_TIMES,
-        EVP_sha256(), RANDOM_LEN, key);
-    if (ret != 1) {
-        LOG_DEBUG_ERR("PKCS5_PBKDF2_HMAC generate the derived key failed, errcode:%d", ret);
-        return CM_ERROR;
+    status_t status = cm_decrypt_pwd_with_component(cipher, component, plain_text, plain_len);
+    (void)memset_s(component, sizeof(component), 0, sizeof(component));
+    /*
+     * Backward compatibility: ciphertexts produced before a component file was configured were
+     * derived with the built-in component. Retry with it when decryption with the configured
+     * component fails.
+     */
+    if (status != CM_SUCCESS && g_component_file[0] != '\0') {
+        char legacy_component[RANDOM_LEN + 1] = { 0 };
+        if (cm_get_legacy_actual_component(legacy_component, RANDOM_LEN, (char *)cipher->rand) == CM_SUCCESS) {
+            status = cm_decrypt_pwd_with_component(cipher, legacy_component, plain_text, plain_len);
+        }
+        (void)memset_s(legacy_component, sizeof(legacy_component), 0, sizeof(legacy_component));
     }
-
-    /* decrypt the cipher */
-    if (CRYPT_decrypt(NID_aes_256_cbc, key, RANDOM_LEN, cipher, plain_text, plain_len) != CM_SUCCESS) {
-        (void)memset_s(plain_text, *plain_len, 0, *plain_len);
+    if (status != CM_SUCCESS) {
         LOG_DEBUG_ERR("CRYPT_decrypt failed");
-        return CM_ERROR;
     }
-    errno_t errcode = memset_s(key, RANDOM_LEN, 0, RANDOM_LEN);
-    if (errcode != EOK) {
-        (void)memset_s(plain_text, *plain_len, 0, *plain_len);
-        return CM_ERROR;
-    }
-    return CM_SUCCESS;
+    return status;
 }
