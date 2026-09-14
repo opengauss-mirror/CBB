@@ -58,4 +58,7 @@ void mes_shm_disconnect_handle(uint32 inst_id, bool32 wait);
 int mes_switch_shm_to_tcp(void);
 void mes_shm_tcp_bringup_peers(void);
 
+/* Admin trigger (e.g. enable_ub_ha=off): notify_peers then switch local MES to TCP. */
+int mes_request_shm_to_tcp_fallback(int notify_peers);
+
 #endif
