@@ -45,9 +45,9 @@ EXECUTE_PROCESS(
         OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-# CBB_VERSION_STR like: libcbb.a (openGauss build ab4a14da) compiled at 2000-01-01 00:00:00 debug)
+# CBB_VERSION_STR like: libcbb.a (openGauss 7.0.0 build ab4a14da) compiled at 2000-01-01 00:00:00 debug)
 SET(CBB_VERSION_STR
-        "libcbb.a (${COMPONENT} build ${COMMIT_ID}) compiled at ${COMPILE_TIME} ${CMAKE_BUILD_TYPE}"
+        "libcbb.a (${COMPONENT} 7.0.0 build ${COMMIT_ID}) compiled at ${COMPILE_TIME} ${CMAKE_BUILD_TYPE}"
 )
 
 message(STATUS "Version info: ${CBB_VERSION_STR}")
