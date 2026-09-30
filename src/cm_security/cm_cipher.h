@@ -48,6 +48,21 @@ typedef struct st_cipher {
 status_t cm_encrypt_pwd(uchar *plain_text, uint32 plain_len, cipher_t *cipher);
 status_t cm_decrypt_pwd(cipher_t *cipher, uchar *plain_text, uint32 *plain_len);
 
+/*
+ * @Brief        : configure a per-instance cipher component file.
+ * @Description  : The file must contain exactly RANDOM_LEN random bytes, be a regular file owned
+ *                 by the current effective user, and must not be accessible by group or others
+ *                 (e.g. chmod 600). Once configured, its content replaces the built-in component
+ *                 as the PBKDF2 password source of cm_encrypt_pwd(), so the derived key is no
+ *                 longer computable from the binary image alone.
+ *                 Ciphertexts encrypted with the built-in component remain decryptable through an
+ *                 automatic fallback in cm_decrypt_pwd().
+ *                 Call once during process initialization, before any cipher use; not thread-safe.
+ * @param [in]   file_path    absolute path of the component file
+ * @return       CM_SUCCESS on success (file validated), CM_ERROR otherwise
+ */
+status_t cm_cipher_set_component_file(const char *file_path);
+
 #ifdef __cplusplus
 }
 #endif
